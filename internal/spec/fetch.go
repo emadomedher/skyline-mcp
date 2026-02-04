@@ -74,6 +74,52 @@ func (f *Fetcher) FetchGraphQLIntrospection(ctx context.Context, url string, aut
 	return data, nil
 }
 
+// FetchOpenRPCDiscover sends a JSON-RPC "rpc.discover" call and returns the
+// OpenRPC document embedded in the result field of the response.
+func (f *Fetcher) FetchOpenRPCDiscover(ctx context.Context, url string, auth *config.AuthConfig) ([]byte, error) {
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "rpc.discover",
+		"id":      1,
+		"params":  []any{},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("build rpc.discover payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build rpc.discover request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	applyAuth(req, auth)
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch rpc.discover: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("fetch rpc.discover: unexpected status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read rpc.discover: %w", err)
+	}
+
+	// The OpenRPC doc is in the "result" field of the JSON-RPC response.
+	var rpcResp struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(data, &rpcResp); err == nil && len(rpcResp.Result) > 0 {
+		return []byte(rpcResp.Result), nil
+	}
+	// Fallback: maybe the response is the raw OpenRPC document.
+	return data, nil
+}
+
 func applyAuth(req *http.Request, auth *config.AuthConfig) {
 	if auth == nil {
 		return

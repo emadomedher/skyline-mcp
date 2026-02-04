@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/openapi"
+	"mcp-api-bridge/internal/parsers/openapi"
 )
 
 type OpenAPIAdapter struct{}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"mcp-api-bridge/internal/googleapi"
+	"mcp-api-bridge/internal/parsers/googleapi"
 )
 
 func TestLooksLikeDiscovery(t *testing.T) {

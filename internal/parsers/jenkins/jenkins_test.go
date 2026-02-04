@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"mcp-api-bridge/internal/jenkins"
+	"mcp-api-bridge/internal/parsers/jenkins"
 )
 
 func TestLooksLikeJenkinsJSON(t *testing.T) {

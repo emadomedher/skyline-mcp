@@ -20,15 +20,24 @@ import (
 	"mcp-api-bridge/internal/canonical"
 	"mcp-api-bridge/internal/config"
 	"mcp-api-bridge/internal/redact"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/dynamicpb"
+
+	"github.com/jhump/protoreflect/grpcreflect"
 )
 
 type Executor struct {
-	client   *http.Client
-	logger   *log.Logger
-	redactor *redact.Redactor
-	services map[string]serviceConfig
-	crumbMu  sync.Mutex
-	crumbs   map[string]*crumbState
+	client    *http.Client
+	logger    *log.Logger
+	redactor  *redact.Redactor
+	services  map[string]serviceConfig
+	crumbMu   sync.Mutex
+	crumbs    map[string]*crumbState
+	grpcMu    sync.Mutex
+	grpcConns map[string]*grpc.ClientConn
 }
 
 type serviceConfig struct {
@@ -63,11 +72,12 @@ func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *log.
 	}
 
 	return &Executor{
-		client:   &http.Client{},
-		logger:   logger,
-		redactor: redactor,
-		services: serviceMap,
-		crumbs:   map[string]*crumbState{},
+		client:    &http.Client{},
+		logger:    logger,
+		redactor:  redactor,
+		services:  serviceMap,
+		crumbs:    map[string]*crumbState{},
+		grpcConns: map[string]*grpc.ClientConn{},
 	}, nil
 }
 
@@ -85,6 +95,11 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	}
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("base URL is missing for service %s", op.ServiceName)
+	}
+
+	// Dispatch gRPC protocol to separate handler.
+	if op.Protocol == "grpc" {
+		return e.executeGRPC(ctx, op, args, cfg)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
@@ -124,7 +139,13 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	parsedURL.RawQuery = query.Encode()
 
 	var bodyBytes []byte
-	if op.GraphQL != nil {
+	if op.JSONRPC != nil {
+		var err error
+		bodyBytes, err = buildJSONRPCBody(op, args)
+		if err != nil {
+			return nil, err
+		}
+	} else if op.GraphQL != nil {
 		var err error
 		bodyBytes, err = buildGraphQLBody(op, args)
 		if err != nil {
@@ -215,9 +236,59 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 				result = parsed
 			}
 		}
+		if op.JSONRPC != nil {
+			result = tryUnwrapJSONRPC(result)
+		}
 		return result, nil
 	}
 	return nil, fmt.Errorf("request failed after retries")
+}
+
+func buildJSONRPCBody(op *canonical.Operation, args map[string]any) ([]byte, error) {
+	rpc := op.JSONRPC
+	if rpc == nil {
+		return nil, nil
+	}
+	params := map[string]any{}
+	for _, p := range op.Parameters {
+		if val, ok := args[p.Name]; ok {
+			params[p.Name] = val
+		}
+	}
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  rpc.MethodName,
+		"id":      1,
+	}
+	if len(params) > 0 {
+		payload["params"] = params
+	}
+	return json.Marshal(payload)
+}
+
+func tryUnwrapJSONRPC(result *Result) *Result {
+	if result == nil || result.Body == nil {
+		return result
+	}
+	m, ok := result.Body.(map[string]any)
+	if !ok {
+		return result
+	}
+	if errVal, ok := m["error"]; ok {
+		return &Result{
+			Status:      result.Status,
+			ContentType: result.ContentType,
+			Body:        map[string]any{"jsonrpc_error": errVal},
+		}
+	}
+	if resultVal, ok := m["result"]; ok {
+		return &Result{
+			Status:      result.Status,
+			ContentType: result.ContentType,
+			Body:        resultVal,
+		}
+	}
+	return result
 }
 
 func buildGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, error) {
@@ -769,4 +840,88 @@ func (e *Executor) getCrumb(ctx context.Context, serviceName string, cfg service
 	}
 	e.crumbMu.Unlock()
 	return payload.Field, payload.Crumb, true, nil
+}
+
+// gRPC execution
+
+func (e *Executor) getGRPCConn(target string) (*grpc.ClientConn, error) {
+	e.grpcMu.Lock()
+	defer e.grpcMu.Unlock()
+	if conn, ok := e.grpcConns[target]; ok {
+		return conn, nil
+	}
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("grpc dial %s: %w", target, err)
+	}
+	e.grpcConns[target] = conn
+	return conn, nil
+}
+
+func (e *Executor) executeGRPC(ctx context.Context, op *canonical.Operation, args map[string]any, cfg serviceConfig) (*Result, error) {
+	if op.GRPCMeta == nil {
+		return nil, fmt.Errorf("grpc operation %s missing GRPCMeta", op.ID)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	// Strip scheme from target for gRPC dial.
+	target := cfg.BaseURL
+	target = strings.TrimPrefix(target, "http://")
+	target = strings.TrimPrefix(target, "https://")
+
+	conn, err := e.getGRPCConn(target)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use reflection to get the method descriptor.
+	refClient := grpcreflect.NewClientAuto(ctx, conn)
+	defer refClient.Reset()
+
+	svcDesc, err := refClient.ResolveService(op.GRPCMeta.ServiceFullName)
+	if err != nil {
+		return nil, fmt.Errorf("grpc: resolve service %s: %w", op.GRPCMeta.ServiceFullName, err)
+	}
+	methodDesc := svcDesc.FindMethodByName(op.GRPCMeta.MethodName)
+	if methodDesc == nil {
+		return nil, fmt.Errorf("grpc: method %s not found in %s", op.GRPCMeta.MethodName, op.GRPCMeta.ServiceFullName)
+	}
+
+	// Build request message from args using dynamic protobuf.
+	inputDesc := methodDesc.GetInputType().UnwrapMessage()
+	reqMsg := dynamicpb.NewMessage(inputDesc)
+
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("grpc: marshal args: %w", err)
+	}
+	if err := protojson.Unmarshal(argsJSON, reqMsg); err != nil {
+		return nil, fmt.Errorf("grpc: populate request: %w", err)
+	}
+
+	// Invoke the RPC.
+	outputDesc := methodDesc.GetOutputType().UnwrapMessage()
+	respMsg := dynamicpb.NewMessage(outputDesc)
+	fullMethod := fmt.Sprintf("/%s/%s", op.GRPCMeta.ServiceFullName, op.GRPCMeta.MethodName)
+	if err := conn.Invoke(ctx, fullMethod, reqMsg, respMsg); err != nil {
+		return nil, fmt.Errorf("grpc: invoke %s: %w", fullMethod, err)
+	}
+
+	// Serialize response to JSON.
+	respJSON, err := protojson.Marshal(respMsg)
+	if err != nil {
+		return nil, fmt.Errorf("grpc: marshal response: %w", err)
+	}
+	var body any
+	if err := json.Unmarshal(respJSON, &body); err != nil {
+		body = string(respJSON)
+	}
+
+	return &Result{
+		Status:      200,
+		ContentType: "application/json",
+		Body:        body,
+	}, nil
 }

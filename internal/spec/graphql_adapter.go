@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/graphql"
+	"mcp-api-bridge/internal/parsers/graphql"
 )
 
 type GraphQLAdapter struct{}

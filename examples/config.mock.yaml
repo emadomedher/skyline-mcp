@@ -1,0 +1,25 @@
+apis:
+  - name: petstore-openapi
+    spec_url: http://localhost:9999/openapi/openapi.json
+    base_url_override: http://localhost:9999/openapi
+    auth:
+      type: bearer
+      token: ${PETSTORE_OPENAPI_TOKEN}
+  - name: plantsStore-wsdl
+    spec_url: http://localhost:9999/wdsl/wsdl
+    auth:
+      type: bearer
+      token: ${PLANTS_WSDL_TOKEN}
+  - name: dinosaurs-swagger2
+    spec_url: http://localhost:9999/swagger/swagger.json
+    auth:
+      type: bearer
+      token: ${DINOSAURS_SWAGGER2_TOKEN}
+  - name: cars-graphql
+    spec_url: http://localhost:9999/graphql/schema
+    base_url_override: http://localhost:9999/graphql
+    auth:
+      type: basic
+      username: ${GRAPHQL_USERNAME}
+      password: ${GRAPHQL_PASSWORD}
+

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/googleapi"
+	"mcp-api-bridge/internal/parsers/googleapi"
 )
 
 type GoogleDiscoveryAdapter struct{}

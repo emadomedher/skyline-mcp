@@ -25,7 +25,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/graphql"
+	"mcp-api-bridge/internal/parsers/graphql"
+	"mcp-api-bridge/internal/parsers/openrpc"
+	"mcp-api-bridge/internal/parsers/postman"
 	"mcp-api-bridge/internal/spec"
 )
 
@@ -124,6 +126,7 @@ func main() {
 	mux.HandleFunc("/profiles", s.handleProfiles)
 	mux.HandleFunc("/profiles/", s.handleProfile)
 	mux.HandleFunc("/detect", s.handleDetect)
+	mux.HandleFunc("/test", s.handleTest)
 
 	httpServer := &http.Server{
 		Addr:         *listen,
@@ -310,6 +313,8 @@ func (s *server) authorizeProfile(r *http.Request, prof profile) error {
 
 const graphqlIntrospectionPayload = `{"query":"query IntrospectionQuery { __schema { queryType { name } mutationType { name } types { kind name description fields(includeDeprecated: true) { name description args { name description defaultValue type { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } type { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } inputFields { name description defaultValue type { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } enumValues(includeDeprecated: true) { name } } } }"}`
 
+const rpcDiscoverPayload = `{"jsonrpc":"2.0","method":"rpc.discover","id":1,"params":[]}`
+
 type detectRequest struct {
 	BaseURL string `json:"base_url"`
 }
@@ -328,6 +333,17 @@ type detectProbe struct {
 	Found    bool   `json:"found"`
 	Error    string `json:"error,omitempty"`
 	Endpoint string `json:"endpoint"`
+}
+
+type testRequest struct {
+	SpecURL string `json:"spec_url"`
+}
+
+type testResponse struct {
+	SpecURL string `json:"spec_url"`
+	Online  bool   `json:"online"`
+	Status  int    `json:"status"`
+	Error   string `json:"error,omitempty"`
 }
 
 func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
@@ -358,9 +374,22 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		{Type: "jira-rest", Path: "/rest/api/3/serverInfo", Method: http.MethodGet},
 		{Type: "openapi", Path: "/openapi.json", Method: http.MethodGet},
 		{Type: "openapi", Path: "/openapi.yaml", Method: http.MethodGet},
+		{Type: "openapi", Path: "/openapi/openapi.json", Method: http.MethodGet},
+		{Type: "openapi", Path: "/openapi/openapi.yaml", Method: http.MethodGet},
+		{Type: "openapi", Path: "/v3/api-docs", Method: http.MethodGet},
 		{Type: "swagger2", Path: "/swagger.json", Method: http.MethodGet},
 		{Type: "swagger2", Path: "/swagger.yaml", Method: http.MethodGet},
+		{Type: "swagger2", Path: "/swagger/swagger.json", Method: http.MethodGet},
+		{Type: "swagger2", Path: "/v2/api-docs", Method: http.MethodGet},
 		{Type: "wsdl", Path: "/wsdl", Method: http.MethodGet},
+		{Type: "wsdl", Path: "/wsdl?wsdl", Method: http.MethodGet},
+		{Type: "wsdl", Path: "/wdsl/wsdl", Method: http.MethodGet},
+		{Type: "odata", Path: "/$metadata", Method: http.MethodGet},
+		{Type: "odata", Path: "/odata/$metadata", Method: http.MethodGet},
+		{Type: "openrpc", Path: "/jsonrpc/openrpc.json", Method: http.MethodGet},
+		{Type: "openrpc", Path: "/openrpc.json", Method: http.MethodGet},
+		{Type: "openrpc", Path: "/jsonrpc", Method: http.MethodPost, Body: []byte(rpcDiscoverPayload), Headers: map[string]string{"Content-Type": "application/json"}},
+		{Type: "openrpc", Path: "/rpc", Method: http.MethodPost, Body: []byte(rpcDiscoverPayload), Headers: map[string]string{"Content-Type": "application/json"}},
 		{Type: "graphql", Path: "/graphql/schema", Method: http.MethodGet},
 		{Type: "graphql", Path: "/graphql", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
 		{Type: "graphql", Path: "/api/graphql", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
@@ -405,7 +434,10 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		"graphql": func(raw []byte) bool {
 			return graphql.LooksLikeGraphQLSDL(raw) || graphql.LooksLikeGraphQLIntrospection(raw)
 		},
-		"wsdl": spec.NewWSDLAdapter().Detect,
+		"wsdl":  spec.NewWSDLAdapter().Detect,
+		"odata":   looksLikeODataMetadata,
+		"postman": postman.LooksLikePostmanCollection,
+		"openrpc": openrpc.LooksLikeOpenRPC,
 	}
 
 	for i := range resp.Detected {
@@ -415,11 +447,20 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		if resp.Detected[i].Type == "jira-rest" {
 			continue
 		}
-		raw, err := s.fetchRaw(client, resp.Detected[i].Method, resp.Detected[i].SpecURL, resp.Detected[i].Method == http.MethodPost)
+		isOpenRPCDiscover := resp.Detected[i].Type == "openrpc" && resp.Detected[i].Method == http.MethodPost
+		var postBody []byte
+		if isOpenRPCDiscover {
+			postBody = []byte(rpcDiscoverPayload)
+		}
+		raw, err := s.fetchRaw(client, resp.Detected[i].Method, resp.Detected[i].SpecURL, resp.Detected[i].Method == http.MethodPost && !isOpenRPCDiscover, postBody)
 		if err != nil {
 			resp.Detected[i].Found = false
 			resp.Detected[i].Error = err.Error()
 			continue
+		}
+		// For rpc.discover responses, unwrap the JSON-RPC result.
+		if isOpenRPCDiscover {
+			raw = unwrapJSONRPCResult(raw)
 		}
 		detectFn := adapters[resp.Detected[i].Type]
 		if detectFn == nil || !detectFn(raw) {
@@ -431,6 +472,39 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 	resp.Detected = applyJiraRestHint(resp.Detected, baseURL)
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *server) handleTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req testRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	specURL := strings.TrimSpace(req.SpecURL)
+	if specURL == "" {
+		http.Error(w, "spec_url is required", http.StatusBadRequest)
+		return
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	found, status, err := s.probeURL(client, http.MethodGet, specURL, nil, nil)
+	resp := testResponse{
+		SpecURL: specURL,
+		Online:  found,
+		Status:  status,
+	}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func looksLikeODataMetadata(raw []byte) bool {
+	s := string(raw)
+	return strings.Contains(s, "edmx:Edmx") || strings.Contains(s, "<edmx:DataServices") || strings.Contains(s, "oasis-open.org/odata")
 }
 
 func basePathLooksLikeGraphQL(baseURL string) bool {
@@ -472,9 +546,11 @@ func (s *server) probeURL(client *http.Client, method, url string, body []byte, 
 	return true, resp.StatusCode, nil
 }
 
-func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospection bool) ([]byte, error) {
+func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospection bool, explicitBody []byte) ([]byte, error) {
 	var body []byte
-	if useIntrospection {
+	if len(explicitBody) > 0 {
+		body = explicitBody
+	} else if useIntrospection {
 		body = []byte(graphqlIntrospectionPayload)
 	}
 	req, err := http.NewRequest(method, url, bytes.NewReader(body))
@@ -494,6 +570,16 @@ func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospect
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+func unwrapJSONRPCResult(raw []byte) []byte {
+	var rpcResp struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &rpcResp); err == nil && len(rpcResp.Result) > 0 {
+		return []byte(rpcResp.Result)
+	}
+	return raw
 }
 
 func bearerToken(header string) string {

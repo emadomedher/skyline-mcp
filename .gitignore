@@ -1,0 +1,35 @@
+.DS_Store
+*.swp
+*.swo
+*.tmp
+
+# Go build artifacts
+bin/
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Env files
+.env
+.env.*
+config.yaml
+examples/config.yaml
+
+# Temp Files
+tmp
+bin/

@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/openapi"
+	"mcp-api-bridge/internal/parsers/openapi"
 )
 
 func LooksLikeSwagger2(raw []byte) bool {

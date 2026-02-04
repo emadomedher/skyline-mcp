@@ -1,123 +1,171 @@
-# mcp-api-bridge
+<p align="center">
+  <img src="assets/skyline-banner.svg" alt="Skyline MCP API Bridge" width="800"/>
+</p>
 
-![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8?logo=go&logoColor=white)
-![MCP](https://img.shields.io/badge/MCP-stdio-000000)
-![Status](https://img.shields.io/badge/status-active-success)
-![License](https://img.shields.io/badge/license-TBD-lightgrey)
+<p align="center">
+  <strong>Give your AI agent access to any API. Automatically.</strong>
+</p>
 
-Production-grade MCP stdio server that dynamically exposes external APIs as MCP tools/resources.
-It loads a YAML config at startup, fetches each API spec, auto-detects the spec type, normalizes it into a canonical
-model, generates MCP tools/resources, and serves MCP JSON-RPC over stdin/stdout. Logs go to stderr only.
+<p align="center">
+  Point Skyline at an API spec, add credentials, and every endpoint becomes an MCP tool your AI can call.<br/>
+  No glue code. No per-API adapters. Just config.
+</p>
 
-**Highlights**
-- Auto-detect OpenAPI 3, Swagger 2, Google Discovery, WSDL, Jenkins
-- Canonical model firewall (no direct spec → tool mapping)
-- Safe auth handling with redaction and env expansion
-- Deterministic tool naming and schemas
+<br/>
 
-Secrets are never logged or emitted in MCP-visible schemas or responses.
+---
 
-## TL;DR
+## What is Skyline?
 
-Run the mock APIs:
+Skyline is an **MCP (Model Context Protocol) server** that turns external APIs into tools AI agents can use. It reads API specifications, normalizes them into a canonical model, and exposes every operation as a callable MCP tool with full JSON Schema validation.
 
-```bash
-go run ./examples/mock
+You describe your APIs in a YAML file. Skyline does the rest:
+
+```
+  ┌──────────────┐      ┌────────────────┐      ┌──────────────────┐
+  │  API Specs   │ ---> │    Skyline      │ ---> │    MCP Tools     │
+  │              │      │                 │      │                  │
+  │  OpenAPI     │      │  Auto-detect    │      │  tools/list      │
+  │  Swagger 2   │      │  Parse & norm   │      │  tools/call      │
+  │  GraphQL     │      │  Validate       │      │  resources/list  │
+  │  SOAP/WSDL   │      │  Execute        │      │  resources/read  │
+  │  OData v4    │      │                 │      │                  │
+  │  gRPC        │      │  stdio / HTTP   │      │  Claude, Cursor  │
+  │  JSON-RPC    │      │                 │      │  or any MCP host │
+  │  Postman     │      │                 │      │                  │
+  │  Jenkins     │      │                 │      │                  │
+  │  Jira Cloud  │      │                 │      │                  │
+  │  Google API  │      │                 │      │                  │
+  └──────────────┘      └────────────────┘      └──────────────────┘
 ```
 
-Start the config server (encrypted profiles):
+---
 
-```bash
-export CONFIG_SERVER_KEY="base64:<32-byte-key>"
-go run ./cmd/config-server --listen :9190 --storage ./profiles.enc.yaml --auth-mode bearer
+## Supported API Types
+
+Skyline auto-detects the spec format. No manual configuration needed.
+
+| Protocol | Detection | Notes |
+|---|---|---|
+| **OpenAPI 3.x** | `openapi` field in JSON/YAML | Full path, query, header, and body parameter support |
+| **Swagger 2.0** | `swagger` field | Automatically converted to OpenAPI 3 internally |
+| **GraphQL** | SDL files or introspection | Builds typed queries with variable support and selection sets |
+| **WSDL 1.1 / SOAP** | XML with `<definitions>` | Generates SOAP envelopes, parses XML responses to JSON |
+| **OData v4** | CSDL `$metadata` XML | Generates CRUD operations per EntitySet with OData query options |
+| **gRPC** | `spec_type: grpc` in config | Discovers services via gRPC reflection; builds dynamic protobuf messages |
+| **OpenRPC / JSON-RPC** | `openrpc` field in JSON | Wraps calls in JSON-RPC 2.0 envelopes; supports `rpc.discover` |
+| **Postman Collections** | `schema.getpostman.com` in JSON | Walks v2.x collection items; supports folders, path/query/header params, body modes |
+| **Google API Discovery** | `discoveryVersion` field | Maps Google's discovery format to REST operations |
+| **Jenkins** | `/api/json` object graph | Read-only by default; write operations via explicit allowlist |
+| **Jira Cloud** | `*.atlassian.net` host | Auto-fetches the official Atlassian OpenAPI spec |
+
+---
+
+## Quickstart
+
+### 1. Create a config
+
+```yaml
+# config.yaml
+apis:
+  - name: petstore
+    spec_url: https://petstore3.swagger.io/api/v3/openapi.json
+    auth:
+      type: api-key
+      header: X-API-Key
+      value: ${PETSTORE_API_KEY}
 ```
 
-Create a profile:
+Secrets use `${ENV_VAR}` syntax and are automatically redacted from all logs.
+
+### 2. Run
 
 ```bash
-curl -X PUT http://localhost:9190/profiles/dev \
-  -H "Authorization: Bearer dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{"token":"dev-token","config_yaml":"apis:\n  - name: petstore-openapi\n    spec_url: http://localhost:9999/openapi/openapi.json\n    base_url_override: http://localhost:9999/openapi\n"}'
+# stdio (for Claude Desktop, Cursor, etc.)
+go run ./cmd/mcp-api-bridge --config ./config.yaml
+
+# streamable HTTP (for networked MCP clients)
+go run ./cmd/mcp-api-bridge --config ./config.yaml --transport http --listen :8080
 ```
 
-Run the MCP bridge using that profile (agent never sees creds):
+### 3. Connect your AI
+
+Add Skyline to your MCP client config. For Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "skyline": {
+      "command": "./bin/mcp-api-bridge",
+      "args": ["--config", "./config.yaml"]
+    }
+  }
+}
+```
+
+That's it. Your AI agent now has typed, validated tools for every API endpoint.
+
+---
+
+## Architecture
+
+Skyline is built around three components:
+
+### Skyline MCP Server &nbsp;`cmd/mcp-api-bridge`
+
+The core. Loads your config, fetches and parses API specs, builds MCP tools, and serves them over stdio or HTTP.
+
+```
+Config (YAML)
+  → Spec Fetcher (URL or file)
+    → Auto-Detect adapter (OpenAPI | Swagger2 | GraphQL | WSDL | OData | OpenRPC | Postman | gRPC | Jenkins | Google | Jira)
+      → Canonical Model (Service → Operations → Parameters + Schemas)
+        → MCP Registry (tools + resources + JSON Schema validators)
+          → MCP Server (JSON-RPC 2.0 over stdio or streamable HTTP)
+            → Runtime Executor (HTTP requests, gRPC calls, JSON-RPC envelopes, auth, retries)
+```
+
+### Config Server &nbsp;`cmd/config-server`
+
+A web application for managing API configurations through profiles. Encrypted storage, bearer-token auth, and a built-in UI for creating, editing, and testing configurations before deploying them.
 
 ```bash
-export MCP_PROFILE=dev
-export MCP_PROFILE_TOKEN=dev-token
-go run ./cmd/mcp-api-bridge --config-url http://localhost:9190
+export CONFIG_SERVER_KEY="$(openssl rand -base64 32)"
+go run ./cmd/config-server --listen :9190
+# Open http://localhost:9190/ui/
 ```
 
-## Supported API Types (Auto-Detected)
+Features:
+- **Profile management** — Create named profiles (dev, staging, prod) each with their own API config
+- **AES-GCM encryption** — Profiles are encrypted at rest
+- **Spec detection** — Paste a base URL and auto-discover what API specs are available
+- **Spec testing** — Verify spec URLs are reachable before saving
+- **Remote config** — The MCP server can pull its config from the config server at startup
 
-Implemented:
-- OpenAPI 3.x (JSON/YAML)
-- Swagger/OpenAPI 2.0 (JSON/YAML) via conversion to OpenAPI 3
-- Google API Discovery docs (JSON)
-- GraphQL SDL or GraphQL introspection JSON
-- WSDL 1.1 (XML) for SOAP 1.1/1.2 bindings
-- Jenkins object graph (JSON/XML, read-only traversal)
+### Mock API Server &nbsp;`mock-api/`
 
-Planned (not implemented yet):
-- gRPC
-- Fallback REST (no spec)
-- JSON-RPC upstream APIs
+A standalone mock server for development and testing. Serves working mock APIs for every supported generic protocol type:
 
-## Auto-Detection (No Type Required)
+| Mock API | Protocol | Endpoints |
+|---|---|---|
+| Pets | OpenAPI 3.x | `GET/POST /openapi/pets`, `GET/PUT/DELETE /openapi/pets/{id}` |
+| Dinosaurs | Swagger 2.0 | `GET/POST /swagger/dinosaurs`, `GET/PUT/DELETE /swagger/dinosaurs/{id}` |
+| Plants | WSDL / SOAP | `POST /wdsl/soap` with SOAP envelope |
+| Cars | GraphQL | `POST /graphql` with query/mutation |
+| Movies | OData v4 | `GET/POST /odata/Movies`, `GET/PUT/PATCH/DELETE /odata/Movies({id})` |
+| Calculator | OpenRPC / JSON-RPC | `POST /jsonrpc` (add, subtract, multiply, divide + `rpc.discover`) |
+| Clothes | gRPC | Ports `50051-50054` (hats, shoes, pants, shirts) with reflection |
 
-You only provide `spec_url`. At startup, each spec is fetched and checked by adapters in order:
-- OpenAPI 3 adapter (looks for `openapi` key in JSON/YAML)
-- Swagger 2 adapter (looks for `swagger: "2.0"` in JSON/YAML)
-- Google Discovery adapter (looks for `kind: discovery#*`)
-- GraphQL adapter (SDL or introspection JSON; SDL looks for `type Query`/`type Mutation` or a `schema` block)
-- Jenkins adapter (looks for Jenkins `_class` in JSON or `<hudson>`/`<jenkins>` in XML)
-- WSDL adapter (looks for `<definitions>`/`<wsdl:definitions>`)
+```bash
+cd mock-api && go run .
+# Listening on http://localhost:9999
+```
 
-If no adapter matches, startup fails for that API.
+---
 
-## What Is Supported Per Type
+## Configuration Reference
 
-OpenAPI 3.x + Swagger 2.0 (after conversion):
-- `servers[].url` base (OpenAPI) or `schemes`/`host`/`basePath` (Swagger 2)
-- paths + HTTP methods
-- `operationId` (falls back to normalized `method_path`)
-- parameters in `path`, `query`, `header` (auth headers are excluded)
-- JSON `requestBody` or Swagger 2 `in: body`
-- response schema (best-effort; used for tool output schema only)
-
-WSDL 1.1:
-- First service/port/binding is used
-- SOAPAction header is injected when present
-- Inputs are modeled as `arguments.parameters` (key/value) and optional `arguments.body` (raw XML)
-- SOAP responses are parsed into JSON when possible
-
-Jenkins:
-- Read-only graph traversal using `/api/json`
-- Tools accept `tree`/`depth` query parameters to limit payload size
-- `getObject` takes a Jenkins object URL/path and appends `/api/json` if missing
-- Write operations are not auto-discovered; explicit allowlisting is required
-- Crumb support is automatic for allowlisted writes (`/crumbIssuer/api/json`)
-
-Google API Discovery:
-- Resources + methods are converted to tools
-- Parameters in `path`, `query`, `header` are supported
-- Request/response schemas use Discovery `schemas` (best-effort)
-
-GraphQL (SDL or introspection):
-- Query + Mutation fields are converted to tools
-- Arguments are passed as variables
-- Object return types default to a safe scalar selection; override with `selection`
-- `base_url_override` is required (SDL/introspection do not include the HTTP endpoint)
-- If `spec_url` points at a GraphQL endpoint (e.g., `/api/graphql`), the bridge will POST an introspection query to fetch the schema
-
-Jira Cloud (REST via OpenAPI):
-- Use the Atlassian OpenAPI spec: `https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json`
-- Set `base_url_override` to your Jira Cloud base URL (e.g., `https://webookcom.atlassian.net`)
-
-## Configuration
-
-Example config: `examples/config.yaml.example` (copy to `examples/config.yaml`)
+### Full config example
 
 ```yaml
 apis:
@@ -126,338 +174,244 @@ apis:
     base_url_override: http://localhost:9999/openapi
     auth:
       type: bearer
-      token: ${PETSTORE_OPENAPI_TOKEN}
-  - name: local-api
-    spec_file: /path/to/local/openapi.json
-    base_url_override: https://api.example.com
-    auth:
-      type: api-key
-      header: X-API-Key
-      value: ${API_KEY}
-  - name: plantsStore-wsdl
+      token: ${PETSTORE_TOKEN}
+
+  - name: plants-soap
     spec_url: http://localhost:9999/wdsl/wsdl
     auth:
       type: bearer
-      token: ${PLANTS_WSDL_TOKEN}
-  - name: dinosaurs-swagger2
-    spec_url: http://localhost:9999/swagger/swagger.json
-    auth:
-      type: bearer
-      token: ${DINOSAURS_SWAGGER2_TOKEN}
+      token: ${PLANTS_TOKEN}
+
   - name: cars-graphql
     spec_url: http://localhost:9999/graphql/schema
     base_url_override: http://localhost:9999/graphql
     auth:
       type: basic
-      username: ${GRAPHQL_USERNAME}
-      password: ${GRAPHQL_PASSWORD}
-  - name: webook-dot-rocks-jenkins
-    spec_url: https://cicd.webook.rocks/api/json
-    base_url_override: https://cicd.webook.rocks
+      username: ${GRAPHQL_USER}
+      password: ${GRAPHQL_PASS}
+
+  - name: jira-cloud
+    spec_url: https://your-domain.atlassian.net
+    base_url_override: https://your-domain.atlassian.net
     auth:
       type: basic
-      username: ${JENKINS_USERNAME}
-      password: ${JENKINS_PASSWORD}
+      username: ${JIRA_EMAIL}
+      password: ${JIRA_API_TOKEN}
+
+  - name: movies-odata
+    spec_url: http://localhost:9999/odata/$metadata
+    base_url_override: http://localhost:9999/odata
+    auth:
+      type: bearer
+      token: ${ODATA_TOKEN}
+
+  - name: calculator-jsonrpc
+    spec_url: http://localhost:9999/jsonrpc/openrpc.json
+    base_url_override: http://localhost:9999/jsonrpc
+    auth:
+      type: api-key
+      header: X-API-Key
+      value: ${JSONRPC_KEY}
+
+  - name: clothes-grpc
+    spec_type: grpc
+    base_url_override: localhost:50051
+    auth:
+      type: bearer
+      token: ${GRPC_TOKEN}
+
+  - name: jenkins
+    spec_url: https://jenkins.example.com/api/json
+    base_url_override: https://jenkins.example.com
+    auth:
+      type: basic
+      username: ${JENKINS_USER}
+      password: ${JENKINS_PASS}
     jenkins:
       allow_writes:
         - name: triggerJob
           method: POST
           path: /job/{job}/build
-          summary: Trigger a Jenkins job build.
-        - name: triggerJobWithParameters
-          method: POST
-          path: /job/{job}/buildWithParameters
-          summary: Trigger a Jenkins job build with query parameters.
+          summary: Trigger a Jenkins job build
+
+timeout_seconds: 10
+retries: 1
 ```
 
-## Config Server (Profiles + Encrypted Storage)
+### Auth types
 
-For multi-agent setups, run the standalone config server. It stores **profiles** (each profile = one MCP config YAML)
-in an encrypted file on disk and serves them to the MCP server. Agents never receive credentials directly.
+| Type | Fields |
+|---|---|
+| `bearer` | `token` |
+| `basic` | `username`, `password` |
+| `api-key` | `header`, `value` |
 
-### Start the config server
+### API config fields
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | yes | Unique name for this API (used as tool name prefix) |
+| `spec_url` | yes* | URL or file path to the API spec |
+| `spec_type` | no | Force spec type instead of auto-detect. Currently only `grpc` is supported |
+| `base_url_override` | no* | Override the base URL from the spec. Required for gRPC (`host:port`) |
+| `auth` | no | Authentication config (see auth types below) |
+| `jenkins` | no | Jenkins-specific config for write operations |
+
+\* `spec_url` is not required when `spec_type: grpc` is set (uses live reflection instead).
+
+### MCP server flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | `./config.yaml` | Path to YAML config file |
+| `--config-url` | | Config server URL (replaces `--config`) |
+| `--profile` | | Profile name when using `--config-url` |
+| `--transport` | `stdio` | `stdio`, `http`, or `sse` |
+| `--listen` | `:8080` | Listen address for HTTP transport |
+
+### Config server flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--listen` | `:9190` | HTTP listen address |
+| `--storage` | `./profiles.enc.yaml` | Encrypted storage path |
+| `--auth-mode` | `bearer` | `bearer` or `none` |
+| `--key-env` | `CONFIG_SERVER_KEY` | Env var holding the 32-byte AES key |
+| `--env-file` | | Optional `.env` file to load |
+
+---
+
+## Using with Config Server Profiles
+
+Instead of local YAML files, pull config from the config server at runtime:
 
 ```bash
-export CONFIG_SERVER_KEY="base64:<32-byte-key>"
-go run ./cmd/config-server --listen :9190 --storage ./profiles.enc.yaml --auth-mode bearer
-```
+# Start the config server
+export CONFIG_SERVER_KEY="$(openssl rand -base64 32)"
+go run ./cmd/config-server --listen :9190
 
-`CONFIG_SERVER_KEY` can be:
-- 32 raw bytes
-- base64-encoded 32 bytes (prefix `base64:` optional)
-- hex-encoded 32 bytes (prefix `hex:` optional)
-
-### Create or update a profile
-
-```bash
-curl -X PUT http://localhost:9190/profiles/dev \
-  -H "Authorization: Bearer dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "dev-token",
-    "config_yaml": "apis:\n  - name: petstore-openapi\n    spec_url: http://localhost:9999/openapi/openapi.json\n    base_url_override: http://localhost:9999/openapi\n"
-  }'
-```
-
-### Web UI
-
-Open `http://localhost:9190/ui/` after starting the config server.
-
-### Use a profile from MCP
-
-```bash
+# Create a profile via the web UI at http://localhost:9190/ui/
+# Then run the MCP server with that profile:
 export MCP_PROFILE=dev
-export MCP_PROFILE_TOKEN=dev-token
+export MCP_PROFILE_TOKEN=your-profile-token
 go run ./cmd/mcp-api-bridge --config-url http://localhost:9190
 ```
 
-Auth modes:
-- `none` (no auth)
-- `bearer` (per-profile bearer token)
-
-### Spec Sources
-
-Each API must specify either `spec_url` (for remote specs) or `spec_file` (for local files):
-
-- **`spec_url`**: HTTP(S) URL to fetch the API spec from. Supports environment variable expansion (e.g., `${BASE_URL}/openapi.json`).
-- **`spec_file`**: Local file path to the API spec. Supports environment variable expansion (e.g., `${HOME}/specs/api.json`). Useful for:
-  - Generated specs from tools like Oracle Cloud OpenAPI generator
-  - Cached/offline API specs
-  - Custom or modified spec files
-  - Development and testing scenarios
-
-**Note**: `spec_url` and `spec_file` are mutually exclusive - you must specify exactly one per API.
-
-Auth types (used for API calls and spec fetches):
-- `bearer` (token)
-- `basic` (username/password)
-- `api-key` (header/value)
-
-SSE auth is configured via flags (`--sse-auth-*`) and supports the same types.
-
-Global + per-API options:
-- `timeout_seconds` (default 10)
-- `retries` (default 0)
-
-Jenkins write allowlist:
-- `jenkins.allow_writes[]` defines explicit write tools (no inference).
-- Each entry requires `name`, `method`, `path`, optional `summary`.
-- Query params for `buildWithParameters` are passed via `arguments.parameters` (object).
-
-## Tool Naming
-
-Tool names are stable and deterministic:
-- `{api_name}__{operationId}` (double underscore separator)
-- If `operationId` is missing: `{api_name}__{method}_{path}` normalized
-
-## Tool Inputs
-
-OpenAPI/Swagger tools accept:
-- Path/query/header parameters as named fields
-- JSON request bodies via `body`
-
-WSDL/SOAP tools accept:
-- `parameters` (object) -> server builds SOAP XML automatically
-- `body` (string) optional, raw SOAP XML if you already have it
-
-Jenkins tools accept:
-- `tree` (string) and `depth` (integer) to limit the returned graph
-- `url` for `getObject` (object URL or path); `/api/json` is appended if missing
-- `parameters` (object) for write allowlist query parameters (e.g. `buildWithParameters`)
-
-Tool descriptions include parameter names, types, and required/optional hints to guide LLM usage.
-
-## Responses and Normalization
-
-All tool calls return `content` as text containing JSON. The JSON payload has:
-- `status` (HTTP status code)
-- `content_type`
-- `body` (parsed JSON if possible, otherwise string)
-
-SOAP XML responses are parsed to JSON when possible to avoid clogging context with raw XML.
-
-## Security
-
-- Secrets can reference `${ENV_VAR}`.
-- Secrets are never logged and are redacted from errors.
-- Auth headers are not exposed in schemas or responses.
-
-## Local Demo
-
-Copy the example config and set tokens:
-
-```bash
-cp examples/config.yaml.example examples/config.yaml
-
-export PETSTORE_OPENAPI_TOKEN=demo-token
-export PLANTS_WSDL_TOKEN=mock-token
-export DINOSAURS_SWAGGER2_TOKEN=dino-token
-export GRAPHQL_USERNAME=graphql-user
-export GRAPHQL_PASSWORD=graphql-pass
-export JENKINS_USERNAME=demo-user
-export JENKINS_PASSWORD=demo-pass
-```
-
-Run the mock API:
-
-```bash
-go run ./examples/mock
-```
-
-This also starts the gRPC clothes mocks (unary for now).
-Default ports: hats `:50051`, shoes `:50052`, pants `:50053`, shirts `:50054`.
-
-Run the MCP server:
-
-```bash
-go run ./cmd/mcp-api-bridge --config ./examples/config.yaml
-```
-
-## MCP JSON-RPC Examples
-
-Initialize:
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-```
-
-List tools:
-
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-```
-
-List pets (OpenAPI):
-
-```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"petstore-openapi__listPets","arguments":{"limit":2}}}
-```
-
-List plants (WSDL/SOAP):
-
-```json
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"plantsStore-wsdl__ListPlants","arguments":{}}}
-```
-
-List dinosaurs (Swagger 2.0):
-
-```json
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"dinosaurs-swagger2__listDinosaurs","arguments":{"limit":5}}}
-```
-
-List cars (GraphQL):
-
-```json
-{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"cars-graphql__query_listCars","arguments":{"limit":2}}}
-```
-
-Get Jenkins root (read-only):
-
-```json
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"webook-dot-rocks-jenkins__getRoot","arguments":{"tree":"jobs[name,url]"}}}
-```
-
-Trigger a Jenkins job (write allowlist):
-
-```json
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"webook-dot-rocks-jenkins__triggerJob","arguments":{"job":"example-job"}}}
-```
-
-Trigger a Jenkins job with parameters:
-
-```json
-{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"webook-dot-rocks-jenkins__triggerJobWithParameters","arguments":{"job":"example-job","parameters":{"branch":"main","env":"staging"}}}}
-```
-
-## SSE Mode (HTTP)
-
-Start the server in SSE mode with auth:
-
-```bash
-go run ./cmd/mcp-api-bridge --config ./examples/config.yaml \
-  --transport sse --listen :8080 \
-  --sse-auth-type bearer --sse-auth-token dev-token
-```
-
-Connect to SSE and send a request:
-
-```bash
-# Open SSE stream (copy the message URL from the first "endpoint" event)
-curl -N -H "Authorization: Bearer dev-token" http://localhost:8080/sse
-
-# Post a JSON-RPC request to the message URL returned by /sse
-curl -H "Authorization: Bearer dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  'http://localhost:8080/message?session_id=...'
-```
-
-## Streamable HTTP Mode (MCP)
-
-Start the server in streamable HTTP mode:
-
-```bash
-go run ./cmd/mcp-api-bridge --config ./examples/config.yaml \
-  --transport http --listen :8080
-```
-
-`/mcp` expects JSON-RPC over HTTP. For now it supports POST responses (no SSE streaming yet).
-Requests must include:
-- `Content-Type: application/json`
-- `Accept: application/json, text/event-stream`
-- Optional `Mcp-Protocol-Version` (accepted: `2025-03-26`, `2025-06-18`, `2025-11-25`)
-- Auth headers if configured (same as SSE)
-
-Send a request to `/mcp`:
-
-```bash
-curl -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "Mcp-Protocol-Version: 2025-03-26" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  'http://localhost:8080/mcp'
-```
-
-## Troubleshooting
-
-- Spec fetch failures: ensure the mock server is running and URLs are reachable.
-- 401 from mocks: make sure the token env vars match in both the mock server and MCP server.
-- Tool not found: re-run the MCP server after changing config or spec URLs.
-
-## Tests
-
-```bash
-go test ./...
-```
-
-## Build
-
-```bash
-mkdir -p bin
-go build -o ./bin/mcp-api-bridge ./cmd/mcp-api-bridge
-```
+---
 
 ## Project Layout
 
-- `cmd/mcp-api-bridge` — main MCP server (stdio + streamable HTTP)
-- `cmd/config-server` — profile/config server (encrypted storage + web UI)
-- `internal/config` — config models, env expansion, remote profile fetch
-- `internal/spec` — spec fetching, adapter detection, GraphQL introspection
-- `internal/openapi` — OpenAPI -> canonical parsing (sanitizes bad examples)
-- `internal/swagger2` — Swagger 2.0 -> OpenAPI 3 conversion
-- `internal/wsdl` — WSDL -> canonical parsing
-- `internal/jenkins` — Jenkins object graph adapter
-- `internal/googleapi` — Google API Discovery adapter
-- `internal/graphql` — GraphQL SDL/introspection adapter
-- `internal/canonical` — normalized models
-- `internal/mcp` — MCP server + registry
-- `internal/runtime` — HTTP executor + auth injection
-- `internal/redact` — log redaction helpers
-- `examples/config.yaml.example` — sample config (copy to `examples/config.yaml`)
-- `examples/config.mock.yaml` — local mock-only config
-- `examples/mock` — local mock API server (OpenAPI + Swagger2 + WSDL + GraphQL + gRPC)
-- `examples/mock/clothes.proto` — gRPC clothes proto (unary)
-- `examples/config-server.env.example` — config server env template
+```
+skyline-mcp-api-bridge/
+│
+├── cmd/                              # ── Entrypoints ────────────────
+│   ├── mcp-api-bridge/               #    Skyline MCP server
+│   │   └── main.go
+│   └── config-server/                #    Config profile server + web UI
+│       ├── main.go
+│       └── ui/                       #    Embedded frontend
+│           ├── index.html
+│           ├── app.js
+│           └── styles.css
+│
+├── internal/                         # ── Core ───────────────────────
+│   ├── canonical/                    #    Unified API model
+│   │   ├── types.go                  #      Service, Operation, Parameter
+│   │   └── naming.go                 #      Tool name generation
+│   ├── config/                       #    Configuration
+│   │   ├── config.go                 #      Types, validation, defaults
+│   │   ├── load.go                   #      YAML file loading
+│   │   ├── parse.go                  #      YAML parsing
+│   │   ├── env.go                    #      ${ENV_VAR} expansion
+│   │   └── remote.go                 #      Config server profile fetching
+│   ├── mcp/                          #    MCP Protocol
+│   │   ├── server.go                 #      JSON-RPC 2.0 handler (stdio)
+│   │   ├── http_sse.go               #      Streamable HTTP + SSE transport
+│   │   └── registry.go               #      Tool & resource registry
+│   ├── runtime/                      #    Execution
+│   │   └── executor.go               #      HTTP client, auth, retries
+│   ├── redact/                       #    Security
+│   │   └── redact.go                 #      Secret redaction for logs
+│   │
+│   ├── spec/                         # ── Spec Pipeline ──────────────
+│   │   ├── adapter.go                #      SpecAdapter interface
+│   │   ├── loader.go                 #      Auto-detect + parse orchestrator
+│   │   ├── fetch.go                  #      Spec URL fetcher
+│   │   ├── openapi_adapter.go        #      OpenAPI 3.x adapter
+│   │   ├── swagger2_adapter.go       #      Swagger 2.0 adapter
+│   │   ├── graphql_adapter.go        #      GraphQL adapter
+│   │   ├── graphql_introspection.go  #      GraphQL introspection query
+│   │   ├── wsdl_adapter.go           #      WSDL / SOAP adapter
+│   │   ├── odata_adapter.go          #      OData v4 adapter
+│   │   ├── openrpc_adapter.go        #      OpenRPC / JSON-RPC adapter
+│   │   ├── postman_adapter.go        #      Postman Collections adapter
+│   │   ├── grpc_adapter.go           #      gRPC adapter
+│   │   ├── google_adapter.go         #      Google API Discovery adapter
+│   │   ├── jenkins_adapter.go        #      Jenkins adapter
+│   │   └── jenkins_writes.go         #      Jenkins write operations
+│   │
+│   └── parsers/                      # ── Parsers ────────────────────
+│       ├── openapi/                  #      OpenAPI 3.x parser
+│       ├── swagger2/                 #      Swagger 2.0 parser
+│       ├── graphql/                  #      GraphQL SDL + introspection
+│       ├── wsdl/                     #      WSDL 1.1 parser
+│       ├── odata/                    #      OData v4 CSDL parser
+│       ├── openrpc/                  #      OpenRPC / JSON-RPC parser
+│       ├── postman/                  #      Postman Collection v2.x parser
+│       ├── grpc/                     #      gRPC reflection parser
+│       ├── googleapi/                #      Google API Discovery parser
+│       └── jenkins/                  #      Jenkins object graph parser
+│
+├── mock-api/                         # ── Testing ────────────────────
+│   ├── server.go                     #    Mock APIs (all supported protocols)
+│   ├── server_test.go
+│   └── clothes.proto                 #    gRPC proto definition
+│
+├── examples/                         # ── Examples ───────────────────
+│   ├── config.yaml.example           #    Full config with all API types
+│   ├── config.mock.yaml              #    Config for mock-api server
+│   ├── config.yaml                   #    Minimal working config
+│   └── config-server.env.example     #    Config server env template
+│
+├── assets/                           # ── Branding ───────────────────
+│   ├── skyline-banner.svg
+│   └── skyline-logo.svg
+│
+├── go.mod
+├── go.sum
+└── README.md
+```
 
-## TL;DR
-The project is at a very early stage, It is definitely not ready for production use. But PoC is done and it performs great
+---
+
+## Building
+
+```bash
+# Build both binaries
+go build -o ./bin/mcp-api-bridge ./cmd/mcp-api-bridge
+go build -o ./bin/config-server ./cmd/config-server
+
+# Run tests
+go test ./...
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Startup fails with "missing env" | Ensure all `${ENV_VAR}` references in your config have corresponding environment variables set |
+| Spec load fails | Verify the `spec_url` is reachable; use the config server's test feature to check |
+| Tool call returns auth errors | Double-check your `auth` block; bearer tokens, API keys, and basic auth credentials must match what the target API expects |
+| SOAP responses look like raw XML | This is expected for non-standard SOAP services; Skyline parses standard SOAP envelopes automatically |
+
+---
+
+<p align="center">
+  <img src="assets/skyline-logo.svg" alt="Skyline" width="400"/>
+</p>
+
+<p align="center">
+  <sub>Built with Go. Powered by MCP.</sub>
+</p>

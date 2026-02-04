@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/swagger2"
+	"mcp-api-bridge/internal/parsers/swagger2"
 )
 
 type Swagger2Adapter struct{}

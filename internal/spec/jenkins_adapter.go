@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/jenkins"
+	"mcp-api-bridge/internal/parsers/jenkins"
 )
 
 type JenkinsAdapter struct{}

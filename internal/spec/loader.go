@@ -11,6 +11,7 @@ import (
 
 	"mcp-api-bridge/internal/canonical"
 	"mcp-api-bridge/internal/config"
+	grpcparser "mcp-api-bridge/internal/parsers/grpc"
 	"mcp-api-bridge/internal/redact"
 )
 
@@ -19,14 +20,29 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 	adapters := []SpecAdapter{
 		NewOpenAPIAdapter(),
 		NewSwagger2Adapter(),
+		NewPostmanAdapter(),
 		NewGoogleDiscoveryAdapter(),
+		NewOpenRPCAdapter(),
 		NewGraphQLAdapter(),
 		NewJenkinsAdapter(),
 		NewWSDLAdapter(),
+		NewODataAdapter(),
 	}
 
 	var services []*canonical.Service
 	for i, api := range cfg.APIs {
+		// Special path for gRPC: use reflection instead of file-based spec.
+		if api.SpecType == "grpc" {
+			target := strings.TrimPrefix(strings.TrimPrefix(api.BaseURLOverride, "http://"), "https://")
+			logger.Printf("loading grpc service %s via reflection from %s", api.Name, target)
+			svc, err := grpcparser.ParseViaReflection(ctx, target, api.Name)
+			if err != nil {
+				return nil, fmt.Errorf("apis[%d]: %w", i, err)
+			}
+			services = append(services, svc)
+			continue
+		}
+
 		var raw []byte
 		var err error
 

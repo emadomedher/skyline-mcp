@@ -14,6 +14,7 @@ type APIConfig struct {
 	Name            string         `yaml:"name"`
 	SpecURL         string         `yaml:"spec_url"`
 	SpecFile        string         `yaml:"spec_file,omitempty"`
+	SpecType        string         `yaml:"spec_type,omitempty"`
 	BaseURLOverride string         `yaml:"base_url_override,omitempty"`
 	Auth            *AuthConfig    `yaml:"auth,omitempty"`
 	TimeoutSeconds  *int           `yaml:"timeout_seconds,omitempty"`
@@ -55,8 +56,11 @@ func (c *Config) Validate() error {
 		if api.Name == "" {
 			return fmt.Errorf("apis[%d]: name is required", i)
 		}
-		if api.SpecURL == "" && api.SpecFile == "" {
+		if api.SpecURL == "" && api.SpecFile == "" && api.SpecType != "grpc" {
 			return fmt.Errorf("apis[%d]: either spec_url or spec_file is required", i)
+		}
+		if api.SpecType == "grpc" && api.BaseURLOverride == "" {
+			return fmt.Errorf("apis[%d]: base_url_override is required for grpc", i)
 		}
 		if api.SpecURL != "" && api.SpecFile != "" {
 			return fmt.Errorf("apis[%d]: spec_url and spec_file are mutually exclusive", i)

@@ -25,6 +25,9 @@ type Operation struct {
 	QueryParamsObject string
 	RequiresCrumb     bool
 	GraphQL           *GraphQLOperation
+	JSONRPC           *JSONRPCOperation
+	Protocol          string // "http" (default) or "grpc"
+	GRPCMeta          *GRPCOperationMeta
 }
 
 // Parameter describes an operation input parameter.
@@ -48,4 +51,20 @@ type GraphQLOperation struct {
 	ArgTypes          map[string]string
 	DefaultSelection  string
 	RequiresSelection bool
+}
+
+type JSONRPCOperation struct {
+	MethodName string
+}
+
+type GRPCOperationMeta struct {
+	ServiceFullName string
+	MethodName      string
+	InputFields     []GRPCField
+}
+
+type GRPCField struct {
+	Name     string
+	JSONType string // "string", "number", "integer", "boolean", "object", "array"
+	Repeated bool
 }

@@ -50,7 +50,7 @@ body::before {
 
 .app {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) 1fr;
+  grid-template-columns: minmax(240px, 300px) 1fr;
   gap: 28px;
   padding: 32px;
 }
@@ -62,6 +62,24 @@ body::before {
   padding: 22px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
+}
+
+.hero-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+
+.hero-title {
+  font-size: 28px;
+  margin: 6px 0 0;
+}
+
+.hero-subtitle {
+  color: var(--muted);
+  margin: 6px 0 0;
 }
 
 .hero {
@@ -90,6 +108,24 @@ body::before {
 .subtitle {
   color: var(--muted);
   margin: 0;
+}
+
+.primary-input {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.primary-input input {
+  font-size: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  flex: 1;
+}
+
+.primary-input button {
+  padding: 14px 18px;
+  border-radius: 14px;
 }
 
 .profile-list {
@@ -206,6 +242,14 @@ textarea {
   color: var(--muted);
 }
 
+.notice.ok {
+  color: #1b6f54;
+}
+
+.notice.err {
+  color: #b83535;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -228,6 +272,58 @@ textarea {
   background: rgba(255, 255, 255, 0.85);
   display: grid;
   gap: 12px;
+}
+
+.step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(30, 92, 166, 0.12);
+  color: var(--sky-700);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.details-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.muted-card {
+  background: rgba(12, 44, 95, 0.04);
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  color: var(--muted);
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(27, 111, 84, 0.12);
+  color: #1b6f54;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fade-in {
+  animation: fadeIn 0.25s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .api-header {
@@ -284,5 +380,8 @@ iconify-icon {
   .form-grid,
   .grid-3 {
     grid-template-columns: 1fr;
+  }
+  .primary-input {
+    flex-direction: column;
   }
 }

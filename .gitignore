@@ -7,6 +7,8 @@
 bin/
 dist/
 build/
+/mcp-api-bridge
+/config-server
 *.exe
 *.exe~
 *.dll
@@ -33,3 +35,6 @@ examples/config.yaml
 # Temp Files
 tmp
 bin/
+
+# AI
+.claude

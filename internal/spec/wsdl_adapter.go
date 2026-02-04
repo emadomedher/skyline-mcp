@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/wsdl"
+	"mcp-api-bridge/internal/parsers/wsdl"
 )
 
 type WSDLAdapter struct{}

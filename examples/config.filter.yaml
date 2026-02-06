@@ -1,0 +1,60 @@
+# Example configuration demonstrating operation filtering
+
+apis:
+  # Example 1: Allowlist - only allow GET operations (read-only)
+  - name: petstore-readonly
+    spec_url: http://localhost:9999/openapi/openapi.json
+    filter:
+      mode: allowlist
+      operations:
+        - method: "GET"
+          summary: "Only allow read operations"
+
+  # Example 2: Blocklist - block all DELETE and PUT operations
+  - name: petstore-no-deletes
+    spec_url: http://localhost:9999/swagger/swagger.json
+    auth:
+      type: bearer
+      token: ${DINOSAUR_TOKEN}
+    filter:
+      mode: blocklist
+      operations:
+        - method: "DELETE"
+          summary: "Prevent deletions"
+        - method: "PUT"
+          summary: "Prevent updates"
+
+  # Example 3: Allowlist by operation ID patterns
+  - name: petstore-specific-ops
+    spec_url: http://localhost:9999/openapi/openapi.json
+    filter:
+      mode: allowlist
+      operations:
+        - operation_id: "getPet*"
+          summary: "Allow all get pet operations"
+        - operation_id: "createPet"
+          summary: "Allow creating pets"
+
+  # Example 4: Blocklist by path patterns
+  - name: graphql-no-mutations
+    spec_url: http://localhost:9999/graphql/schema
+    base_url_override: http://localhost:9999/graphql
+    auth:
+      type: basic
+      username: graphql-user
+      password: graphql-pass
+    filter:
+      mode: blocklist
+      operations:
+        - operation_id: "create*"
+          summary: "Block all mutations"
+
+  # Example 5: No filter - all operations allowed (backward compatible)
+  - name: plants-soap
+    spec_url: http://localhost:9999/wdsl/wsdl
+    auth:
+      type: bearer
+      token: mock-token
+
+timeout_seconds: 30
+retries: 1

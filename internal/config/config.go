@@ -2,33 +2,35 @@ package config
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Config struct {
-	APIs           []APIConfig `yaml:"apis"`
-	TimeoutSeconds int         `yaml:"timeout_seconds,omitempty"`
-	Retries        int         `yaml:"retries,omitempty"`
+	APIs           []APIConfig `json:"apis" yaml:"apis"`
+	TimeoutSeconds int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries        int         `json:"retries,omitempty" yaml:"retries,omitempty"`
 }
 
 type APIConfig struct {
-	Name            string         `yaml:"name"`
-	SpecURL         string         `yaml:"spec_url"`
-	SpecFile        string         `yaml:"spec_file,omitempty"`
-	SpecType        string         `yaml:"spec_type,omitempty"`
-	BaseURLOverride string         `yaml:"base_url_override,omitempty"`
-	Auth            *AuthConfig    `yaml:"auth,omitempty"`
-	TimeoutSeconds  *int           `yaml:"timeout_seconds,omitempty"`
-	Retries         *int           `yaml:"retries,omitempty"`
-	Jenkins         *JenkinsConfig `yaml:"jenkins,omitempty"`
+	Name            string           `json:"name" yaml:"name"`
+	SpecURL         string           `json:"spec_url" yaml:"spec_url"`
+	SpecFile        string           `json:"spec_file,omitempty" yaml:"spec_file,omitempty"`
+	SpecType        string           `json:"spec_type,omitempty" yaml:"spec_type,omitempty"`
+	BaseURLOverride string           `json:"base_url_override,omitempty" yaml:"base_url_override,omitempty"`
+	Auth            *AuthConfig      `json:"auth,omitempty" yaml:"auth,omitempty"`
+	TimeoutSeconds  *int             `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries         *int             `json:"retries,omitempty" yaml:"retries,omitempty"`
+	Jenkins         *JenkinsConfig   `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
+	Filter          *OperationFilter `json:"filter,omitempty" yaml:"filter,omitempty"`
 }
 
 type AuthConfig struct {
-	Type     string `yaml:"type"`
-	Token    string `yaml:"token,omitempty"`    // bearer
-	Username string `yaml:"username,omitempty"` // basic
-	Password string `yaml:"password,omitempty"` // basic
-	Header   string `yaml:"header,omitempty"`   // api-key header name
-	Value    string `yaml:"value,omitempty"`    // api-key value
+	Type     string `json:"type" yaml:"type"`
+	Token    string `json:"token,omitempty" yaml:"token,omitempty"`       // bearer
+	Username string `json:"username,omitempty" yaml:"username,omitempty"` // basic
+	Password string `json:"password,omitempty" yaml:"password,omitempty"` // basic
+	Header   string `json:"header,omitempty" yaml:"header,omitempty"`     // api-key header name
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`       // api-key value
 }
 
 func (c *Config) ApplyDefaults() {
@@ -48,8 +50,9 @@ func (c *Config) ApplyDefaults() {
 }
 
 func (c *Config) Validate() error {
+	// Allow empty API list - profile will respond with no tools available
 	if len(c.APIs) == 0 {
-		return fmt.Errorf("no apis configured")
+		return nil
 	}
 	seen := map[string]struct{}{}
 	for i, api := range c.APIs {
@@ -93,6 +96,11 @@ func (c *Config) Validate() error {
 				}
 			}
 		}
+		if api.Filter != nil {
+			if err := api.Filter.Validate(i); err != nil {
+				return fmt.Errorf("apis[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -117,6 +125,67 @@ func (a *AuthConfig) Validate() error {
 		return fmt.Errorf("unsupported auth.type %q", a.Type)
 	}
 	return nil
+}
+
+func (f *OperationFilter) Validate(apiIndex int) error {
+	if f.Mode == "" {
+		return fmt.Errorf("filter.mode is required")
+	}
+	mode := strings.ToLower(f.Mode)
+	if mode != "allowlist" && mode != "blocklist" {
+		return fmt.Errorf("filter.mode must be 'allowlist' or 'blocklist', got %q", f.Mode)
+	}
+	if len(f.Operations) == 0 {
+		return fmt.Errorf("filter.operations cannot be empty")
+	}
+
+	for j, op := range f.Operations {
+		if op.OperationID == "" && op.Method == "" && op.Path == "" {
+			return fmt.Errorf("filter.operations[%d]: at least one of operation_id, method, or path is required", j)
+		}
+
+		// Validate glob patterns (basic check)
+		if op.OperationID != "" {
+			if err := validateGlobPattern(op.OperationID); err != nil {
+				return fmt.Errorf("filter.operations[%d].operation_id: %w", j, err)
+			}
+		}
+		if op.Path != "" {
+			if err := validateGlobPattern(op.Path); err != nil {
+				return fmt.Errorf("filter.operations[%d].path: %w", j, err)
+			}
+		}
+		if op.Method != "" {
+			if err := validateMethodPattern(op.Method); err != nil {
+				return fmt.Errorf("filter.operations[%d].method: %w", j, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateGlobPattern(pattern string) error {
+	// Basic validation: check for invalid glob syntax
+	// Allow *, ?, but reject patterns with syntax errors
+	if strings.Contains(pattern, "***") {
+		return fmt.Errorf("invalid glob pattern: too many consecutive asterisks")
+	}
+	return nil
+}
+
+func validateMethodPattern(method string) error {
+	method = strings.ToUpper(method)
+	if method == "*" {
+		return nil
+	}
+	validMethods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "CONNECT", "TRACE"}
+	for _, valid := range validMethods {
+		if method == valid {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid HTTP method %q", method)
 }
 
 func (c *Config) Secrets() []string {
@@ -144,12 +213,24 @@ func (c *Config) Secrets() []string {
 }
 
 type JenkinsConfig struct {
-	AllowWrites []JenkinsWrite `yaml:"allow_writes,omitempty"`
+	AllowWrites []JenkinsWrite `json:"allow_writes,omitempty" yaml:"allow_writes,omitempty"`
 }
 
 type JenkinsWrite struct {
-	Name    string `yaml:"name"`
-	Method  string `yaml:"method"`
-	Path    string `yaml:"path"`
-	Summary string `yaml:"summary,omitempty"`
+	Name    string `json:"name" yaml:"name"`
+	Method  string `json:"method" yaml:"method"`
+	Path    string `json:"path" yaml:"path"`
+	Summary string `json:"summary,omitempty" yaml:"summary,omitempty"`
+}
+
+type OperationFilter struct {
+	Mode       string             `json:"mode" yaml:"mode"`             // "allowlist" or "blocklist"
+	Operations []OperationPattern `json:"operations" yaml:"operations"` // List of patterns
+}
+
+type OperationPattern struct {
+	OperationID string `json:"operation_id,omitempty" yaml:"operation_id,omitempty"` // Pattern for operationId (e.g., "get*", "createUser")
+	Method      string `json:"method,omitempty" yaml:"method,omitempty"`             // HTTP method pattern (e.g., "GET", "POST", "*")
+	Path        string `json:"path,omitempty" yaml:"path,omitempty"`                 // Path pattern (e.g., "/users/*", "/admin/**")
+	Summary     string `json:"summary,omitempty" yaml:"summary,omitempty"`           // Optional description for documentation
 }

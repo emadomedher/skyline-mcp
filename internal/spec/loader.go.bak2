@@ -75,7 +75,6 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 		}
 		parseRaw := func(raw []byte) (*canonical.Service, string, error) {
 			for _, adapter := range adapters {
-			logger.Printf("trying adapter: %s", adapter.Name())
 				if !adapter.Detect(raw) {
 					continue
 				}
@@ -88,10 +87,8 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 			return nil, "", nil
 		}
 
-		logger.Printf("parsing spec for %s (size=%d bytes)", api.Name, len(raw))
 		service, adapterName, err := parseRaw(raw)
 		if err != nil {
-		logger.Printf("parse completed for %s (adapter=%s, err=%v)", api.Name, adapterName, err)
 			return nil, fmt.Errorf("apis[%d]: %w", i, err)
 		}
 		if api.SpecFile == "" && looksLikeGraphQLEndpoint(api.SpecURL) {

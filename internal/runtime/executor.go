@@ -102,6 +102,7 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 		return e.executeGRPC(ctx, op, args, cfg)
 	}
 
+	e.logger.Printf("[EXECUTOR] Starting execute for %s (timeout=%v)", op.ToolName, cfg.Timeout)
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
@@ -109,6 +110,7 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	if err != nil {
 		return nil, err
 	}
+	e.logger.Printf("[EXECUTOR] Resolved URL: %s", e.redactor.Redact(fullURL))
 	parsedURL, err := url.Parse(fullURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -215,7 +217,14 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 		}
 		applyAuth(req, cfg.Auth)
 
+		e.logger.Printf("[EXECUTOR] Making HTTP request: %s %s (attempt %d/%d)", method, e.redactor.Redact(parsedURL.String()), attempt+1, attempts)
 		resp, err := e.client.Do(req)
+		e.logger.Printf("[EXECUTOR] HTTP request completed (err=%v, status=%v)", err, func() int {
+			if resp != nil {
+				return resp.StatusCode
+			}
+			return 0
+		}())
 		if err != nil {
 			if attempt < attempts-1 && isRetryable(method) {
 				e.logger.Printf("request failed, retrying: %s", e.redactor.Redact(err.Error()))

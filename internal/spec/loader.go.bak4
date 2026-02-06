@@ -75,7 +75,6 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 		}
 		parseRaw := func(raw []byte) (*canonical.Service, string, error) {
 			for _, adapter := range adapters {
-			logger.Printf("trying adapter: %s", adapter.Name())
 				if !adapter.Detect(raw) {
 					continue
 				}

@@ -84,6 +84,18 @@ const apiClient = {
     }
     return res.json();
   },
+  async fetchOperations(specUrl, specType) {
+    const res = await fetch("/operations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec_url: specUrl, spec_type: specType }),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(`Fetch operations failed (${res.status}): ${msg}`);
+    }
+    return res.json();
+  },
 };
 
 function blankApi() {
@@ -102,6 +114,13 @@ function blankApi() {
     apiKeyHeader: "X-API-Key",
     apiKeyValue: "",
     detectedOnce: false,
+    // Filter configuration
+    filterMode: "",
+    filterOperations: [],
+    availableOperations: [],
+    selectedOperations: new Set(),
+    showFilterConfig: false,
+    filterLoading: false,
   };
 }
 
@@ -109,6 +128,7 @@ createApp({
   setup() {
     const profiles = ref([]);
     const activeProfile = ref("");
+    const profileMetadata = ref({}); // Store API count and types for each profile
     const form = reactive({
       profileName: "",
       profileToken: "",
@@ -132,11 +152,29 @@ createApp({
     const status = reactive({ state: "idle", message: "" });
     const isBusy = ref(false);
     const addedToast = ref(false);
+    const showToken = ref(false);
 
     async function refreshProfiles() {
       try {
         const data = await apiClient.listProfiles();
         profiles.value = data.profiles || [];
+
+        // Load metadata for all profiles
+        for (const name of profiles.value) {
+          try {
+            const profileData = await apiClient.loadProfile(name);
+            const cfg = profileData.config || {};
+            const apis = cfg.apis || [];
+            const apiTypes = new Set(apis.map(api => inferType(api.spec_url || "")).filter(Boolean));
+            profileMetadata.value[name] = {
+              apiCount: apis.length,
+              types: Array.from(apiTypes)
+            };
+          } catch (err) {
+            // Ignore errors loading individual profiles (might be auth issues)
+            console.warn(`Failed to load metadata for profile ${name}:`, err);
+          }
+        }
       } catch (err) {
         status.state = "error";
         status.message = err.message;
@@ -220,14 +258,13 @@ createApp({
     }
 
     async function loadProfile(name) {
-      if (!form.profileToken) {
-        setStatus("error", "Profile token required to load.");
-        return;
-      }
       try {
         isBusy.value = true;
-        const data = await apiClient.loadProfile(name, form.profileToken);
+        // Load profile without authentication (for UI management)
+        // Profile tokens are only needed by MCP servers for gateway access
+        const data = await apiClient.loadProfile(name);
         form.profileName = data.name || name;
+        form.profileToken = data.token || "";
         activeProfile.value = name;
         const cfg = data.config || {};
         form.apis = (cfg.apis || []).map((api) => ({
@@ -245,10 +282,33 @@ createApp({
           apiKeyHeader: api.auth?.header || "X-API-Key",
           apiKeyValue: api.auth?.value || "",
           detectedOnce: true,
+          // Load filter configuration
+          filterMode: api.filter?.mode || "",
+          filterOperations: api.filter?.operations || [],
+          availableOperations: [],
+          selectedOperations: new Set(
+            (api.filter?.operations || [])
+              .filter((op) => op.operation_id)
+              .map((op) => op.operation_id)
+          ),
+          showFilterConfig: false,
+          filterLoading: false,
         }));
+
+        // Extract and store profile metadata for sidebar display
+        const apiTypes = new Set(form.apis.map(api => api.type).filter(Boolean));
+        profileMetadata.value[name] = {
+          apiCount: form.apis.length,
+          types: Array.from(apiTypes)
+        };
+
         setStatus("ok", "Profile loaded.");
       } catch (err) {
-        setStatus("error", err.message);
+        if (err.message.includes("401") || err.message.includes("unauthorized")) {
+          setStatus("error", `Authentication required. Run the server with "--auth-mode none" for UI access.`);
+        } else {
+          setStatus("error", `Failed to load profile: ${err.message}`);
+        }
       } finally {
         isBusy.value = false;
       }
@@ -374,17 +434,25 @@ createApp({
         setStatus("error", "Profile name required.");
         return;
       }
+
+      // Auto-generate token if not present
       if (!form.profileToken) {
-        setStatus("error", "Profile token required.");
-        return;
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        form.profileToken = btoa(String.fromCharCode.apply(null, array));
       }
       const apis = form.apis
-        .filter((api) => api.name && api.specUrl)
+        .filter((api) => {
+          const hasName = api.name?.trim();
+          const hasSpecUrl = api.specUrl?.trim();
+          console.log('Filtering API:', { name: api.name, specUrl: api.specUrl, hasName, hasSpecUrl });
+          return hasName && hasSpecUrl;
+        })
         .map((api) => {
           const entry = {
-            name: api.name,
-            spec_url: api.specUrl,
-            base_url_override: api.baseUrl || undefined,
+            name: api.name.trim(),
+            spec_url: api.specUrl.trim(),
+            base_url_override: api.baseUrl?.trim() || undefined,
           };
           if (api.authType && api.authType !== "none") {
             entry.auth = { type: api.authType };
@@ -398,17 +466,29 @@ createApp({
               entry.auth.value = api.apiKeyValue;
             }
           }
+          // Include filter configuration if set
+          if (api.filterMode && api.filterOperations.length > 0) {
+            entry.filter = {
+              mode: api.filterMode,
+              operations: api.filterOperations,
+            };
+          }
           return entry;
         });
-      if (apis.length === 0) {
-        setStatus("error", "Add at least one API with a detected spec.");
-        return;
-      }
+
       try {
         isBusy.value = true;
         await apiClient.saveProfile(form.profileName, form.profileToken, { apis });
         await refreshProfiles();
         activeProfile.value = form.profileName;
+
+        // Update profile metadata after saving
+        const apiTypes = new Set(form.apis.map(api => api.type).filter(Boolean));
+        profileMetadata.value[form.profileName] = {
+          apiCount: form.apis.length,
+          types: Array.from(apiTypes)
+        };
+
         setStatus("ok", "Profile saved.");
       } catch (err) {
         setStatus("error", err.message);
@@ -417,14 +497,29 @@ createApp({
       }
     }
 
+    function newProfile() {
+      form.profileName = "";
+      form.profileToken = "";
+      form.apis = [];
+      activeProfile.value = "";
+      setStatus("ok", "Ready to create new profile");
+    }
+
     async function deleteProfile() {
       if (!form.profileName) return;
       if (!confirm(`Delete profile "${form.profileName}"?`)) return;
+      const deletedProfileName = form.profileName;
       try {
         isBusy.value = true;
-        await apiClient.deleteProfile(form.profileName, form.profileToken);
+        // Delete profile without authentication (for UI management)
+        await apiClient.deleteProfile(form.profileName);
         await refreshProfiles();
+
+        // Remove metadata for deleted profile
+        delete profileMetadata.value[deletedProfileName];
+
         form.profileName = "";
+        form.profileToken = "";
         form.apis = [];
         activeProfile.value = "";
         setStatus("ok", "Profile deleted.");
@@ -435,11 +530,118 @@ createApp({
       }
     }
 
+    async function toggleFilterConfig(api) {
+      api.showFilterConfig = !api.showFilterConfig;
+      if (api.showFilterConfig && api.availableOperations.length === 0) {
+        await fetchOperations(api);
+      }
+    }
+
+    async function fetchOperations(api) {
+      if (!api.specUrl) {
+        setStatus("error", "Spec URL is required to fetch operations.");
+        return;
+      }
+      try {
+        api.filterLoading = true;
+        const result = await apiClient.fetchOperations(api.specUrl, api.type);
+        if (result.error) {
+          setStatus("error", result.error);
+          return;
+        }
+        api.availableOperations = result.operations || [];
+
+        // Pre-select operations based on existing filter OR default behavior
+        if (api.filterMode && api.filterOperations.length > 0) {
+          // Load existing filter selections
+          api.filterOperations.forEach((filter) => {
+            if (filter.operation_id) {
+              api.availableOperations.forEach((op) => {
+                if (op.id === filter.operation_id) {
+                  api.selectedOperations.add(op.id);
+                }
+              });
+            }
+          });
+        } else if (api.filterMode === "allowlist") {
+          // Allowlist mode: Start with ALL operations selected (default behavior = allow all)
+          api.availableOperations.forEach((op) => {
+            api.selectedOperations.add(op.id);
+          });
+        }
+        // Blocklist mode: Start with NO operations selected (default behavior = block none)
+
+        setStatus("ok", `Loaded ${api.availableOperations.length} operations.`);
+      } catch (err) {
+        setStatus("error", err.message);
+      } finally {
+        api.filterLoading = false;
+      }
+    }
+
+    function toggleOperationSelection(api, operationId) {
+      if (api.selectedOperations.has(operationId)) {
+        api.selectedOperations.delete(operationId);
+      } else {
+        api.selectedOperations.add(operationId);
+      }
+
+      // Auto-apply filter when selection changes
+      if (api.filterMode && api.selectedOperations.size > 0) {
+        applyFilterAuto(api);
+      }
+    }
+
+    function applyFilterAuto(api) {
+      // Convert selected operations to filter patterns
+      api.filterOperations = Array.from(api.selectedOperations).map((opId) => ({
+        operation_id: opId,
+      }));
+
+      const count = api.selectedOperations.size;
+      const total = api.availableOperations.length;
+      const willExpose = api.filterMode === "allowlist" ? count : total - count;
+
+      setStatus("ok", `Filter updated: ${willExpose} of ${total} operations will be exposed.`);
+    }
+
+    function onFilterModeChange(api) {
+      // Reset selections based on new mode to match default behavior
+      if (api.availableOperations.length > 0) {
+        api.selectedOperations.clear();
+
+        if (api.filterMode === "allowlist") {
+          // Allowlist: Start with all selected (default = allow all)
+          api.availableOperations.forEach((op) => {
+            api.selectedOperations.add(op.id);
+          });
+        }
+        // Blocklist: Start with none selected (default = block none)
+      }
+
+      // Auto-apply when mode changes if operations are selected
+      if (api.filterMode && api.selectedOperations.size > 0) {
+        applyFilterAuto(api);
+      }
+    }
+
+    function clearFilter(api) {
+      api.filterMode = "";
+      api.filterOperations = [];
+      api.selectedOperations.clear();
+      setStatus("ok", "Filter cleared.");
+    }
+
+    function toggleTokenVisibility() {
+      showToken.value = !showToken.value;
+    }
+
     onMounted(refreshProfiles);
 
     return {
       profiles,
       activeProfile,
+      profileMetadata,
       form,
       draft,
       status,
@@ -457,8 +659,16 @@ createApp({
       addDraftToList,
       testApi,
       saveProfile,
+      newProfile,
       deleteProfile,
       addedToast,
+      toggleFilterConfig,
+      fetchOperations,
+      toggleOperationSelection,
+      onFilterModeChange,
+      clearFilter,
+      showToken,
+      toggleTokenVisibility,
     };
   },
   template: `
@@ -467,12 +677,9 @@ createApp({
       <aside class="panel">
         <div class="hero">
           <div class="brand">
-            <div class="brand-mark">SKY</div>
-            <div>
-              <h2>Skyline MCP</h2>
-              <p class="subtitle">Profiles that hide secrets from agents.</p>
-            </div>
+            <img src="/ui/skyline-logo.svg" alt="Skyline" style="max-width: 180px; height: auto; margin-bottom: 12px;">
           </div>
+          <p class="subtitle" style="margin-top: 8px;">Centralized API Gateway for MCP Servers</p>
           <div class="toolbar">
             <button class="primary" @click="refreshProfiles">Refresh</button>
           </div>
@@ -480,6 +687,10 @@ createApp({
 
         <div class="profile-list">
           <div class="notice">Profiles</div>
+          <button class="profile-item new-profile-btn" @click="newProfile" style="width: 100%; text-align: left; border: 1px dashed var(--violet-400); background: transparent; color: var(--violet-400); cursor: pointer; margin-bottom: 8px;">
+            <iconify-icon icon="mdi:plus-circle-outline" style="margin-right: 8px;"></iconify-icon>
+            New Profile
+          </button>
           <div
             v-for="name in profiles"
             :key="name"
@@ -487,39 +698,84 @@ createApp({
             :class="{ active: name === activeProfile }"
             @click="loadProfile(name)"
           >
-            <span>{{ name }}</span>
-            <span class="chip">profile</span>
+            <div class="profile-item-content">
+              <div class="profile-item-header">
+                <span class="profile-name">{{ name }}</span>
+                <span v-if="profileMetadata[name]" class="profile-api-count">
+                  {{ profileMetadata[name].apiCount }} API{{ profileMetadata[name].apiCount !== 1 ? 's' : '' }}
+                </span>
+              </div>
+              <div v-if="profileMetadata[name] && profileMetadata[name].types.length > 0" class="profile-types">
+                <iconify-icon
+                  v-for="type in profileMetadata[name].types"
+                  :key="type"
+                  :icon="typeIcons[type] || 'mdi:api'"
+                  :title="typeLabels[type] || type"
+                  class="profile-type-icon"
+                ></iconify-icon>
+              </div>
+            </div>
           </div>
           <div v-if="profiles.length === 0" class="notice">No profiles yet.</div>
+          <div v-if="profiles.length > 0 && !activeProfile" class="notice" style="margin-top: 12px; font-size: 12px; opacity: 0.7;">
+            💡 Click a profile to load and edit it
+          </div>
         </div>
       </aside>
 
       <main class="panel">
-        <div class="hero-card">
-          <div class="api-header">
+        <!-- Profile Configuration at Top -->
+        <div class="profile-header-card">
+          <div class="profile-header-title">
+            <iconify-icon icon="mdi:folder-account"></iconify-icon>
+            Profile Configuration
+          </div>
+          <div class="form-grid" style="margin-top: 16px;">
             <div>
-              <div class="step-pill">Step 1 · Add API URL</div>
-              <div class="hero-title">Start with the API URL.</div>
-              <div class="hero-subtitle">We’ll detect the type automatically and unlock the details.</div>
+              <label>Profile name</label>
+              <input v-model="form.profileName" placeholder="dev, prod, agent-a" />
             </div>
-            <div class="status">
-              <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
-              <span>{{ status.message || "Ready." }}</span>
+            <div>
+              <label>Profile token (cryptographically secure)</label>
+              <div v-if="form.profileToken" style="position: relative;">
+                <input
+                  :value="form.profileToken"
+                  :type="showToken ? 'text' : 'password'"
+                  disabled
+                  style="width: 100%; padding-right: 40px;"
+                />
+                <button
+                  class="token-toggle"
+                  @click="toggleTokenVisibility"
+                  type="button"
+                  title="Toggle token visibility"
+                >
+                  <iconify-icon :icon="showToken ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                </button>
+              </div>
+              <div v-else class="token-placeholder">
+                <iconify-icon icon="mdi:information-outline"></iconify-icon>
+                <span>Save profile to generate token</span>
+              </div>
             </div>
           </div>
-          <div class="primary-input" style="margin-top:16px;">
+        </div>
+
+        <!-- Add API Section -->
+        <div class="hero-card" style="margin-top: 18px;">
+          <div class="api-header">
+            <div class="step-pill">Add API</div>
+            <div class="status">
+              <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
+              <span>{{ status.message || "Ready" }}</span>
+            </div>
+          </div>
+          <div class="primary-input" style="margin-top:12px;">
             <input v-model="draft.baseUrl" placeholder="https://api.example.com" @blur="detectDraftOnBlur" />
             <button class="primary" :disabled="isBusy" @click="detectDraft">Detect</button>
             <button class="secondary" :disabled="isBusy || !draft.detectedOnce" @click="addDraftToList">Add</button>
           </div>
-          <div class="notice" :class="{ ok: status.state === 'ok', err: status.state === 'error' }" style="margin-top:10px;">
-            {{ draft.status || "Enter a URL and click Detect." }}
-          </div>
           <div v-if="addedToast" class="toast fade-in" style="margin-top:10px;">Added to profile</div>
-
-          <div v-if="!draft.detectedOnce" class="muted-card" style="margin-top:12px;">
-            Detection will populate type + spec URL. You can add auth and metadata after that.
-          </div>
 
           <div v-if="draft.detectedOnce" class="api-card" style="margin-top:12px;">
             <div class="api-header">
@@ -601,19 +857,13 @@ createApp({
           </div>
         </div>
 
+        <!-- API List Section -->
         <div class="details-panel" style="margin-top:18px;">
-          <div class="form-grid">
-            <div>
-              <label>Profile name</label>
-              <input v-model="form.profileName" placeholder="dev, prod, agent-a" />
-            </div>
-            <div>
-              <label>Profile token</label>
-              <input v-model="form.profileToken" type="password" placeholder="per-profile bearer token" />
-            </div>
-          </div>
+          <div class="step-pill" style="margin-bottom: 12px;">APIs in Profile</div>
 
-          <div v-if="form.apis.length > 0" class="step-pill">Added APIs</div>
+          <div v-if="form.apis.length === 0" style="text-align: center; padding: 40px 20px; color: var(--violet-300); opacity: 0.6;">
+            No APIs added yet
+          </div>
 
           <div v-for="api in form.apis" :key="api.id" class="api-card">
             <div class="api-header">
@@ -693,6 +943,110 @@ createApp({
               <div>
                 <label>Value</label>
                 <input v-model="api.apiKeyValue" type="password" />
+              </div>
+            </div>
+
+            <!-- Filter Configuration Section -->
+            <div class="filter-section">
+              <div class="filter-header">
+                <div class="filter-info">
+                  <div class="filter-title">
+                    <iconify-icon icon="mdi:filter-variant"></iconify-icon>
+                    Operation Filter
+                  </div>
+                  <div class="filter-status" :class="{ active: api.filterMode }">
+                    <span v-if="!api.filterMode">No filter configured — all operations allowed</span>
+                    <span v-else>
+                      <strong>{{ api.filterMode === 'allowlist' ? 'Allowlist' : 'Blocklist' }}</strong> mode active
+                      · {{ api.filterOperations.length }} pattern{{ api.filterOperations.length !== 1 ? 's' : '' }}
+                    </span>
+                  </div>
+                </div>
+                <div class="filter-actions">
+                  <button class="secondary" @click="toggleFilterConfig(api)">
+                    <iconify-icon :icon="api.showFilterConfig ? 'mdi:chevron-up' : 'mdi:tune'"></iconify-icon>
+                    {{ api.showFilterConfig ? 'Hide' : 'Configure' }}
+                  </button>
+                  <button v-if="api.filterMode" class="ghost" @click="clearFilter(api)">
+                    <iconify-icon icon="mdi:close"></iconify-icon>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <!-- Filter Configuration Panel -->
+              <div v-if="api.showFilterConfig" class="filter-config-panel">
+                <div class="filter-mode-selector">
+                  <label>
+                    <iconify-icon icon="mdi:shield-check"></iconify-icon>
+                    Filter Mode
+                  </label>
+                  <select v-model="api.filterMode" @change="onFilterModeChange(api)">
+                    <option value="">Choose filter strategy...</option>
+                    <option value="allowlist">✓ Allowlist — Only selected operations allowed</option>
+                    <option value="blocklist">✗ Blocklist — Selected operations blocked</option>
+                  </select>
+                </div>
+
+                <!-- Loading State -->
+                <div v-if="api.filterLoading" class="loading-state">
+                  <iconify-icon icon="mdi:loading"></iconify-icon>
+                  <div style="margin-top: 12px;">Loading operations from API spec...</div>
+                </div>
+
+                <!-- Operations List -->
+                <div v-else-if="api.availableOperations.length > 0">
+                  <div class="operations-header">
+                    <div class="operations-counter">
+                      <iconify-icon icon="mdi:format-list-checks"></iconify-icon>
+                      Select Operations
+                      <span class="counter-badge">{{ api.selectedOperations.size }} / {{ api.availableOperations.length }}</span>
+                    </div>
+                  </div>
+
+                  <div class="operations-list">
+                    <div
+                      v-for="op in api.availableOperations"
+                      :key="op.id"
+                      class="operation-item"
+                      :class="{ selected: api.selectedOperations.has(op.id) }"
+                      @click="toggleOperationSelection(api, op.id)"
+                    >
+                      <input
+                        type="checkbox"
+                        class="operation-checkbox"
+                        :checked="api.selectedOperations.has(op.id)"
+                        @click.stop="toggleOperationSelection(api, op.id)"
+                      />
+                      <div class="operation-content">
+                        <div class="operation-header">
+                          <span class="method-badge" :class="op.method.toLowerCase()">{{ op.method }}</span>
+                          <span class="operation-id">{{ op.id }}</span>
+                        </div>
+                        <div class="operation-path">{{ op.path }}</div>
+                        <div v-if="op.summary" class="operation-summary">{{ op.summary }}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Live Preview -->
+                  <div class="filter-live-preview" v-if="api.filterMode && api.selectedOperations.size > 0">
+                    <iconify-icon icon="mdi:check-circle"></iconify-icon>
+                    <span v-if="api.filterMode === 'allowlist'">
+                      Exposing <strong>{{ api.selectedOperations.size }}</strong> of {{ api.availableOperations.length }} operations
+                    </span>
+                    <span v-else>
+                      Blocking <strong>{{ api.selectedOperations.size }}</strong>, exposing {{ api.availableOperations.length - api.selectedOperations.size }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Empty State -->
+                <div v-else class="empty-state">
+                  <iconify-icon icon="mdi:file-document-outline"></iconify-icon>
+                  <div style="margin-top: 8px; font-weight: 500;">No operations loaded yet</div>
+                  <div style="margin-top: 4px; font-size: 12px;">Operations will be fetched automatically from your API spec</div>
+                </div>
               </div>
             </div>
           </div>

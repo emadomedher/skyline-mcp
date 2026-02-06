@@ -14,6 +14,7 @@ import (
 // ParseToCanonical parses WSDL 1.1 XML into a canonical Service.
 func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride string) (*canonical.Service, error) {
 	_ = ctx
+	fmt.Printf("[WSDL] ParseToCanonical called with baseURLOverride=%q\n", baseURLOverride)
 	def, err := parseDefinitions(raw)
 	if err != nil {
 		return nil, err
@@ -38,12 +39,16 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 		return nil, fmt.Errorf("wsdl: binding %s not found", bindingName)
 	}
 
-	baseURL := strings.TrimRight(baseURLOverride, "/")
-	if baseURL == "" {
-		if port.Address.Location == "" {
-			return nil, fmt.Errorf("wsdl: port missing address location")
-		}
-		baseURL = strings.TrimRight(port.Address.Location, "/")
+	// WSDL specs define their endpoint explicitly via soap:address, so always use that
+	// and ignore base_url_override (which is meant for REST APIs that use path-based routing)
+	if port.Address.Location == "" {
+		return nil, fmt.Errorf("wsdl: port missing address location")
+	}
+	baseURL := strings.TrimRight(port.Address.Location, "/")
+	if baseURLOverride != "" {
+		fmt.Printf("[WSDL] Ignoring baseURLOverride %q, using soap:address: %q\n", baseURLOverride, baseURL)
+	} else {
+		fmt.Printf("[WSDL] Using soap:address location: %q\n", baseURL)
 	}
 
 	contentType := "text/xml; charset=utf-8"

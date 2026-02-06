@@ -130,11 +130,8 @@ func TestConfig_Validate_NoAPIs(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("expected error for no apis, got nil")
-	}
-	if !contains(err.Error(), "no apis configured") {
-		t.Errorf("expected error containing 'no apis configured', got %q", err.Error())
+	if err != nil {
+		t.Fatalf("expected no error for empty apis (valid profile with no tools), got %v", err)
 	}
 }
 

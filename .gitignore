@@ -32,8 +32,14 @@ go.work.sum
 config.yaml
 examples/config.yaml
 
+# Skyline sensitive data
+profiles.enc.yaml
+skyline-audit.db
+skyline-audit.db-journal
+*.enc.yaml
+
 # Temp Files
-tmp
+tmp/
 bin/
 
 # AI

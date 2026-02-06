@@ -68,6 +68,42 @@ func NewRegistry(services []*canonical.Service) (*Registry, error) {
 	return registry, nil
 }
 
+// NewRegistryFromGatewayTools creates a registry from gateway tool definitions
+// Used in gateway mode where we don't have full canonical.Service objects
+func NewRegistryFromGatewayTools(gatewayTools []GatewayTool) *Registry {
+	registry := &Registry{
+		Tools:     make(map[string]*Tool),
+		Resources: make(map[string]*Resource),
+	}
+
+	for _, gt := range gatewayTools {
+		// Create a minimal operation with just the tool name
+		// This allows the gatewayExecutor to identify which tool to call
+		minimalOp := &canonical.Operation{
+			ToolName: gt.Name,
+		}
+
+		registry.Tools[gt.Name] = &Tool{
+			Name:         gt.Name,
+			Description:  gt.Description,
+			InputSchema:  gt.InputSchema,
+			OutputSchema: gt.OutputSchema,
+			Operation:    minimalOp,
+			Validator:    nil, // Schema validation happens on the gateway side
+		}
+	}
+
+	return registry
+}
+
+// GatewayTool represents a tool definition from the gateway
+type GatewayTool struct {
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"input_schema"`
+	OutputSchema map[string]any `json:"output_schema"`
+}
+
 func outputSchema(bodySchema map[string]any) map[string]any {
 	body := bodySchema
 	if body == nil {

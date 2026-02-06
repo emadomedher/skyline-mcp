@@ -1,0 +1,32 @@
+{
+  "name": "@skyline/mcp-server",
+  "version": "0.1.0",
+  "description": "Node.js MCP server that connects to Skyline API Gateway",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "skyline-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "api-gateway",
+    "skyline"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.3"
+  }
+}

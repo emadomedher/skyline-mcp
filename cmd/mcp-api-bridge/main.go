@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
+	"time"
 
+	"mcp-api-bridge/internal/canonical"
 	"mcp-api-bridge/internal/config"
+	"mcp-api-bridge/internal/gateway"
 	"mcp-api-bridge/internal/mcp"
 	"mcp-api-bridge/internal/redact"
 	"mcp-api-bridge/internal/runtime"
@@ -28,64 +32,144 @@ func main() {
 	sseAuthValue := flag.String("sse-auth-value", "", "SSE api-key value")
 	flag.Parse()
 
+	// Create debug log file
+	debugLog, err := os.OpenFile("/tmp/mcp-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		defer debugLog.Close()
+		fmt.Fprintf(debugLog, "\n=== MCP Server Started at %s ===\n", time.Now().Format(time.RFC3339))
+		fmt.Fprintf(debugLog, "PID: %d\n", os.Getpid())
+	}
+
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	ctx := context.Background()
 
-	var cfg *config.Config
-	if *configURL != "" {
-		token := *configToken
-		if token == "" {
-			token = os.Getenv("MCP_PROFILE_TOKEN")
+	// Check for gateway mode (env vars take precedence)
+	gatewayURL := os.Getenv("CONFIG_SERVER_URL")
+	gatewayProfile := os.Getenv("PROFILE_NAME")
+	gatewayToken := os.Getenv("PROFILE_TOKEN")
+	gatewayMode := gatewayURL != "" && gatewayProfile != "" && gatewayToken != ""
+
+	var registry *mcp.Registry
+	var executor mcp.Executor
+	redactor := redact.NewRedactor()
+
+	if gatewayMode {
+		// GATEWAY MODE: Connect to config server via WebSocket
+		logger.Printf("gateway mode: connecting to %s (profile: %s)", gatewayURL, gatewayProfile)
+
+		gatewayClient := gateway.NewClient(gatewayURL, gatewayProfile, gatewayToken)
+
+		// Establish WebSocket connection
+		if err := gatewayClient.ConnectWebSocket(ctx); err != nil {
+			logger.Fatalf("failed to connect websocket: %v", err)
 		}
-		if *profile == "" {
-			profEnv := os.Getenv("MCP_PROFILE")
-			if profEnv != "" {
-				*profile = profEnv
+		logger.Printf("websocket connected to gateway")
+
+		// Fetch tools from gateway via WebSocket
+		tools, err := gatewayClient.FetchToolsWebSocket(ctx)
+		if err != nil {
+			logger.Fatalf("failed to fetch tools from gateway: %v", err)
+		}
+		logger.Printf("loaded %d tools from gateway", len(tools))
+
+		// Convert gateway.Tool to mcp.GatewayTool
+		mcpTools := make([]mcp.GatewayTool, len(tools))
+		for i, t := range tools {
+			mcpTools[i] = mcp.GatewayTool{
+				Name:         t.Name,
+				Description:  t.Description,
+				InputSchema:  t.InputSchema,
+				OutputSchema: t.OutputSchema,
 			}
 		}
-		raw, err := config.FetchProfileConfig(ctx, *configURL, *profile, token)
-		if err != nil {
-			logger.Fatalf("config fetch: %v", err)
+
+		// Build registry from gateway tools
+		registry = mcp.NewRegistryFromGatewayTools(mcpTools)
+		logger.Printf("registry ready (%d tools)", len(registry.Tools))
+
+		// Create gateway executor with WebSocket
+		executor = &gatewayExecutor{
+			client:    gatewayClient,
+			logger:    logger,
+			useWebSocket: true,
 		}
-		cfg, err = config.LoadFromBytes(raw)
-		if err != nil {
-			logger.Fatalf("config load: %v", err)
+
+		if debugLog != nil {
+			fmt.Fprintf(debugLog, "Gateway mode initialized, WebSocket connected\n")
 		}
+
 	} else {
-		var err error
-		cfg, err = config.Load(*configPath)
-		if err != nil {
-			logger.Fatalf("config load: %v", err)
+		// STANDALONE MODE: Direct API access (backward compatible)
+		logger.Printf("standalone mode: loading specs directly")
+
+		var cfg *config.Config
+		if *configURL != "" {
+			token := *configToken
+			if token == "" {
+				token = os.Getenv("MCP_PROFILE_TOKEN")
+			}
+			if *profile == "" {
+				profEnv := os.Getenv("MCP_PROFILE")
+				if profEnv != "" {
+					*profile = profEnv
+				}
+			}
+			raw, err := config.FetchProfileConfig(ctx, *configURL, *profile, token)
+			if err != nil {
+				logger.Fatalf("config fetch: %v", err)
+			}
+			cfg, err = config.LoadFromBytes(raw)
+			if err != nil {
+				logger.Fatalf("config load: %v", err)
+			}
+		} else {
+			var err error
+			cfg, err = config.Load(*configPath)
+			if err != nil {
+				logger.Fatalf("config load: %v", err)
+			}
 		}
-	}
 
-	redactor := redact.NewRedactor()
-	redactor.AddSecrets(cfg.Secrets())
+		redactor.AddSecrets(cfg.Secrets())
 
-	logger.Printf("loading specs...")
-	services, err := spec.LoadServices(ctx, cfg, logger, redactor)
-	if err != nil {
-		logger.Fatalf("spec load: %v", err)
-	}
-	logger.Printf("loaded %d services", len(services))
+		logger.Printf("loading specs...")
+		services, err := spec.LoadServices(ctx, cfg, logger, redactor)
+		if err != nil {
+			logger.Fatalf("spec load: %v", err)
+		}
+		logger.Printf("loaded %d services", len(services))
 
-	executor, err := runtime.NewExecutor(cfg, services, logger, redactor)
-	if err != nil {
-		logger.Fatalf("executor init: %v", err)
-	}
+		standaloneExecutor, err := runtime.NewExecutor(cfg, services, logger, redactor)
+		if err != nil {
+			logger.Fatalf("executor init: %v", err)
+		}
+		executor = standaloneExecutor
 
-	logger.Printf("building registry...")
-	registry, err := mcp.NewRegistry(services)
-	if err != nil {
-		logger.Fatalf("registry init: %v", err)
+		logger.Printf("building registry...")
+		registry, err = mcp.NewRegistry(services)
+		if err != nil {
+			logger.Fatalf("registry init: %v", err)
+		}
+		logger.Printf("registry ready (%d tools)", len(registry.Tools))
 	}
-	logger.Printf("registry ready (%d tools)", len(registry.Tools))
 
 	server := mcp.NewServer(registry, executor, logger, redactor)
+	if debugLog != nil {
+		fmt.Fprintf(debugLog, "Starting MCP server with transport=%s\n", *transport)
+	}
 	switch *transport {
 	case "stdio":
+		if debugLog != nil {
+			fmt.Fprintf(debugLog, "About to call server.Serve() on stdio\n")
+		}
 		if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil {
+			if debugLog != nil {
+				fmt.Fprintf(debugLog, "server.Serve() returned with error: %v\n", err)
+			}
 			logger.Fatalf("server error: %v", err)
+		}
+		if debugLog != nil {
+			fmt.Fprintf(debugLog, "server.Serve() returned successfully (EOF on stdin)\n")
 		}
 	case "sse", "http", "streamable-http":
 		var auth *config.AuthConfig
@@ -131,4 +215,40 @@ func authSecrets(auth *config.AuthConfig) []string {
 		}
 	}
 	return nil
+}
+
+// gatewayExecutor implements mcp.Executor for gateway mode
+type gatewayExecutor struct {
+	client       *gateway.Client
+	logger       *log.Logger
+	useWebSocket bool
+}
+
+func (e *gatewayExecutor) Execute(ctx context.Context, op *canonical.Operation, args map[string]any) (*runtime.Result, error) {
+	if op == nil {
+		return nil, fmt.Errorf("operation is nil")
+	}
+	e.logger.Printf("executing via gateway: %s", op.ToolName)
+
+	var gwResult *gateway.Result
+	var err error
+
+	if e.useWebSocket {
+		// Call gateway via WebSocket
+		gwResult, err = e.client.ExecuteWebSocket(ctx, op.ToolName, args)
+	} else {
+		// Call gateway via HTTP (fallback)
+		gwResult, err = e.client.Execute(ctx, op.ToolName, args)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert gateway.Result to runtime.Result
+	return &runtime.Result{
+		Status:      gwResult.Status,
+		ContentType: gwResult.ContentType,
+		Body:        gwResult.Body,
+	}, nil
 }

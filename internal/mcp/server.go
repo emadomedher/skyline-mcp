@@ -7,20 +7,26 @@ import (
 	"io"
 	"log"
 
+	"mcp-api-bridge/internal/canonical"
 	"mcp-api-bridge/internal/redact"
 	"mcp-api-bridge/internal/runtime"
 )
 
 const protocolVersion = "2024-11-05"
 
+// Executor interface for executing operations
+type Executor interface {
+	Execute(ctx context.Context, op *canonical.Operation, args map[string]any) (*runtime.Result, error)
+}
+
 type Server struct {
 	registry *Registry
-	executor *runtime.Executor
+	executor Executor
 	logger   *log.Logger
 	redactor *redact.Redactor
 }
 
-func NewServer(registry *Registry, executor *runtime.Executor, logger *log.Logger, redactor *redact.Redactor) *Server {
+func NewServer(registry *Registry, executor Executor, logger *log.Logger, redactor *redact.Redactor) *Server {
 	return &Server{
 		registry: registry,
 		executor: executor,

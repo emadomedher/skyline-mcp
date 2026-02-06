@@ -125,13 +125,13 @@ Config (YAML)
             → Runtime Executor (HTTP requests, gRPC calls, JSON-RPC envelopes, auth, retries)
 ```
 
-### Config Server &nbsp;`cmd/config-server`
+### Config Server &nbsp;`cmd/skyline-server`
 
 A web application for managing API configurations through profiles. Encrypted storage, bearer-token auth, and a built-in UI for creating, editing, and testing configurations before deploying them.
 
 ```bash
 export CONFIG_SERVER_KEY="$(openssl rand -base64 32)"
-go run ./cmd/config-server --listen :9190
+go run ./cmd/skyline-server --listen :9190
 # Open http://localhost:9190/ui/
 ```
 
@@ -288,7 +288,7 @@ Instead of local YAML files, pull config from the config server at runtime:
 ```bash
 # Start the config server
 export CONFIG_SERVER_KEY="$(openssl rand -base64 32)"
-go run ./cmd/config-server --listen :9190
+go run ./cmd/skyline-server --listen :9190
 
 # Create a profile via the web UI at http://localhost:9190/ui/
 # Then run the MCP server with that profile:
@@ -307,7 +307,7 @@ skyline-mcp-api-bridge/
 ├── cmd/                              # ── Entrypoints ────────────────
 │   ├── mcp-api-bridge/               #    Skyline MCP server
 │   │   └── main.go
-│   └── config-server/                #    Config profile server + web UI
+│   └── skyline-server/                #    Config profile server + web UI
 │       ├── main.go
 │       └── ui/                       #    Embedded frontend
 │           ├── index.html
@@ -371,7 +371,7 @@ skyline-mcp-api-bridge/
 │   ├── config.yaml.example           #    Full config with all API types
 │   ├── config.mock.yaml              #    Config for mock-api server
 │   ├── config.yaml                   #    Minimal working config
-│   └── config-server.env.example     #    Config server env template
+│   └── skyline-server.env.example     #    Config server env template
 │
 ├── assets/                           # ── Branding ───────────────────
 │   ├── skyline-banner.svg
@@ -389,7 +389,7 @@ skyline-mcp-api-bridge/
 ```bash
 # Build both binaries
 go build -o ./bin/mcp-api-bridge ./cmd/mcp-api-bridge
-go build -o ./bin/config-server ./cmd/config-server
+go build -o ./bin/skyline-server ./cmd/skyline-server
 
 # Run tests
 go test ./...

@@ -21,14 +21,17 @@ func LooksLikeOpenAPI(raw []byte) bool {
 func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride string) (*canonical.Service, error) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
+
 	doc, err := loader.LoadFromData(raw)
 	if err != nil {
 		return nil, err
 	}
+
 	opts := []openapi3.ValidationOption{
 		openapi3.DisableExamplesValidation(),
 		openapi3.DisableSchemaDefaultsValidation(),
 	}
+
 	if err := doc.Validate(ctx, opts...); err != nil {
 		sanitized, serr := sanitizeExamples(raw)
 		if serr != nil {

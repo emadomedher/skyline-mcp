@@ -56,7 +56,7 @@ Skyline auto-detects the spec format. No manual configuration needed.
 | **OpenRPC / JSON-RPC** | `openrpc` field in JSON | Wraps calls in JSON-RPC 2.0 envelopes; supports `rpc.discover` |
 | **Postman Collections** | `schema.getpostman.com` in JSON | Walks v2.x collection items; supports folders, path/query/header params, body modes |
 | **Google API Discovery** | `discoveryVersion` field | Maps Google's discovery format to REST operations |
-| **Jenkins** | `/api/json` object graph | Read-only by default; write operations via explicit allowlist |
+| **Jenkins 2.545** | `/api/json` object graph | **34 operations** including jobs, builds, pipelines, Blue Ocean, nodes, credentials, plugins, queue management. Full CSRF support. See [Jenkins 2.545 docs](docs/JENKINS-2.545-SUPPORT.md) |
 | **Jira Cloud** | `*.atlassian.net` host | Auto-fetches the official Atlassian OpenAPI spec |
 
 ---

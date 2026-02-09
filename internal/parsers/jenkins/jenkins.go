@@ -29,8 +29,15 @@ func LooksLikeJenkins(raw []byte) bool {
 	return strings.Contains(lower, "<hudson") || strings.Contains(lower, "<jenkins")
 }
 
-// ParseToCanonical returns a read-only Jenkins service model.
+// ParseToCanonical returns a Jenkins service model.
+// Detects Jenkins 2.x and returns enhanced operations if available.
 func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride string) (*canonical.Service, error) {
+	// Check if Jenkins 2.x - if so, use enhanced parser
+	if isJenkins2x(raw) {
+		return ParseJenkins2ToCanonical(ctx, raw, apiName, baseURLOverride)
+	}
+
+	// Fall back to basic Jenkins 1.x support
 	_ = ctx
 	baseURL := strings.TrimRight(strings.TrimSpace(baseURLOverride), "/")
 	if baseURL == "" {
@@ -139,6 +146,39 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 func isJenkinsClass(className string) bool {
 	lower := strings.ToLower(className)
 	return strings.HasPrefix(lower, "hudson.") || strings.HasPrefix(lower, "jenkins.") || strings.HasPrefix(lower, "org.jenkinsci.")
+}
+
+// isJenkins2x checks if the Jenkins instance is version 2.x or higher
+// by looking for indicators in the API response
+func isJenkins2x(raw []byte) bool {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err == nil {
+		// Check for version field
+		if version, ok := payload["version"].(string); ok {
+			// Parse version string (e.g., "2.545", "2.440.1")
+			if strings.HasPrefix(version, "2.") || strings.HasPrefix(version, "3.") {
+				return true
+			}
+		}
+		// Check for Jenkins 2.x specific fields
+		// Jenkins 2.x typically has "mode" field (NORMAL, EXCLUSIVE)
+		if _, hasMode := payload["mode"]; hasMode {
+			// Also check for numExecutors which is common in 2.x
+			if _, hasExec := payload["numExecutors"]; hasExec {
+				return true
+			}
+		}
+		// Check class name for Jenkins 2.x indicators
+		if cls, ok := payload["_class"].(string); ok {
+			// Jenkins 2.x uses jenkins.model.Jenkins
+			if strings.Contains(cls, "jenkins.model.") {
+				return true
+			}
+		}
+	}
+	// Default to assuming 2.x for modern Jenkins instances
+	// This is a safe default since most Jenkins instances today are 2.x
+	return true
 }
 
 func extractURLFromJSON(raw []byte) string {

@@ -12,9 +12,11 @@ type Operation struct {
 	ServiceName       string
 	ID                string
 	ToolName          string
-	Method            string
+	Method            string // HTTP method (GET, POST, etc.)
+	HTTPMethod        string // Alias for Method (for clarity)
 	Path              string
 	Summary           string
+	Description       string // Detailed description
 	Parameters        []Parameter
 	RequestBody       *RequestBody
 	InputSchema       map[string]any
@@ -24,6 +26,7 @@ type Operation struct {
 	DynamicURLParam   string
 	QueryParamsObject string
 	RequiresCrumb     bool
+	ContentType       string // Content-Type header
 	GraphQL           *GraphQLOperation
 	JSONRPC           *JSONRPCOperation
 	Protocol          string // "http" (default) or "grpc"
@@ -43,6 +46,12 @@ type RequestBody struct {
 	Required    bool
 	ContentType string
 	Schema      map[string]any
+	Content     map[string]MediaType // OpenAPI-style content types
+}
+
+// MediaType describes a media type schema
+type MediaType struct {
+	Schema map[string]any
 }
 
 type GraphQLOperation struct {
@@ -51,6 +60,23 @@ type GraphQLOperation struct {
 	ArgTypes          map[string]string
 	DefaultSelection  string
 	RequiresSelection bool
+	// Composite operation support (CRUD grouping)
+	Composite         *GraphQLComposite
+}
+
+// GraphQLComposite holds metadata for composite CRUD operations
+type GraphQLComposite struct {
+	Pattern  string             // Base type name (e.g., "Issue")
+	Create   *GraphQLOpRef      // createIssue operation
+	Update   *GraphQLOpRef      // updateIssue operation
+	Delete   *GraphQLOpRef      // deleteIssue operation
+	SetOps   []*GraphQLOpRef    // issueSetLabels, etc.
+}
+
+// GraphQLOpRef references a GraphQL operation
+type GraphQLOpRef struct {
+	Name string // Operation name (e.g., "createIssue")
+	Type string // "query" or "mutation"
 }
 
 type JSONRPCOperation struct {

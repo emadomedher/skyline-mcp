@@ -12,16 +12,17 @@ type Config struct {
 }
 
 type APIConfig struct {
-	Name            string           `json:"name" yaml:"name"`
-	SpecURL         string           `json:"spec_url" yaml:"spec_url"`
-	SpecFile        string           `json:"spec_file,omitempty" yaml:"spec_file,omitempty"`
-	SpecType        string           `json:"spec_type,omitempty" yaml:"spec_type,omitempty"`
-	BaseURLOverride string           `json:"base_url_override,omitempty" yaml:"base_url_override,omitempty"`
-	Auth            *AuthConfig      `json:"auth,omitempty" yaml:"auth,omitempty"`
-	TimeoutSeconds  *int             `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
-	Retries         *int             `json:"retries,omitempty" yaml:"retries,omitempty"`
-	Jenkins         *JenkinsConfig   `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
-	Filter          *OperationFilter `json:"filter,omitempty" yaml:"filter,omitempty"`
+	Name            string                `json:"name" yaml:"name"`
+	SpecURL         string                `json:"spec_url" yaml:"spec_url"`
+	SpecFile        string                `json:"spec_file,omitempty" yaml:"spec_file,omitempty"`
+	SpecType        string                `json:"spec_type,omitempty" yaml:"spec_type,omitempty"`
+	BaseURLOverride string                `json:"base_url_override,omitempty" yaml:"base_url_override,omitempty"`
+	Auth            *AuthConfig           `json:"auth,omitempty" yaml:"auth,omitempty"`
+	TimeoutSeconds  *int                  `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries         *int                  `json:"retries,omitempty" yaml:"retries,omitempty"`
+	Jenkins         *JenkinsConfig        `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
+	Filter          *OperationFilter      `json:"filter,omitempty" yaml:"filter,omitempty"`
+	Optimization    *GraphQLOptimization  `json:"optimization,omitempty" yaml:"optimization,omitempty"`
 }
 
 type AuthConfig struct {

@@ -566,6 +566,140 @@ go test ./...
 
 ---
 
+## Examples & Testing
+
+### Mocking Bird - Test API Server
+
+**Repository:** [github.com/emadomedher/mocking-bird](https://github.com/emadomedher/mocking-bird)
+
+Mocking Bird is a standalone mock API server that implements **all 7 protocol types** supported by Skyline. It's the perfect testing companion for validating Skyline's functionality without needing real API credentials or external dependencies.
+
+#### Why Mocking Bird?
+
+**1. Protocol Coverage Testing**  
+Test every spec adapter (OpenAPI, GraphQL, WSDL, OData, etc.) locally without external services:
+
+```yaml
+apis:
+  - name: pets-openapi
+    spec_url: http://localhost:9999/openapi/openapi.json
+  - name: cars-graphql
+    spec_url: http://localhost:9999/graphql/schema
+  - name: plants-soap
+    spec_url: http://localhost:9999/wdsl/wsdl
+  - name: movies-odata
+    spec_url: http://localhost:9999/odata/$metadata
+  - name: calculator-jsonrpc
+    spec_url: http://localhost:9999/jsonrpc/openrpc.json
+```
+
+**2. Integration Testing**  
+Validate Skyline's MCP tool generation, JSON Schema validation, and runtime execution without hitting production APIs.
+
+**3. Development Workflow**  
+Develop and test new Skyline features (auth handling, error recovery, spec parsing) against a predictable, controllable API environment.
+
+**4. CI/CD Pipeline Integration**  
+Run automated tests in CI without API keys, rate limits, or network flakiness.
+
+#### Mocking Bird API Coverage
+
+| Mock API | Protocol | Port | Spec Endpoint |
+|---|---|---|---|
+| **Pets** | OpenAPI 3.x | 9999 | `/openapi/openapi.json` |
+| **Dinosaurs** | Swagger 2.0 | 9999 | `/swagger/swagger.json` |
+| **Plants** | WSDL/SOAP | 9999 | `/wdsl/wsdl` |
+| **Cars** | GraphQL | 9999 | `/graphql/schema` |
+| **Movies** | OData v4 | 9999 | `/odata/$metadata` |
+| **Calculator** | JSON-RPC 2.0 | 9999 | `/jsonrpc/openrpc.json` |
+| **Clothes** | gRPC | 50051-54 | Server reflection enabled |
+
+#### Quick Start with Mocking Bird
+
+```bash
+# Clone and run Mocking Bird
+git clone https://github.com/emadomedher/mocking-bird
+cd mocking-bird
+go run .
+# Listening on http://localhost:9999
+
+# In another terminal, run Skyline with mock config
+cd skyline-mcp-api-bridge
+go run ./cmd/mcp-api-bridge --config ./config.all-mocks.yaml
+```
+
+#### Example Config for Mocking Bird
+
+See **[config.all-mocks.yaml](config.all-mocks.yaml)** for a complete working config that uses all Mocking Bird endpoints:
+
+```yaml
+apis:
+  - name: pets-openapi
+    spec_url: http://localhost:9999/openapi/openapi.json
+    base_url_override: http://localhost:9999/openapi
+
+  - name: dinosaurs-swagger
+    spec_url: http://localhost:9999/swagger/swagger.json
+    base_url_override: http://localhost:9999/swagger
+    auth:
+      type: bearer
+      token: MOCK_DINO_TOKEN
+
+  - name: plants-soap
+    spec_url: http://localhost:9999/wdsl/wsdl
+    auth:
+      type: bearer
+      token: MOCK_TOKEN
+
+  - name: cars-graphql
+    spec_url: http://localhost:9999/graphql/schema
+    base_url_override: http://localhost:9999/graphql
+    auth:
+      type: basic
+      username: graphql-user
+      password: MOCK_GRAPHQL_PASS
+
+  - name: movies-odata
+    spec_url: http://localhost:9999/odata/$metadata
+    base_url_override: http://localhost:9999/odata
+
+  - name: calculator-jsonrpc
+    spec_url: http://localhost:9999/jsonrpc/openrpc.json
+    base_url_override: http://localhost:9999/jsonrpc
+    auth:
+      type: api-key
+      header: X-API-Key
+      value: calc-key
+```
+
+#### Test All Tools
+
+Once running, use the MCP inspector or any MCP client to verify:
+
+```bash
+# List all generated tools
+mcpx tools list
+
+# Test OpenAPI (Pets)
+mcpx tools call pets-openapi__listPets
+
+# Test GraphQL (Cars)
+mcpx tools call cars-graphql__query_listCars
+
+# Test SOAP (Plants)
+mcpx tools call plants-soap__getAllPlants
+
+# Test OData (Movies)
+mcpx tools call movies-odata__listMovies
+
+# Test JSON-RPC (Calculator)
+mcpx tools call calculator-jsonrpc__add '{"a": 5, "b": 3}'
+```
+
+**Result:** Full end-to-end validation of Skyline's spec parsing, tool generation, and runtime execution across all supported protocols.
+
+---
+
 <p align="center">
   <img src="assets/skyline-logo.svg" alt="Skyline" width="400"/>
 </p>

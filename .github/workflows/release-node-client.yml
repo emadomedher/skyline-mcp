@@ -1,0 +1,90 @@
+name: Release Node MCP Client
+
+on:
+  push:
+    tags:
+      - 'node-client-v*'  # Trigger on tags like node-client-v0.1.0
+
+permissions:
+  contents: write  # Needed to create releases
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        working-directory: clients/node-mcp-server
+        run: npm ci
+
+      - name: Build package
+        working-directory: clients/node-mcp-server
+        run: npm run build
+
+      - name: Create tarball
+        working-directory: clients/node-mcp-server
+        run: npm pack
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/node-client-v}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: clients/node-mcp-server/*.tgz
+          tag_name: ${{ github.ref_name }}
+          name: Node MCP Client v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Skyline Node MCP Client v${{ steps.version.outputs.VERSION }}
+            
+            **Install directly from this release:**
+            
+            ```bash
+            npm install https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/emadomedher-skyline-mcp-server-${{ steps.version.outputs.VERSION }}.tgz
+            ```
+            
+            Or use the global CLI:
+            
+            ```bash
+            npm install -g https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/emadomedher-skyline-mcp-server-${{ steps.version.outputs.VERSION }}.tgz
+            skyline-mcp
+            ```
+            
+            **Changes in this release:**
+            - Initial release of Skyline MCP Node.js client
+            - WebSocket client for Skyline Gateway
+            - MCP protocol v2024-11-05 support
+            - Auto-reconnection with exponential backoff
+            - TypeScript support with full type definitions
+            
+            ---
+            
+            ### Configuration
+            
+            Set these environment variables:
+            
+            ```bash
+            export SKYLINE_URL="http://localhost:9190"
+            export SKYLINE_PROFILE="your-profile-name"
+            export SKYLINE_TOKEN="your-profile-token"
+            ```
+            
+            See [README](https://github.com/emadomedher/skyline-mcp/tree/main/clients/node-mcp-server) for full documentation.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-tarball
+          path: clients/node-mcp-server/*.tgz
+          retention-days: 90

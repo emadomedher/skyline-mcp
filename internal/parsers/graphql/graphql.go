@@ -65,7 +65,7 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 	// Check if CRUD grouping optimization is enabled
 	opt := GetOptimizationFromContext(ctx)
 	if opt != nil && opt.EnableCRUDGrouping {
-		// Use analyzer to detect patterns and generate composite tools
+		// Use analyzer to detect patterns and generate composite tools for mutations
 		analyzer := gql.NewSchemaAnalyzer(schema)
 		patterns := analyzer.DetectCRUDPatterns()
 		
@@ -74,6 +74,13 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 			return nil, fmt.Errorf("graphql: generate composite tools: %w", err)
 		}
 		service.Operations = ops
+		
+		// CRITICAL FIX: Also include ALL query operations (reads are just as important!)
+		if schema.Query != nil {
+			if err := appendGraphQLOps(service, schema, schema.Query, "query"); err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		// Default behavior: 1:1 mapping of operations to tools
 		if schema.Query != nil {

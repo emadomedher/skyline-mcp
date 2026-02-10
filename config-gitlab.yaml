@@ -2,6 +2,9 @@ apis:
   - name: gitlab
     spec_url: https://gitlab.example.com/api/graphql
     base_url_override: https://gitlab.example.com/api/graphql
+    auth:
+      type: bearer
+      token: glpat-REDACTED-TOKEN-1
     
     # Enable GraphQL CRUD grouping optimization
     optimization:

@@ -1,0 +1,29 @@
+2026/02/11 02:05:07 standalone mode: loading specs directly
+2026/02/11 02:05:07 loading specs...
+2026/02/11 02:05:07 loading spec for gitlab from https://lab.medher.online/api/graphql
+2026/02/11 02:05:08 fetch completed for gitlab (len=68, err=<nil>)
+2026/02/11 02:05:08 parsing spec for gitlab (size=68 bytes)
+2026/02/11 02:05:08 trying adapter: openapi
+2026/02/11 02:05:08 trying adapter: swagger2
+2026/02/11 02:05:08 trying adapter: postman
+2026/02/11 02:05:08 trying adapter: google-discovery
+2026/02/11 02:05:08 trying adapter: openrpc
+2026/02/11 02:05:08 trying adapter: graphql
+2026/02/11 02:05:08 trying adapter: jenkins
+2026/02/11 02:05:08 trying adapter: slack
+2026/02/11 02:05:08 trying adapter: wsdl
+2026/02/11 02:05:08 trying adapter: odata
+2026/02/11 02:05:08 retrying gitlab with graphql introspection from https://lab.medher.online/api/graphql
+2026/02/11 02:05:09 trying adapter: openapi
+2026/02/11 02:05:09 trying adapter: swagger2
+2026/02/11 02:05:09 trying adapter: postman
+2026/02/11 02:05:09 trying adapter: google-discovery
+2026/02/11 02:05:10 trying adapter: openrpc
+2026/02/11 02:05:10 trying adapter: graphql
+2026/02/11 02:05:10 loaded 1 services
+2026/02/11 02:05:10 building registry...
+2026/02/11 02:05:10 registry ready (23 tools)
+2026/02/11 02:05:53 [EXECUTOR] Starting execute for gitlab__issue_manage (timeout=10s)
+2026/02/11 02:05:53 [EXECUTOR] Resolved URL: https://lab.medher.online/api/graphqlhttps://lab.medher.online/api/graphql
+2026/02/11 02:05:53 [EXECUTOR] Making HTTP request: POST https://lab.medher.online/api/graphqlhttps://lab.medher.online/api/graphql (attempt 1/1)
+2026/02/11 02:05:53 [EXECUTOR] HTTP request completed (err=<nil>, status=406)

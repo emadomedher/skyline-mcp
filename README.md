@@ -226,13 +226,7 @@ apis:
     auth:
       type: basic
       username: ${JENKINS_USER}
-      password: ${JENKINS_PASS}
-    jenkins:
-      allow_writes:
-        - name: triggerJob
-          method: POST
-          path: /job/{job}/build
-          summary: Trigger a Jenkins job build
+      password: ${JENKINS_API_TOKEN}  # Generate at /me/configure
 
 timeout_seconds: 10
 retries: 1
@@ -381,6 +375,110 @@ skyline-mcp-api-bridge/
 ├── go.sum
 └── README.md
 ```
+
+---
+
+## Jenkins 2.545 Integration
+
+Skyline provides comprehensive support for Jenkins 2.x with **34 operations** covering all major Jenkins APIs. Perfect for CI/CD automation, build management, and pipeline orchestration.
+
+### Quick Start
+
+```yaml
+apis:
+  - name: jenkins
+    spec_url: https://jenkins.example.com/api/json
+    base_url_override: https://jenkins.example.com
+    auth:
+      type: basic
+      username: admin
+      password: ${JENKINS_API_TOKEN}
+```
+
+### Features
+
+- ✅ **Auto-detects Jenkins 2.x** - No manual configuration
+- ✅ **34 operations** across 10 API categories
+- ✅ **Automatic CSRF handling** - Crumb fetching and caching
+- ✅ **Parameterized builds** - Full parameter support
+- ✅ **Pipeline support** - Jenkinsfile creation, replay, stages
+- ✅ **Blue Ocean API** - Modern Pipeline visualization
+
+### Operations Coverage
+
+| Category | Operations | Examples |
+|----------|------------|----------|
+| **Core** (3) | Root, object queries, version | `jenkins__getVersion`, `jenkins__getRoot` |
+| **Job Management** (9) | CRUD, enable/disable, copy | `jenkins__createJob`, `jenkins__listJobs` |
+| **Build Operations** (7) | Trigger, stop, logs, artifacts | `jenkins__triggerBuild`, `jenkins__getBuildLog` |
+| **Pipeline** (3) | Create, replay, stages | `jenkins__createPipeline`, `jenkins__getPipelineStages` |
+| **Queue** (2) | View, cancel | `jenkins__getQueue`, `jenkins__cancelQueueItem` |
+| **Nodes** (4) | List, configure, offline, delete | `jenkins__listNodes`, `jenkins__markNodeOffline` |
+| **Credentials** (1) | List stores | `jenkins__listCredentials` |
+| **Plugins** (1) | List installed | `jenkins__listPlugins` |
+| **Blue Ocean** (2) | Pipelines, runs | `jenkins__blueOceanPipelines` |
+| **Users** (2) | User info | `jenkins__getCurrentUser`, `jenkins__getUser` |
+
+### Example Usage
+
+**List all jobs:**
+```json
+{
+  "tool": "jenkins__listJobs",
+  "arguments": {}
+}
+```
+
+**Trigger a parameterized build:**
+```json
+{
+  "tool": "jenkins__triggerBuildWithParameters",
+  "arguments": {
+    "jobName": "deploy-prod",
+    "parameters": {
+      "BRANCH": "main",
+      "ENVIRONMENT": "production"
+    }
+  }
+}
+```
+
+**Get build console log:**
+```json
+{
+  "tool": "jenkins__getBuildLog",
+  "arguments": {
+    "jobName": "my-job",
+    "buildNumber": "lastBuild"
+  }
+}
+```
+
+### Deployment Example
+
+**Kubernetes (Tested with Jenkins 2.545):**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+spec:
+  template:
+    spec:
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:2.545-jdk21
+        ports:
+        - containerPort: 8080
+```
+
+See **[docs/JENKINS-2.545-SUPPORT.md](docs/JENKINS-2.545-SUPPORT.md)** for complete documentation including:
+- All 34 operations with examples
+- Authentication guide (API tokens)
+- CSRF handling details
+- Troubleshooting guide
+- Pipeline operations
+- Blue Ocean integration
 
 ---
 

@@ -1,5 +1,18 @@
 import { createApp, onMounted, reactive, ref } from "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
 
+// UUID polyfill for HTTP connections (crypto.randomUUID requires HTTPS)
+function generateUUID() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for HTTP
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 const typeIcons = {
   openapi: "simple-icons:openapiinitiative",
   swagger2: "simple-icons:swagger",
@@ -100,7 +113,7 @@ const apiClient = {
 
 function blankApi() {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name: "",
     baseUrl: "",
     specUrl: "",
@@ -268,7 +281,7 @@ createApp({
         activeProfile.value = name;
         const cfg = data.config || {};
         form.apis = (cfg.apis || []).map((api) => ({
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           name: api.name || "",
           baseUrl: api.base_url_override || "",
           specUrl: api.spec_url || "",
@@ -532,7 +545,8 @@ createApp({
 
     async function toggleFilterConfig(api) {
       api.showFilterConfig = !api.showFilterConfig;
-      if (api.showFilterConfig && api.availableOperations.length === 0) {
+      // Always fetch operations when opening (auto-load + refresh)
+      if (api.showFilterConfig) {
         await fetchOperations(api);
       }
     }
@@ -551,9 +565,12 @@ createApp({
         }
         api.availableOperations = result.operations || [];
 
-        // Pre-select operations based on existing filter OR default behavior
-        if (api.filterMode && api.filterOperations.length > 0) {
-          // Load existing filter selections
+        // Pre-select operations based on current state
+        if (api.filterMode) {
+          // Mode already selected - apply mode logic
+          onFilterModeChange(api);
+        } else if (api.filterOperations.length > 0) {
+          // No mode yet, but has saved filter - restore selections
           api.filterOperations.forEach((filter) => {
             if (filter.operation_id) {
               api.availableOperations.forEach((op) => {
@@ -563,15 +580,15 @@ createApp({
               });
             }
           });
-        } else if (api.filterMode === "allowlist") {
-          // Allowlist mode: Start with ALL operations selected (default behavior = allow all)
+        } else {
+          // No filter configured yet - show ALL operations as checked (current state: all allowed)
           api.availableOperations.forEach((op) => {
             api.selectedOperations.add(op.id);
           });
         }
-        // Blocklist mode: Start with NO operations selected (default behavior = block none)
 
-        setStatus("ok", `Loaded ${api.availableOperations.length} operations.`);
+        const modeHint = api.filterMode ? "" : " All operations currently allowed. Choose filter mode to restrict.";
+        setStatus("ok", `Loaded ${api.availableOperations.length} operations.${modeHint}`);
       } catch (err) {
         setStatus("error", err.message);
       } finally {
@@ -606,21 +623,24 @@ createApp({
     }
 
     function onFilterModeChange(api) {
-      // Reset selections based on new mode to match default behavior
+      // Mode acts as "select all / deselect all" toggle
       if (api.availableOperations.length > 0) {
         api.selectedOperations.clear();
 
         if (api.filterMode === "allowlist") {
-          // Allowlist: Start with all selected (default = allow all)
+          // Allowlist: Check ALL operations (allow everything, then uncheck unwanted)
           api.availableOperations.forEach((op) => {
             api.selectedOperations.add(op.id);
           });
+          setStatus("ok", `Allowlist mode: All ${api.availableOperations.length} operations selected. Uncheck what you don't want to allow.`);
+        } else if (api.filterMode === "blocklist") {
+          // Blocklist: Check NONE (block nothing, then check what you want to block)
+          setStatus("ok", `Blocklist mode: No operations selected. Check what you want to block.`);
         }
-        // Blocklist: Start with none selected (default = block none)
       }
 
-      // Auto-apply when mode changes if operations are selected
-      if (api.filterMode && api.selectedOperations.size > 0) {
+      // Auto-apply filter
+      if (api.filterMode && api.availableOperations.length > 0) {
         applyFilterAuto(api);
       }
     }

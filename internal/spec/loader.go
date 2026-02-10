@@ -25,6 +25,7 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 		NewOpenRPCAdapter(),
 		NewGraphQLAdapter(),
 		NewJenkinsAdapter(),
+		NewSlackAdapter(),
 		NewWSDLAdapter(),
 		NewODataAdapter(),
 	}

@@ -1,25 +1,50 @@
 {
-  "name": "@skyline/mcp-server",
+  "name": "@emadomedher/skyline-mcp-server",
   "version": "0.1.0",
-  "description": "Node.js MCP server that connects to Skyline API Gateway",
+  "description": "Node.js MCP server that connects to Skyline API Gateway for centralized API access",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "skyline-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
     "model-context-protocol",
     "api-gateway",
-    "skyline"
+    "skyline",
+    "claude",
+    "ai",
+    "llm",
+    "openapi",
+    "graphql",
+    "grpc"
   ],
-  "author": "",
+  "author": "Emad Medher <emad@medher.online>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emadomedher/skyline-mcp.git",
+    "directory": "clients/node-mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/emadomedher/skyline-mcp/issues"
+  },
+  "homepage": "https://github.com/emadomedher/skyline-mcp#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "ws": "^8.18.0"

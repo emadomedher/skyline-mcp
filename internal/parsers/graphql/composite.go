@@ -129,8 +129,19 @@ func buildCompositeOperation(schema *ast.Schema, apiName, baseURL string, patter
 		strings.Join(capabilities, ", "),
 	)
 
+	// Build input schema for MCP
+	inputSchema := map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": false,
+	}
+	if len(required) > 0 {
+		inputSchema["required"] = required
+	}
+
 	// Build operation
 	op := &canonical.Operation{
+		ServiceName: apiName, // CRITICAL: needed for service registry lookup
 		ToolName:    toolName,
 		ID:          baseTypeLower + "_manage",
 		Summary:     fmt.Sprintf("Manage %s (composite)", pattern.BaseType),
@@ -148,6 +159,7 @@ func buildCompositeOperation(schema *ast.Schema, apiName, baseURL string, patter
 				},
 			},
 		},
+		InputSchema: inputSchema,
 		Method:      "POST",
 		HTTPMethod:  "POST",
 		Path:        baseURL,

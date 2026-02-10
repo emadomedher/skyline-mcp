@@ -148,7 +148,8 @@ func buildCompositeOperation(schema *ast.Schema, apiName, baseURL string, patter
 		Description: description,
 		Parameters:  params,
 		RequestBody: &canonical.RequestBody{
-			Required: true,
+			Required:    true,
+			ContentType: "application/json",
 			Content: map[string]canonical.MediaType{
 				"application/json": {
 					Schema: map[string]any{
@@ -162,7 +163,7 @@ func buildCompositeOperation(schema *ast.Schema, apiName, baseURL string, patter
 		InputSchema: inputSchema,
 		Method:      "POST",
 		HTTPMethod:  "POST",
-		Path:        baseURL,
+		Path:        "", // GraphQL operations use baseURL directly
 		ContentType: "application/json",
 		GraphQL: &canonical.GraphQLOperation{
 			OperationType: "mutation",
@@ -185,9 +186,20 @@ func fieldToOpRef(field *ast.FieldDefinition) *canonical.GraphQLOpRef {
 	if field == nil {
 		return nil
 	}
+	
+	// Extract input type from first argument (typically 'input')
+	inputType := ""
+	for _, arg := range field.Arguments {
+		if arg != nil && arg.Name == "input" && arg.Type != nil {
+			inputType = formatType(arg.Type)
+			break
+		}
+	}
+	
 	return &canonical.GraphQLOpRef{
-		Name: field.Name,
-		Type: "mutation",
+		Name:      field.Name,
+		Type:      "mutation",
+		InputType: inputType,
 	}
 }
 

@@ -75,8 +75,9 @@ type GraphQLComposite struct {
 
 // GraphQLOpRef references a GraphQL operation
 type GraphQLOpRef struct {
-	Name string // Operation name (e.g., "createIssue")
-	Type string // "query" or "mutation"
+	Name      string // Operation name (e.g., "createIssue")
+	Type      string // "query" or "mutation"
+	InputType string // Input type for the operation (e.g., "CreateIssueInput!")
 }
 
 type JSONRPCOperation struct {

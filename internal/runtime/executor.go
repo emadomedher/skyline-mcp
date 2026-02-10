@@ -306,6 +306,11 @@ func buildGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, err
 		return nil, nil
 	}
 
+	// Check if this is a composite operation
+	if gql.Composite != nil {
+		return buildCompositeGraphQLBody(op, args)
+	}
+
 	selection := ""
 	if val, ok := args["selection"]; ok {
 		selection = strings.TrimSpace(valueToString(val))
@@ -364,6 +369,83 @@ func buildGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, err
 	if len(vars) > 0 {
 		payload["variables"] = vars
 	}
+	return json.Marshal(payload)
+}
+
+// buildCompositeGraphQLBody orchestrates multiple GraphQL mutations for CRUD composite operations
+func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, error) {
+	comp := op.GraphQL.Composite
+	if comp == nil {
+		return nil, fmt.Errorf("composite operation missing metadata")
+	}
+
+	// Extract input object from args
+	inputVal, hasInput := args["input"]
+	inputObj := make(map[string]any)
+	
+	if hasInput {
+		if inputMap, ok := inputVal.(map[string]any); ok {
+			for k, v := range inputMap {
+				inputObj[k] = v
+			}
+		}
+	}
+	
+	// Check for top-level 'id' argument (backwards compat)
+	if topLevelID, ok := args["id"]; ok {
+		inputObj["id"] = topLevelID
+	}
+
+	// DECISION LOGIC: Check if ID exists in the input object
+	_, hasID := inputObj["id"]
+	
+	var opRef *canonical.GraphQLOpRef
+	var opAlias string
+	
+	if !hasID && comp.Create != nil {
+		// No ID = CREATE operation
+		opRef = comp.Create
+		opAlias = "create"
+	} else if hasID && comp.Update != nil {
+		// Has ID = UPDATE operation  
+		opRef = comp.Update
+		opAlias = "update"
+	} else {
+		return nil, fmt.Errorf("no suitable operation for %s (hasID=%v)", comp.Pattern, hasID)
+	}
+
+	if opRef.InputType == "" {
+		return nil, fmt.Errorf("operation %s missing input type", opRef.Name)
+	}
+
+	// Build GraphQL mutation
+	opName := fmt.Sprintf("composite_%s_%s", strings.ToLower(comp.Pattern), opAlias)
+	varDef := fmt.Sprintf("$input: %s", opRef.InputType)
+	
+	// Default selection - include common fields
+	selection := fmt.Sprintf("{ %s { id } errors }", strings.ToLower(comp.Pattern))
+	if userSelection, ok := args["selection"]; ok {
+		if selStr := strings.TrimSpace(valueToString(userSelection)); selStr != "" {
+			selection = normalizeSelection(selStr)
+		}
+	}
+
+	query := fmt.Sprintf(
+		"mutation %s(%s) { %s: %s(input: $input) %s }",
+		opName,
+		varDef,
+		opAlias,
+		opRef.Name,
+		selection,
+	)
+
+	payload := map[string]any{
+		"query": query,
+		"variables": map[string]any{
+			"input": inputObj,
+		},
+	}
+	
 	return json.Marshal(payload)
 }
 

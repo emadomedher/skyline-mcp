@@ -37,6 +37,7 @@ profiles.enc.yaml
 skyline-audit.db
 skyline-audit.db-journal
 *.enc.yaml
+.encryption-key
 
 # Temp Files
 tmp/

@@ -1,0 +1,6 @@
+apis:
+  - name: gitlab
+    spec_url: https://lab.medher.online/api/graphql
+    base_url_override: https://lab.medher.online/api/graphql
+    
+    # No optimization (default 1:1 mapping)

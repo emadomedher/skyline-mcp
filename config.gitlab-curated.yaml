@@ -1,0 +1,106 @@
+apis:
+  - name: gitlab
+    spec_url: https://lab.medher.online/api/graphql
+    base_url_override: https://lab.medher.online/api/graphql
+    auth:
+      type: bearer
+      token: glpat-r3x_clwFZLNswLh9ijX7NW86MQp1OjUH.01.0w1bxmqqk
+    
+    # Filter to only essential operations (curated from 315 → ~40 tools)
+    filter:
+      mode: allowlist
+      operations:
+        # --- Projects (query) ---
+        - operation_id: "gitlab__query_project"
+          summary: "Get single project"
+        - operation_id: "gitlab__query_projects"
+          summary: "List projects"
+        
+        # --- Groups ---
+        - operation_id: "gitlab__query_group"
+          summary: "Get group"
+        - operation_id: "gitlab__query_groups"
+          summary: "List groups"
+        
+        # --- Issues ---
+        - operation_id: "gitlab__query_issue"
+          summary: "Get issue"
+        - operation_id: "gitlab__query_issues"
+          summary: "List issues"
+        - operation_id: "gitlab__mutation_createIssue"
+          summary: "Create issue"
+        - operation_id: "gitlab__mutation_updateIssue"
+          summary: "Update issue"
+        - operation_id: "gitlab__mutation_issueSetAssignees"
+          summary: "Set issue assignees"
+        - operation_id: "gitlab__mutation_issueSetLabels"
+          summary: "Set issue labels"
+        - operation_id: "gitlab__mutation_issueSetMilestone"
+          summary: "Set issue milestone"
+        
+        # --- Merge Requests ---
+        - operation_id: "gitlab__query_mergeRequest"
+          summary: "Get merge request"
+        - operation_id: "gitlab__query_mergeRequests"
+          summary: "List merge requests"
+        - operation_id: "gitlab__mutation_mergeRequestCreate"
+          summary: "Create MR"
+        - operation_id: "gitlab__mutation_mergeRequestUpdate"
+          summary: "Update MR"
+        - operation_id: "gitlab__mutation_mergeRequestAccept"
+          summary: "Merge MR"
+        - operation_id: "gitlab__mutation_mergeRequestSetAssignees"
+          summary: "Set MR assignees"
+        - operation_id: "gitlab__mutation_mergeRequestSetReviewers"
+          summary: "Set MR reviewers"
+        - operation_id: "gitlab__mutation_mergeRequestSetLabels"
+          summary: "Set MR labels"
+        
+        # --- Repository / Commits ---
+        - operation_id: "gitlab__mutation_commitCreate"
+          summary: "Create commit"
+        - operation_id: "gitlab__mutation_createBranch"
+          summary: "Create branch"
+        - operation_id: "gitlab__mutation_branchDelete"
+          summary: "Delete branch"
+        
+        # --- CI/CD ---
+        - operation_id: "gitlab__mutation_pipelineCreate"
+          summary: "Trigger pipeline"
+        - operation_id: "gitlab__mutation_pipelineCancel"
+          summary: "Cancel pipeline"
+        - operation_id: "gitlab__mutation_pipelineRetry"
+          summary: "Retry pipeline"
+        - operation_id: "gitlab__mutation_jobPlay"
+          summary: "Play manual job"
+        - operation_id: "gitlab__mutation_jobCancel"
+          summary: "Cancel job"
+        - operation_id: "gitlab__mutation_jobRetry"
+          summary: "Retry job"
+        
+        # --- Users ---
+        - operation_id: "gitlab__query_user"
+          summary: "Get user"
+        - operation_id: "gitlab__query_users"
+          summary: "List users"
+        - operation_id: "gitlab__query_currentUser"
+          summary: "Get current user"
+        
+        # --- Comments / Notes ---
+        - operation_id: "gitlab__mutation_createNote"
+          summary: "Create comment"
+        - operation_id: "gitlab__mutation_updateNote"
+          summary: "Update comment"
+        - operation_id: "gitlab__mutation_destroyNote"
+          summary: "Delete comment"
+        
+        # --- Snippets ---
+        - operation_id: "gitlab__mutation_createSnippet"
+          summary: "Create snippet"
+        - operation_id: "gitlab__mutation_updateSnippet"
+          summary: "Update snippet"
+        - operation_id: "gitlab__mutation_destroySnippet"
+          summary: "Delete snippet"
+
+timeout_seconds: 30
+retries: 2

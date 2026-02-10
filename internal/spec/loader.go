@@ -12,6 +12,7 @@ import (
 	"mcp-api-bridge/internal/canonical"
 	"mcp-api-bridge/internal/config"
 	grpcparser "mcp-api-bridge/internal/parsers/grpc"
+	graphqlparser "mcp-api-bridge/internal/parsers/graphql"
 	"mcp-api-bridge/internal/redact"
 )
 
@@ -80,7 +81,14 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 				if !adapter.Detect(raw) {
 					continue
 				}
-				parsed, err := adapter.Parse(ctx, raw, api.Name, api.BaseURLOverride)
+				
+				// Add GraphQL optimization to context if this is a GraphQL API
+				parseCtx := ctx
+				if adapter.Name() == "graphql" && api.Optimization != nil {
+					parseCtx = graphqlparser.SetOptimizationInContext(ctx, api.Optimization)
+				}
+				
+				parsed, err := adapter.Parse(parseCtx, raw, api.Name, api.BaseURLOverride)
 				if err != nil {
 					return nil, "", fmt.Errorf("%s parse: %w", adapter.Name(), err)
 				}

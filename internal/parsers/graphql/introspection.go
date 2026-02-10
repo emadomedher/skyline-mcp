@@ -131,13 +131,21 @@ func ParseIntrospectionToCanonicalWithContext(ctx context.Context, raw []byte, a
 	// Check if CRUD grouping optimization is enabled
 	opt := GetOptimizationFromContext(ctx)
 	if opt != nil && opt.EnableCRUDGrouping {
+		// Build type map (needed for query operations)
+		typeMap := map[string]introspectionType{}
+		for _, t := range payload.Data.Schema.Types {
+			if t.Name != "" {
+				typeMap[t.Name] = t
+			}
+		}
+
 		// Convert introspection to AST schema for analyzer
 		astSchema, err := introspectionToASTSchema(&payload.Data.Schema)
 		if err != nil {
 			return nil, fmt.Errorf("graphql introspection: convert to AST: %w", err)
 		}
 
-		// Use analyzer to detect patterns and generate composite tools
+		// Use analyzer to detect patterns and generate composite tools for mutations
 		analyzer := gql.NewSchemaAnalyzer(astSchema)
 		patterns := analyzer.DetectCRUDPatterns()
 		
@@ -146,11 +154,20 @@ func ParseIntrospectionToCanonicalWithContext(ctx context.Context, raw []byte, a
 			return nil, fmt.Errorf("graphql introspection: generate composite tools: %w", err)
 		}
 
-		return &canonical.Service{
+		service := &canonical.Service{
 			Name:       apiName,
 			BaseURL:    baseURL,
 			Operations: ops,
-		}, nil
+		}
+
+		// CRITICAL FIX: Also include ALL query operations (reads are just as important!)
+		if payload.Data.Schema.QueryType != nil && payload.Data.Schema.QueryType.Name != "" {
+			if err := appendIntrospectionOps(service, typeMap, payload.Data.Schema.QueryType.Name, "query"); err != nil {
+				return nil, err
+			}
+		}
+
+		return service, nil
 	}
 
 	// Default behavior: 1:1 mapping

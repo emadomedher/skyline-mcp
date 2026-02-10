@@ -56,7 +56,8 @@ Skyline auto-detects the spec format. No manual configuration needed.
 | **OpenRPC / JSON-RPC** | `openrpc` field in JSON | Wraps calls in JSON-RPC 2.0 envelopes; supports `rpc.discover` |
 | **Postman Collections** | `schema.getpostman.com` in JSON | Walks v2.x collection items; supports folders, path/query/header params, body modes |
 | **Google API Discovery** | `discoveryVersion` field | Maps Google's discovery format to REST operations |
-| **Jenkins 2.545** | `/api/json` object graph | **34 operations** including jobs, builds, pipelines, Blue Ocean, nodes, credentials, plugins, queue management. Full CSRF support. See [Jenkins 2.545 docs](docs/JENKINS-2.545-SUPPORT.md) |
+| **Jenkins 2.545** ⚠️ | `/api/json` object graph | **34 operations** - Custom implementation. Jobs, builds, pipelines, Blue Ocean, nodes, credentials, plugins, queue. Full CSRF support. See [special cases](#special-cases) |
+| **Slack Web API** ⚠️ | `{"ok":...}` response format | **23 operations** - Custom implementation. Chat, conversations, users, files, reactions, pins, reminders. See [special cases](#special-cases) |
 | **Jira Cloud** | `*.atlassian.net` host | Auto-fetches the official Atlassian OpenAPI spec |
 
 ---
@@ -479,6 +480,65 @@ See **[docs/JENKINS-2.545-SUPPORT.md](docs/JENKINS-2.545-SUPPORT.md)** for compl
 - Troubleshooting guide
 - Pipeline operations
 - Blue Ocean integration
+
+---
+
+## Special Cases
+
+Some APIs don't provide machine-readable specifications (OpenAPI, GraphQL schema, etc.) or have specification issues that prevent auto-detection. For these, Skyline includes **custom adapters** that manually define operations based on official API documentation.
+
+### Jenkins 2.545 ⚠️
+
+**Why custom?**  
+Jenkins doesn't expose an API specification. The `/api/json` endpoint returns current **state** (jobs, builds, queues), not endpoint definitions. There's no machine-readable documentation of available operations, parameters, or schemas.
+
+**Solution:**  
+Manually implemented 34 operations based on [Jenkins REST API documentation](https://www.jenkins.io/doc/book/using/remote-access-api/), including:
+- Automatic CSRF crumb handling
+- Parameterized build support
+- Pipeline operations (Jenkinsfile, replay, stages)
+- Blue Ocean API integration
+- Node/agent management
+
+**See:** [docs/JENKINS-2.545-SUPPORT.md](docs/JENKINS-2.545-SUPPORT.md)
+
+### Slack Web API ⚠️
+
+**Why custom?**  
+Slack provides an OpenAPI spec (Swagger 2.0) at `https://api.slack.com/specs/openapi/v2/slack_web.json`, but it contains **validation errors** that break standard Swagger → OpenAPI 3 conversion:
+
+- Uses non-standard array-based `items` for union types (oneOf)
+- Example: `"items": [{"$ref": "..."}, {"type": "null"}]` (should be object)
+- 3 definitions affected: `objs_conversation`, `objs_response_metadata`, `objs_user`
+
+**Solution:**  
+Manually implemented 23 most-used operations based on [Slack Web API documentation](https://api.slack.com/web), including:
+
+**Operations (23):**
+- **Chat (4):** postMessage, update, delete, getPermalink
+- **Conversations (6):** list, create, history, invite, info, archive
+- **Users (3):** list, info, conversations
+- **Files (2):** upload, list
+- **Reactions (2):** add, remove
+- **Pins (3):** add, remove, list
+- **Reminders (2):** add, list
+- **Channels (1):** list (legacy)
+
+**Auth:**  
+Bearer token (bot token or user token with appropriate scopes).
+
+**Example:**
+```yaml
+apis:
+  - name: slack
+    spec_url: https://slack.com/api/auth.test  # Any Slack endpoint (for detection)
+    base_url_override: https://slack.com/api
+    auth:
+      type: bearer
+      token: ${SLACK_BOT_TOKEN}
+```
+
+**Future:** If Slack fixes their OpenAPI spec validation issues, Skyline can switch to auto-detection for full 172-operation coverage.
 
 ---
 

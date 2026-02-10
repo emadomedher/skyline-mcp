@@ -396,22 +396,40 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 		inputObj["id"] = topLevelID
 	}
 
-	// DECISION LOGIC: Check if ID exists in the input object
-	_, hasID := inputObj["id"]
+	// DECISION LOGIC: Determine operation based on input
+	// Check for update identifiers: global 'id', or (projectPath + iid), or similar patterns
+	hasUpdateID := false
+	if _, ok := inputObj["id"]; ok {
+		hasUpdateID = true
+	}
+	// GitLab-specific: projectPath + iid for updates
+	if _, hasPath := inputObj["projectPath"]; hasPath {
+		if _, hasIID := inputObj["iid"]; hasIID {
+			hasUpdateID = true
+		}
+	}
 	
 	var opRef *canonical.GraphQLOpRef
 	var opAlias string
 	
-	if !hasID && comp.Create != nil {
-		// No ID = CREATE operation
+	if !hasUpdateID && comp.Create != nil {
+		// No update identifier = CREATE operation
 		opRef = comp.Create
 		opAlias = "create"
-	} else if hasID && comp.Update != nil {
-		// Has ID = UPDATE operation  
+	} else if hasUpdateID && comp.Update != nil {
+		// Has update identifier = UPDATE operation
 		opRef = comp.Update
 		opAlias = "update"
+		
+		// GitLab UPDATE quirk: Remove global 'id' if projectPath+iid provided
+		// UpdateIssueInput doesn't accept 'id', only projectPath+iid
+		if _, hasPath := inputObj["projectPath"]; hasPath {
+			if _, hasIID := inputObj["iid"]; hasIID {
+				delete(inputObj, "id")
+			}
+		}
 	} else {
-		return nil, fmt.Errorf("no suitable operation for %s (hasID=%v)", comp.Pattern, hasID)
+		return nil, fmt.Errorf("no suitable operation for %s (hasUpdateID=%v)", comp.Pattern, hasUpdateID)
 	}
 
 	if opRef.InputType == "" {

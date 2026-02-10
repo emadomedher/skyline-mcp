@@ -11,9 +11,26 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"mcp-api-bridge/internal/canonical"
+	"mcp-api-bridge/internal/config"
+	gql "mcp-api-bridge/internal/graphql"
 )
 
 var sdlSignature = regexp.MustCompile(`(?im)\b(type|extend)\s+query\b|\b(type|extend)\s+mutation\b|\bschema\s*\{`)
+
+type graphQLOptKey struct{}
+
+// GetOptimizationFromContext extracts GraphQL optimization config from context
+func GetOptimizationFromContext(ctx context.Context) *config.GraphQLOptimization {
+	if opt, ok := ctx.Value(graphQLOptKey{}).(*config.GraphQLOptimization); ok {
+		return opt
+	}
+	return nil
+}
+
+// SetOptimizationInContext adds GraphQL optimization config to context
+func SetOptimizationInContext(ctx context.Context, opt *config.GraphQLOptimization) context.Context {
+	return context.WithValue(ctx, graphQLOptKey{}, opt)
+}
 
 // LooksLikeGraphQLSDL reports whether the payload resembles GraphQL SDL.
 func LooksLikeGraphQLSDL(raw []byte) bool {
@@ -25,9 +42,8 @@ func LooksLikeGraphQLSDL(raw []byte) bool {
 
 // ParseToCanonical parses GraphQL SDL or introspection JSON into a canonical Service.
 func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride string) (*canonical.Service, error) {
-	_ = ctx
 	if LooksLikeGraphQLIntrospection(raw) {
-		return ParseIntrospectionToCanonical(raw, apiName, baseURLOverride)
+		return ParseIntrospectionToCanonicalWithContext(ctx, raw, apiName, baseURLOverride)
 	}
 	if !LooksLikeGraphQLSDL(raw) {
 		return nil, fmt.Errorf("graphql: unsupported schema payload")
@@ -46,14 +62,29 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 		BaseURL: baseURL,
 	}
 
-	if schema.Query != nil {
-		if err := appendGraphQLOps(service, schema, schema.Query, "query"); err != nil {
-			return nil, err
+	// Check if CRUD grouping optimization is enabled
+	opt := GetOptimizationFromContext(ctx)
+	if opt != nil && opt.EnableCRUDGrouping {
+		// Use analyzer to detect patterns and generate composite tools
+		analyzer := gql.NewSchemaAnalyzer(schema)
+		patterns := analyzer.DetectCRUDPatterns()
+		
+		ops, err := generateCompositeTools(schema, apiName, baseURL, patterns)
+		if err != nil {
+			return nil, fmt.Errorf("graphql: generate composite tools: %w", err)
 		}
-	}
-	if schema.Mutation != nil {
-		if err := appendGraphQLOps(service, schema, schema.Mutation, "mutation"); err != nil {
-			return nil, err
+		service.Operations = ops
+	} else {
+		// Default behavior: 1:1 mapping of operations to tools
+		if schema.Query != nil {
+			if err := appendGraphQLOps(service, schema, schema.Query, "query"); err != nil {
+				return nil, err
+			}
+		}
+		if schema.Mutation != nil {
+			if err := appendGraphQLOps(service, schema, schema.Mutation, "mutation"); err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -1,0 +1,10 @@
+apis:
+  - name: gitlab
+    spec_url: https://lab.medher.online/api/graphql
+    base_url_override: https://lab.medher.online/api/graphql
+    
+    # Enable GraphQL CRUD grouping optimization
+    optimization:
+      enable_crud_grouping: true
+      flatten_inputs: false
+      response_mode: essential

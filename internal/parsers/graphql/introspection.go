@@ -1,12 +1,15 @@
 package graphql
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/vektah/gqlparser/v2/ast"
 	"mcp-api-bridge/internal/canonical"
+	gql "mcp-api-bridge/internal/graphql"
 )
 
 type introspectionResponse struct {
@@ -109,6 +112,49 @@ func ParseIntrospectionToCanonical(raw []byte, apiName, baseURLOverride string) 
 		return service.Operations[i].ToolName < service.Operations[j].ToolName
 	})
 	return service, nil
+}
+
+// ParseIntrospectionToCanonicalWithContext supports optimization via context
+func ParseIntrospectionToCanonicalWithContext(ctx context.Context, raw []byte, apiName, baseURLOverride string) (*canonical.Service, error) {
+	var payload introspectionResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("graphql introspection: parse failed: %w", err)
+	}
+	if payload.Data.Schema.Types == nil {
+		return nil, fmt.Errorf("graphql introspection: missing schema")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(baseURLOverride), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("graphql introspection: base_url_override is required")
+	}
+
+	// Check if CRUD grouping optimization is enabled
+	opt := GetOptimizationFromContext(ctx)
+	if opt != nil && opt.EnableCRUDGrouping {
+		// Convert introspection to AST schema for analyzer
+		astSchema, err := introspectionToASTSchema(&payload.Data.Schema)
+		if err != nil {
+			return nil, fmt.Errorf("graphql introspection: convert to AST: %w", err)
+		}
+
+		// Use analyzer to detect patterns and generate composite tools
+		analyzer := gql.NewSchemaAnalyzer(astSchema)
+		patterns := analyzer.DetectCRUDPatterns()
+		
+		ops, err := generateCompositeTools(astSchema, apiName, baseURL, patterns)
+		if err != nil {
+			return nil, fmt.Errorf("graphql introspection: generate composite tools: %w", err)
+		}
+
+		return &canonical.Service{
+			Name:       apiName,
+			BaseURL:    baseURL,
+			Operations: ops,
+		}, nil
+	}
+
+	// Default behavior: 1:1 mapping
+	return ParseIntrospectionToCanonical(raw, apiName, baseURLOverride)
 }
 
 func appendIntrospectionOps(service *canonical.Service, typeMap map[string]introspectionType, typeName, opType string) error {
@@ -395,5 +441,90 @@ func formatIntrospectionType(typ introspectionTypeRef) string {
 			return typ.Name
 		}
 		return "String"
+	}
+}
+
+// introspectionToASTSchema converts introspection schema to AST schema for analyzer
+func introspectionToASTSchema(schema *introspectionSchema) (*ast.Schema, error) {
+	astSchema := &ast.Schema{
+		Types:         make(map[string]*ast.Definition),
+		Directives:    make(map[string]*ast.DirectiveDefinition),
+		PossibleTypes: make(map[string][]*ast.Definition),
+	}
+
+	// Build type map
+	for _, t := range schema.Types {
+		if strings.HasPrefix(t.Name, "__") {
+			continue // Skip introspection types
+		}
+
+		def := &ast.Definition{
+			Kind:   ast.DefinitionKind(t.Kind),
+			Name:   t.Name,
+			Fields: make(ast.FieldList, 0),
+		}
+
+		// Add fields for OBJECT types
+		if t.Kind == "OBJECT" {
+			for _, f := range t.Fields {
+				if f.Name == "" {
+					continue
+				}
+
+				field := &ast.FieldDefinition{
+					Name:      f.Name,
+					Arguments: make(ast.ArgumentDefinitionList, 0),
+					Type:      introspectionTypeRefToAST(f.Type),
+				}
+
+				// Add arguments
+				for _, arg := range f.Args {
+					if arg.Name == "" {
+						continue
+					}
+					argDef := &ast.ArgumentDefinition{
+						Name: arg.Name,
+						Type: introspectionTypeRefToAST(arg.Type),
+					}
+					field.Arguments = append(field.Arguments, argDef)
+				}
+
+				def.Fields = append(def.Fields, field)
+			}
+		}
+
+		astSchema.Types[t.Name] = def
+	}
+
+	// Set Query and Mutation root types
+	if schema.QueryType != nil && schema.QueryType.Name != "" {
+		astSchema.Query = astSchema.Types[schema.QueryType.Name]
+	}
+	if schema.MutationType != nil && schema.MutationType.Name != "" {
+		astSchema.Mutation = astSchema.Types[schema.MutationType.Name]
+	}
+
+	return astSchema, nil
+}
+
+// introspectionTypeRefToAST converts introspection type reference to AST type
+func introspectionTypeRefToAST(typeRef introspectionTypeRef) *ast.Type {
+	// Handle NON_NULL wrapper
+	if typeRef.Kind == "NON_NULL" && typeRef.OfType != nil {
+		innerType := introspectionTypeRefToAST(*typeRef.OfType)
+		innerType.NonNull = true
+		return innerType
+	}
+
+	// Handle LIST wrapper
+	if typeRef.Kind == "LIST" && typeRef.OfType != nil {
+		return &ast.Type{
+			Elem: introspectionTypeRefToAST(*typeRef.OfType),
+		}
+	}
+
+	// Base type (OBJECT, SCALAR, ENUM, etc.)
+	return &ast.Type{
+		NamedType: typeRef.Name,
 	}
 }

@@ -1,0 +1,10 @@
+apis:
+  - name: gitlab
+    spec_url: https://lab.medher.online/api/graphql
+    base_url_override: https://lab.medher.online/api/graphql
+    auth:
+      type: bearer
+      token: glpat-r3x_clwFZLNswLh9ijX7NW86MQp1OjUH.01.0w1bxmqqk
+
+timeout_seconds: 30
+retries: 2

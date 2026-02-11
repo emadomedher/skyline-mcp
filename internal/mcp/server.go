@@ -12,7 +12,7 @@ import (
 	"mcp-api-bridge/internal/runtime"
 )
 
-const protocolVersion = "2024-11-05"
+const protocolVersion = "2025-11-25"
 
 // Executor interface for executing operations
 type Executor interface {

@@ -1,0 +1,75 @@
+{
+  "apis": [
+    {
+      "name": "petstore-openapi",
+      "spec_url": "http://localhost:9999/openapi/openapi.json",
+      "base_url_override": "http://localhost:9999/openapi",
+      "auth": {
+        "type": "bearer",
+        "token": "demo-token"
+      }
+    },
+    {
+      "name": "plantsStore-wsdl",
+      "spec_url": "http://localhost:9999/wdsl/wsdl",
+      "auth": {
+        "type": "bearer",
+        "token": "MOCK_TOKEN"
+      }
+    },
+    {
+      "name": "dinosaurs-swagger2",
+      "spec_url": "http://localhost:9999/swagger/swagger.json",
+      "auth": {
+        "type": "bearer",
+        "token": "MOCK_DINO_TOKEN"
+      }
+    },
+    {
+      "name": "cars-graphql",
+      "spec_url": "http://localhost:9999/graphql/schema",
+      "base_url_override": "http://localhost:9999/graphql",
+      "auth": {
+        "type": "basic",
+        "username": "graphql-user",
+        "password": "MOCK_GRAPHQL_PASS"
+      }
+    },
+    {
+      "name": "jira-cloud",
+      "spec_url": "https://your-domain.atlassian.net",
+      "base_url_override": "https://your-domain.atlassian.net",
+      "auth": {
+        "type": "basic",
+        "username": "${JIRA_EMAIL}",
+        "password": "${JIRA_API_TOKEN}"
+      }
+    },
+    {
+      "name": "jenkins",
+      "spec_url": "https://jenkins.local/api/json",
+      "base_url_override": "https://jenkins.local",
+      "auth": {
+        "type": "basic",
+        "username": "${JENKINS_USERNAME}",
+        "password": "${JENKINS_PASSWORD}"
+      },
+      "jenkins": {
+        "allow_writes": [
+          {
+            "name": "triggerJob",
+            "method": "POST",
+            "path": "/job/{job}/build",
+            "summary": "Trigger a Jenkins job build."
+          },
+          {
+            "name": "triggerJobWithParameters",
+            "method": "POST",
+            "path": "/job/{job}/buildWithParameters",
+            "summary": "Trigger a Jenkins job build with query parameters."
+          }
+        ]
+      }
+    }
+  ]
+}

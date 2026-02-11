@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 
 	"github.com/jhump/protoreflect/grpcreflect"
 	"google.golang.org/grpc"

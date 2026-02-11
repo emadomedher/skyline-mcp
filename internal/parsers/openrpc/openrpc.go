@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikeOpenRPC reports whether raw looks like an OpenRPC document.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/wsdl"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/wsdl"
 )
 
 type WSDLAdapter struct{}

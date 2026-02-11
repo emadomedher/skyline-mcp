@@ -7,9 +7,9 @@ import (
 	"io"
 	"log"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/redact"
-	"mcp-api-bridge/internal/runtime"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/redact"
+	"skyline-mcp/internal/runtime"
 )
 
 const protocolVersion = "2025-11-25"
@@ -75,7 +75,7 @@ func (s *Server) handleRequest(ctx context.Context, req *rpcRequest) *rpcRespons
 				"resources": map[string]any{"list": true, "read": true},
 			},
 			"serverInfo": map[string]any{
-				"name":    "mcp-api-bridge",
+				"name":    "Skyline MCP",
 				"version": "0.1.0",
 			},
 		})

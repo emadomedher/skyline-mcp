@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikeODataMetadata reports whether raw looks like an OData CSDL $metadata document.

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	grpcparser "mcp-api-bridge/internal/parsers/grpc"
-	graphqlparser "mcp-api-bridge/internal/parsers/graphql"
-	"mcp-api-bridge/internal/redact"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	grpcparser "skyline-mcp/internal/parsers/grpc"
+	graphqlparser "skyline-mcp/internal/parsers/graphql"
+	"skyline-mcp/internal/redact"
 )
 
 func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, redactor *redact.Redactor) ([]*canonical.Service, error) {

@@ -26,17 +26,17 @@ import (
 	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
 
-	"mcp-api-bridge/internal/audit"
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/mcp"
-	"mcp-api-bridge/internal/metrics"
-	"mcp-api-bridge/internal/parsers/graphql"
-	"mcp-api-bridge/internal/parsers/openrpc"
-	"mcp-api-bridge/internal/parsers/postman"
-	"mcp-api-bridge/internal/redact"
-	"mcp-api-bridge/internal/runtime"
-	"mcp-api-bridge/internal/spec"
+	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/mcp"
+	"skyline-mcp/internal/metrics"
+	"skyline-mcp/internal/parsers/graphql"
+	"skyline-mcp/internal/parsers/openrpc"
+	"skyline-mcp/internal/parsers/postman"
+	"skyline-mcp/internal/redact"
+	"skyline-mcp/internal/runtime"
+	"skyline-mcp/internal/spec"
 )
 
 //go:embed ui/*

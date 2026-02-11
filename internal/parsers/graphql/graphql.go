@@ -10,9 +10,9 @@ import (
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	gql "mcp-api-bridge/internal/graphql"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	gql "skyline-mcp/internal/graphql"
 )
 
 var sdlSignature = regexp.MustCompile(`(?im)\b(type|extend)\s+query\b|\b(type|extend)\s+mutation\b|\bschema\s*\{`)

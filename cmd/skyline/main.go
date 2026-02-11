@@ -9,13 +9,13 @@ import (
 	"os"
 	"time"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/gateway"
-	"mcp-api-bridge/internal/mcp"
-	"mcp-api-bridge/internal/redact"
-	"mcp-api-bridge/internal/runtime"
-	"mcp-api-bridge/internal/spec"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/gateway"
+	"skyline-mcp/internal/mcp"
+	"skyline-mcp/internal/redact"
+	"skyline-mcp/internal/runtime"
+	"skyline-mcp/internal/spec"
 )
 
 func main() {

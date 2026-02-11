@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skyline
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skyline-mockingbird-config
+  namespace: skyline
+type: Opaque
+stringData:
+  config.json: |
+    {
+      "apis": [
+        {
+          "name": "pets-openapi",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/openapi/openapi.json",
+          "base_url_override": "http://mockingbird.mockingbird.svc.cluster.local:9999/openapi"
+        },
+        {
+          "name": "dinosaurs-swagger",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/swagger/swagger.json",
+          "base_url_override": "http://mockingbird.mockingbird.svc.cluster.local:9999/swagger",
+          "auth": {
+            "type": "bearer",
+            "token": "MOCK_DINO_TOKEN"
+          }
+        },
+        {
+          "name": "plants-soap",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/wdsl/wsdl",
+          "auth": {
+            "type": "bearer",
+            "token": "MOCK_TOKEN"
+          }
+        },
+        {
+          "name": "cars-graphql",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/graphql/schema",
+          "base_url_override": "http://mockingbird.mockingbird.svc.cluster.local:9999/graphql",
+          "auth": {
+            "type": "basic",
+            "username": "graphql-user",
+            "password": "MOCK_GRAPHQL_PASS"
+          }
+        },
+        {
+          "name": "movies-odata",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/odata/$metadata",
+          "base_url_override": "http://mockingbird.mockingbird.svc.cluster.local:9999/odata"
+        },
+        {
+          "name": "calculator-jsonrpc",
+          "spec_url": "http://mockingbird.mockingbird.svc.cluster.local:9999/jsonrpc/openrpc.json",
+          "base_url_override": "http://mockingbird.mockingbird.svc.cluster.local:9999/jsonrpc"
+        }
+      ],
+      "timeout_seconds": 10,
+      "retries": 1
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skyline-auth
+  namespace: skyline
+type: Opaque
+stringData:
+  # Generate with: openssl rand -hex 32
+  bearer-token: "REPLACE_WITH_RANDOM_TOKEN"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skyline-mockingbird
+  namespace: skyline
+  labels:
+    app: skyline
+    config: mockingbird
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skyline
+      config: mockingbird
+  template:
+    metadata:
+      labels:
+        app: skyline
+        config: mockingbird
+    spec:
+      containers:
+      - name: skyline
+        image: golang:1.24-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache git build-base
+          mkdir -p /app && cd /app
+          git clone https://github.com/emadomedher/skyline-mcp.git .
+          go build -o /usr/local/bin/skyline ./cmd/skyline/main.go
+          exec skyline --transport http --config /config/config.json --listen :8080 \
+            --sse-auth-type bearer --sse-auth-token "${BEARER_TOKEN}"
+        env:
+        - name: BEARER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: skyline-auth
+              key: bearer-token
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /mcp
+            port: 8080
+            httpHeaders:
+            - name: Accept
+              value: "application/json"
+          initialDelaySeconds: 240
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /mcp
+            port: 8080
+            httpHeaders:
+            - name: Accept
+              value: "application/json"
+          initialDelaySeconds: 210
+          periodSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: config
+        secret:
+          secretName: skyline-mockingbird-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skyline-mockingbird
+  namespace: skyline
+spec:
+  selector:
+    app: skyline
+    config: mockingbird
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: skyline-ratelimit
+  namespace: skyline
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+    period: 1m
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: skyline-headers
+  namespace: skyline
+spec:
+  headers:
+    customResponseHeaders:
+      X-Robots-Tag: "noindex,nofollow"
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+    sslRedirect: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skyline-mockingbird
+  namespace: skyline
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: skyline-skyline-ratelimit@kubernetescrd,skyline-skyline-headers@kubernetescrd
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - "*.example.com"
+    secretName: wildcard-medher-tls
+  rules:
+  - host: RANDOM_SUBDOMAIN.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: skyline-mockingbird
+            port:
+              number: 80

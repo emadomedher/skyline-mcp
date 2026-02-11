@@ -1,0 +1,18 @@
+{
+  "apis": [
+    {
+      "name": "gitlab",
+      "spec_url": "https://lab.medher.online/api/graphql",
+      "base_url_override": "https://lab.medher.online/api/graphql",
+      "auth": {
+        "type": "bearer",
+        "token": "glpat-lT2F8YSc_6C5w00GEmO5f286MQp1OjUH.01.0w1a1qpe3"
+      },
+      "optimization": {
+        "enable_crud_grouping": true,
+        "flatten_inputs": false,
+        "response_mode": "essential"
+      }
+    }
+  ]
+}

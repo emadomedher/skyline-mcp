@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -178,7 +179,8 @@ func main() {
 		if debugLog != nil {
 			fmt.Fprintf(debugLog, "server.Serve() returned successfully (EOF on stdin)\n")
 		}
-	case "sse", "http", "streamable-http":
+	case "http", "streamable-http":
+		// New Streamable HTTP transport (MCP spec 2025-11-25)
 		var auth *config.AuthConfig
 		if *sseAuthType != "" {
 			auth = &config.AuthConfig{
@@ -190,11 +192,42 @@ func main() {
 				Value:    *sseAuthValue,
 			}
 			if err := auth.Validate(); err != nil {
-				logger.Fatalf("sse auth: %v", err)
+				logger.Fatalf("auth validation: %v", err)
 			}
 			redactor.AddSecrets(authSecrets(auth))
 		}
-		logger.Printf("Skyline MCP server listening on http://%s", *listen)
+		logger.Printf("Skyline MCP server (Streamable HTTP) listening on http://%s", *listen)
+		streamableServer := mcp.NewStreamableHTTPServer(server, logger, auth)
+		httpServer := &http.Server{
+			Addr:    *listen,
+			Handler: streamableServer.Handler(),
+		}
+		go func() {
+			<-ctx.Done()
+			_ = httpServer.Shutdown(context.Background())
+		}()
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("server error: %v", err)
+		}
+	case "sse":
+		// Legacy HTTP+SSE transport (deprecated, backwards compatibility only)
+		var auth *config.AuthConfig
+		if *sseAuthType != "" {
+			auth = &config.AuthConfig{
+				Type:     *sseAuthType,
+				Token:    *sseAuthToken,
+				Username: *sseAuthUsername,
+				Password: *sseAuthPassword,
+				Header:   *sseAuthHeader,
+				Value:    *sseAuthValue,
+			}
+			if err := auth.Validate(); err != nil {
+				logger.Fatalf("auth validation: %v", err)
+			}
+			redactor.AddSecrets(authSecrets(auth))
+		}
+		logger.Printf("Skyline MCP server (legacy HTTP+SSE) listening on http://%s", *listen)
+		logger.Printf("WARNING: HTTP+SSE transport is deprecated, use --transport=http for Streamable HTTP")
 		httpServer := mcp.NewHTTPServer(server, logger, auth)
 		if err := httpServer.Serve(ctx, *listen); err != nil {
 			logger.Fatalf("server error: %v", err)

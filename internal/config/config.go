@@ -47,6 +47,13 @@ func (c *Config) ApplyDefaults() {
 			val := c.Retries
 			c.APIs[i].Retries = &val
 		}
+		// Apply GraphQL optimization defaults
+		if c.APIs[i].Optimization == nil {
+			// Default: enable CRUD grouping (92% tool reduction: 260 → 23 tools)
+			c.APIs[i].Optimization = &GraphQLOptimization{
+				EnableCRUDGrouping: true,
+			}
+		}
 	}
 }
 

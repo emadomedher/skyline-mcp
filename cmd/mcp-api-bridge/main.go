@@ -126,7 +126,14 @@ func main() {
 			var err error
 			cfg, err = config.Load(*configPath)
 			if err != nil {
-				logger.Fatalf("config load: %v", err)
+				// If config file doesn't exist, start with empty config
+				if os.IsNotExist(err) {
+					logger.Printf("config file not found (%s), starting with empty profile", *configPath)
+					cfg = &config.Config{APIs: []config.APIConfig{}}
+					cfg.ApplyDefaults()
+				} else {
+					logger.Fatalf("config load: %v", err)
+				}
 			}
 		}
 
@@ -187,6 +194,7 @@ func main() {
 			}
 			redactor.AddSecrets(authSecrets(auth))
 		}
+		logger.Printf("Skyline MCP server listening on http://%s", *listen)
 		httpServer := mcp.NewHTTPServer(server, logger, auth)
 		if err := httpServer.Serve(ctx, *listen); err != nil {
 			logger.Fatalf("server error: %v", err)

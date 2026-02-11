@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/config"
 )
 
 func TestFetchWithBasicAuth(t *testing.T) {

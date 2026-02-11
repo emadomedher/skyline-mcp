@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // ParseToCanonical parses WSDL 1.1 XML into a canonical Service.

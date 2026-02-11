@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikePostmanCollection reports whether raw looks like a Postman Collection v2.x JSON.

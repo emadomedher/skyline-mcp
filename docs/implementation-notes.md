@@ -294,7 +294,7 @@ go test ./internal/graphql/... -v
 
 1. **Test with GitLab API:**
    ```bash
-   ./bin/mcp-api-bridge --config config.gitlab-optimized.yaml --transport stdio
+   ./bin/skyline --config config.gitlab-optimized.yaml --transport stdio
    ```
 
 2. **Verify Tool Count:**
@@ -302,7 +302,7 @@ go test ./internal/graphql/... -v
    # Before optimization: 315 tools
    # After optimization: ~40 tools expected
    echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
-     ./bin/mcp-api-bridge --config config.gitlab-optimized.yaml --transport stdio | \
+     ./bin/skyline --config config.gitlab-optimized.yaml --transport stdio | \
      jq '.result.tools | length'
    ```
 
@@ -321,7 +321,7 @@ go test ./internal/graphql/... -v
          "labels":["bug"]
        }
      }
-   }' | ./bin/mcp-api-bridge --config config.gitlab-optimized.yaml --transport stdio
+   }' | ./bin/skyline --config config.gitlab-optimized.yaml --transport stdio
    ```
 
 ---

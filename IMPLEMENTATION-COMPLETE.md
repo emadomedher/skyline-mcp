@@ -34,7 +34,7 @@
 
 ### 3. Transport Selection in main.go
 
-**File:** `cmd/mcp-api-bridge/main.go`
+**File:** `cmd/skyline/main.go`
 
 **New transport modes:**
 - `--transport http` or `--transport streamable-http` → **New Streamable HTTP** (recommended)
@@ -83,13 +83,13 @@
 cd ~/code/skyline-mcp
 
 # Streamable HTTP (recommended)
-go run ./cmd/mcp-api-bridge/main.go \
+go run ./cmd/skyline/main.go \
   --config config.yaml \
   --transport http \
   --listen :8080
 
 # With authentication
-go run ./cmd/mcp-api-bridge/main.go \
+go run ./cmd/skyline/main.go \
   --config config.yaml \
   --transport http \
   --listen :8080 \
@@ -101,7 +101,7 @@ go run ./cmd/mcp-api-bridge/main.go \
 
 ```bash
 # Start server in one terminal
-go run ./cmd/mcp-api-bridge/main.go --config config.yaml --transport http --listen :8080
+go run ./cmd/skyline/main.go --config config.yaml --transport http --listen :8080
 
 # Run test client in another terminal
 go run test-streamable-http.go
@@ -238,7 +238,7 @@ Spec: 2025-11-25 (current standard)
    ```bash
    # Compile and run server
    cd ~/code/skyline-mcp
-   go build -o skyline-server ./cmd/mcp-api-bridge/main.go
+   go build -o skyline-server ./cmd/skyline/main.go
    ./skyline-server --config config.yaml --transport http --listen :8080
    
    # Run test client
@@ -301,7 +301,7 @@ Spec: 2025-11-25 (current standard)
 
 ### Modified Files 📝
 
-- `cmd/mcp-api-bridge/main.go` - Transport selection, added `net/http` import
+- `cmd/skyline/main.go` - Transport selection, added `net/http` import
 - `internal/mcp/server.go` - Protocol version updated to 2025-11-25
 
 ### Unchanged (Backwards Compat) ✅
@@ -354,7 +354,7 @@ export PATH=$PATH:/usr/local/go/bin
 export PATH=$PATH:~/go/bin
 
 # Or use full path
-/usr/local/go/bin/go build ./cmd/mcp-api-bridge/main.go
+/usr/local/go/bin/go build ./cmd/skyline/main.go
 ```
 
 ### If compilation fails

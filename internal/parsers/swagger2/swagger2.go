@@ -10,8 +10,8 @@ import (
 	"github.com/getkin/kin-openapi/openapi2conv"
 	"gopkg.in/yaml.v3"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/openapi"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/openapi"
 )
 
 func LooksLikeSwagger2(raw []byte) bool {

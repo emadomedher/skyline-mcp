@@ -410,7 +410,7 @@ Both transports can run simultaneously during migration (different ports).
 - `internal/mcp/streamable_http.go` - Streamable HTTP implementation (new)
 - `internal/mcp/http_sse.go` - Legacy HTTP+SSE (backwards compat)
 - `internal/mcp/server.go` - Core MCP server logic
-- `cmd/mcp-api-bridge/main.go` - Transport selection
+- `cmd/skyline/main.go` - Transport selection
 
 ### Session Storage
 

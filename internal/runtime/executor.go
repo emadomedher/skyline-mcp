@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/redact"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/redact"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

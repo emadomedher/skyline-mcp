@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikeDiscovery reports whether payload appears to be a Google API Discovery document.

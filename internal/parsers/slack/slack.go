@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikeSlack reports whether the payload matches Slack API patterns

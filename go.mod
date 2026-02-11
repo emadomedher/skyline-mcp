@@ -1,4 +1,4 @@
-module mcp-api-bridge
+module skyline-mcp
 
 go 1.24.0
 

@@ -3,7 +3,7 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // GRPCAdapter is a special adapter for gRPC services.

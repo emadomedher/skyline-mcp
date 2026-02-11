@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/redact"
-	"mcp-api-bridge/internal/runtime"
-	"mcp-api-bridge/internal/spec"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/redact"
+	"skyline-mcp/internal/runtime"
+	"skyline-mcp/internal/spec"
 )
 
 func TestServerWSDLToolCall(t *testing.T) {

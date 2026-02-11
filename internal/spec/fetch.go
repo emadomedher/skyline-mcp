@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/config"
 )
 
 type Fetcher struct {

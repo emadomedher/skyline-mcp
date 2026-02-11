@@ -52,6 +52,10 @@ func (h *HTTPServer) handler() http.Handler {
 	mux.HandleFunc("/sse", h.handleSSE)
 	mux.HandleFunc("/message", h.handleMessage)
 	mux.HandleFunc("/mcp", h.handleStreamableHTTP)
+	mux.HandleFunc("/execute", h.server.HandleExecute)
+	mux.HandleFunc("/internal/call-tool", h.server.HandleInternalToolCall)
+	mux.HandleFunc("/internal/search-tools", h.server.HandleSearchTools)
+	mux.HandleFunc("/agent-prompt", h.server.HandleAgentPrompt)
 	return mux
 }
 

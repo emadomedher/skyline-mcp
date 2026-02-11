@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/codegen"
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/executor"
 	"skyline-mcp/internal/gateway"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/redact"
@@ -162,6 +164,14 @@ func main() {
 	}
 
 	server := mcp.NewServer(registry, executor, logger, redactor)
+	
+	// Setup code execution (optional, only if Deno is available)
+	if codeExec, err := setupCodeExecution(registry, logger); err != nil {
+		logger.Printf("WARNING: Code execution setup failed: %v", err)
+	} else if codeExec != nil {
+		server.SetCodeExecutor(codeExec)
+	}
+	
 	if debugLog != nil {
 		fmt.Fprintf(debugLog, "Starting MCP server with transport=%s\n", *transport)
 	}
@@ -292,4 +302,9 @@ func (e *gatewayExecutor) Execute(ctx context.Context, op *canonical.Operation, 
 		ContentType: gwResult.ContentType,
 		Body:        gwResult.Body,
 	}, nil
+}
+
+// setupCodeExecution sets up code execution for the MCP server
+func setupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.Executor, error) {
+	return codegen.SetupCodeExecution(registry, logger)
 }

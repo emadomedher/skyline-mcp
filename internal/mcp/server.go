@@ -20,10 +20,11 @@ type Executor interface {
 }
 
 type Server struct {
-	registry *Registry
-	executor Executor
-	logger   *log.Logger
-	redactor *redact.Redactor
+	registry     *Registry
+	executor     Executor    // Runtime executor for tool calls
+	codeExecutor interface{} // Code executor for /execute endpoint (optional)
+	logger       *log.Logger
+	redactor     *redact.Redactor
 }
 
 func NewServer(registry *Registry, executor Executor, logger *log.Logger, redactor *redact.Redactor) *Server {
@@ -33,6 +34,11 @@ func NewServer(registry *Registry, executor Executor, logger *log.Logger, redact
 		logger:   logger,
 		redactor: redactor,
 	}
+}
+
+// SetCodeExecutor sets the code executor for /execute endpoint
+func (s *Server) SetCodeExecutor(exec interface{}) {
+	s.codeExecutor = exec
 }
 
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {

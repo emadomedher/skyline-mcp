@@ -247,7 +247,7 @@ exec 4>&-
 
 ```
 → {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
-← {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{},"resources":{}},"serverInfo":{"name":"mcp-api-bridge","version":"0.1.0"}}}
+← {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{},"resources":{}},"serverInfo":{"name":"skyline","version":"0.1.0"}}}
 
 → {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 ← {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"graphql_gitlab_getProject","description":"...","inputSchema":{...}}]}}
@@ -491,7 +491,7 @@ apis:
 
 ```bash
 cd ~/code/skyline-mcp
-go build -o ~/bin/skyline-gitlab ./cmd/mcp-api-bridge/main.go
+go build -o ~/bin/skyline-gitlab ./cmd/skyline/main.go
 ```
 
 ### 3. Configure Claude Desktop
@@ -597,7 +597,7 @@ Claude: Created issue #42: "Fix login bug"
 ```bash
 # 1. Build
 cd ~/code/skyline-mcp
-go build -o skyline-server ./cmd/mcp-api-bridge/main.go
+go build -o skyline-server ./cmd/skyline/main.go
 
 # 2. Test
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | \

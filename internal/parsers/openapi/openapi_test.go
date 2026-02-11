@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 func TestParseToCanonicalParameters(t *testing.T) {

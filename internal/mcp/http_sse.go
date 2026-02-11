@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/config"
 )
 
 type HTTPServer struct {

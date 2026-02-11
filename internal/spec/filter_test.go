@@ -3,8 +3,8 @@ package spec
 import (
 	"testing"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
 )
 
 func TestGlobMatch(t *testing.T) {

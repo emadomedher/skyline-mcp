@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // Jenkins2Operations returns modern Jenkins 2.x API operations

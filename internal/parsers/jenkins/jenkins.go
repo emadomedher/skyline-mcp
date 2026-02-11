@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // LooksLikeJenkins reports whether the payload matches Jenkins API responses.

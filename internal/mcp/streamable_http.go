@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/config"
 )
 
 // StreamableHTTPServer implements MCP Streamable HTTP transport (spec 2025-11-25)

@@ -3,8 +3,8 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/graphql"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/graphql"
 )
 
 type GraphQLAdapter struct{}

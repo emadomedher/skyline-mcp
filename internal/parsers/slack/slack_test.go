@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"mcp-api-bridge/internal/parsers/slack"
+	"skyline-mcp/internal/parsers/slack"
 )
 
 func TestLooksLikeSlack(t *testing.T) {

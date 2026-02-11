@@ -171,6 +171,16 @@ func (h *StreamableHTTPServer) Handler() http.Handler {
 }
 
 func (h *StreamableHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers on all responses (not just OPTIONS)
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		// Allow all origins when origin header is present
+		// Security is enforced via bearer token authentication
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+	}
+
 	// Route based on method
 	switch r.Method {
 	case http.MethodGet:
@@ -189,15 +199,12 @@ func (h *StreamableHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request)
 // handleGET implements GET /mcp for server notifications and subscriptions
 // This opens an SSE stream that the server can use to send notifications
 func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request) {
-	// Security checks
+	// Security check: bearer token authentication
 	if !authorizeRequest(r, h.auth) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !validateOrigin(r) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
+	// Note: Origin validation removed - CORS handled at top level, security via bearer token
 	if !hasAccept(r.Header, "text/event-stream") {
 		http.Error(w, "missing accept: text/event-stream", http.StatusBadRequest)
 		return
@@ -277,15 +284,12 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 // handlePOST implements POST /mcp for client requests
 // Can return either JSON (quick response) or SSE stream (long-running operations)
 func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request) {
-	// Security checks
+	// Security check: bearer token authentication
 	if !authorizeRequest(r, h.auth) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !validateOrigin(r) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
+	// Note: Origin validation removed - CORS handled at top level, security via bearer token
 	if !hasAccept(r.Header, "application/json") && !hasAccept(r.Header, "text/event-stream") {
 		http.Error(w, "missing accept header", http.StatusBadRequest)
 		return
@@ -415,16 +419,10 @@ func (h *StreamableHTTPServer) handleDELETE(w http.ResponseWriter, r *http.Reque
 
 // handleOPTIONS implements CORS preflight for /mcp
 func (h *StreamableHTTPServer) handleOPTIONS(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	origin := r.Header.Get("Origin")
-	if validateOriginString(origin, r.Host) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
-	}
+	// CORS headers already set in handleMCP, just add method-specific headers
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+	w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 	w.WriteHeader(http.StatusNoContent)
 }
 

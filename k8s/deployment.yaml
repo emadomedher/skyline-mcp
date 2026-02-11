@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skyline
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skyline-config
+  namespace: skyline
+type: Opaque
+stringData:
+  config.json: |
+    {
+      "apis": [
+        {
+          "name": "gitlab",
+          "spec_url": "https://lab.medher.online/api/graphql",
+          "base_url_override": "https://lab.medher.online/api/graphql",
+          "auth": {
+            "type": "bearer",
+            "token": "glpat-lT2F8YSc_6C5w00GEmO5f286MQp1OjUH.01.0w1a1qpe3"
+          },
+          "optimization": {
+            "enable_crud_grouping": true,
+            "flatten_inputs": false,
+            "response_mode": "essential"
+          }
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: skyline-auth
+  namespace: skyline
+type: Opaque
+stringData:
+  # Replace with your own secure token: openssl rand -hex 32
+  bearer-token: "022793bd27145b4bd443b5e75add54ecb2231e229195dce465ac2bc3c04df578"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skyline
+  namespace: skyline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skyline
+  template:
+    metadata:
+      labels:
+        app: skyline
+    spec:
+      containers:
+      - name: skyline
+        image: golang:1.22-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache git build-base
+          cd /app
+          git clone https://github.com/emadomedher/skyline-mcp.git .
+          go build -o /usr/local/bin/skyline ./cmd/skyline/main.go
+          exec skyline --transport http --config /config/config.json --listen :8080 \
+            --sse-auth-type bearer --sse-auth-token "${BEARER_TOKEN}"
+        env:
+        - name: BEARER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: skyline-auth
+              key: bearer-token
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /mcp
+            port: 8080
+            httpHeaders:
+            - name: Accept
+              value: "application/json"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /mcp
+            port: 8080
+            httpHeaders:
+            - name: Accept
+              value: "application/json"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        secret:
+          secretName: skyline-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skyline
+  namespace: skyline
+spec:
+  selector:
+    app: skyline
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: skyline-ratelimit
+  namespace: skyline
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+    period: 1m
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: skyline-headers
+  namespace: skyline
+spec:
+  headers:
+    customResponseHeaders:
+      X-Robots-Tag: "noindex,nofollow"
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+    sslRedirect: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: skyline
+  namespace: skyline
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: skyline-skyline-ratelimit@kubernetescrd,skyline-skyline-headers@kubernetescrd
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - skyline.medher.online
+    secretName: skyline-tls
+  rules:
+  - host: skyline.medher.online
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: skyline
+            port:
+              number: 80

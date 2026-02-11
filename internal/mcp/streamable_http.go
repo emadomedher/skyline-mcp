@@ -167,6 +167,10 @@ func (h *StreamableHTTPServer) cleanupLoop() {
 func (h *StreamableHTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", h.handleMCP)
+	mux.HandleFunc("/execute", h.server.HandleExecute)
+	mux.HandleFunc("/internal/call-tool", h.server.HandleInternalToolCall)
+	mux.HandleFunc("/internal/search-tools", h.server.HandleSearchTools)
+	mux.HandleFunc("/agent-prompt", h.server.HandleAgentPrompt)
 	return mux
 }
 

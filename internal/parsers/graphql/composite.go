@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
-	"mcp-api-bridge/internal/canonical"
-	gql "mcp-api-bridge/internal/graphql"
+	"skyline-mcp/internal/canonical"
+	gql "skyline-mcp/internal/graphql"
 )
 
 // generateCompositeTools creates MCP tools from CRUD patterns

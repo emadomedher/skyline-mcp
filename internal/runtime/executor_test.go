@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/redact"
-	"mcp-api-bridge/internal/runtime"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/redact"
+	"skyline-mcp/internal/runtime"
 )
 
 func TestExecutorGETQueryHeaderPath(t *testing.T) {

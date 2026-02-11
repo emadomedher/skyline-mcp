@@ -3,8 +3,8 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/jenkins"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/jenkins"
 )
 
 type JenkinsAdapter struct{}

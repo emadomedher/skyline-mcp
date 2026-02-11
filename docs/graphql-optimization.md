@@ -408,10 +408,10 @@ Test with real GitLab API:
 
 ```bash
 # Start Skyline with optimized config
-./bin/mcp-api-bridge --config ./config.gitlab-optimized.yaml --transport stdio
+./bin/skyline --config ./config.gitlab-optimized.yaml --transport stdio
 
 # Query available tools (should see ~40 instead of 315)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./bin/mcp-api-bridge --config ./config.gitlab-optimized.yaml --transport stdio
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./bin/skyline --config ./config.gitlab-optimized.yaml --transport stdio
 
 # Test composite tool
 echo '{
@@ -426,7 +426,7 @@ echo '{
       "labels":["bug","urgent"]
     }
   }
-}' | ./bin/mcp-api-bridge --config ./config.gitlab-optimized.yaml --transport stdio
+}' | ./bin/skyline --config ./config.gitlab-optimized.yaml --transport stdio
 ```
 
 ---
@@ -485,8 +485,8 @@ apis:
 **Step 2: Test**
 ```bash
 # Compare tool count
-./bin/mcp-api-bridge --config old-config.yaml --transport stdio | grep "tools"
-./bin/mcp-api-bridge --config new-config.yaml --transport stdio | grep "tools"
+./bin/skyline --config old-config.yaml --transport stdio | grep "tools"
+./bin/skyline --config new-config.yaml --transport stdio | grep "tools"
 ```
 
 **Step 3: Deploy**
@@ -592,7 +592,7 @@ type_profiles:
 **Debug:**
 ```bash
 # See which types were detected
-./bin/mcp-api-bridge --config config.yaml --debug 2>&1 | grep "detected type"
+./bin/skyline --config config.yaml --debug 2>&1 | grep "detected type"
 ```
 
 ### Composite Tool Not Working
@@ -604,7 +604,7 @@ type_profiles:
 **Debug:**
 ```bash
 # See pattern detection results
-./bin/mcp-api-bridge --config config.yaml --debug 2>&1 | grep "CRUD pattern"
+./bin/skyline --config config.yaml --debug 2>&1 | grep "CRUD pattern"
 ```
 
 ### Response Too Large

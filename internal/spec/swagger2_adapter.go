@@ -3,8 +3,8 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/swagger2"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/swagger2"
 )
 
 type Swagger2Adapter struct{}

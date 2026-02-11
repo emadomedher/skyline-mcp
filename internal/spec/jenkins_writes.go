@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
 )
 
 var pathParamName = regexp.MustCompile(`\{([^}]+)\}`)

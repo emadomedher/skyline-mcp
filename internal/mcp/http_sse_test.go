@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"mcp-api-bridge/internal/config"
-	"mcp-api-bridge/internal/redact"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/redact"
 )
 
 func TestSSEInitializeFlow(t *testing.T) {

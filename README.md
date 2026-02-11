@@ -103,10 +103,10 @@ Secrets use `${ENV_VAR}` syntax and are automatically redacted from all logs.
 
 ```bash
 # stdio (for Claude Desktop, Cursor, etc.)
-go run ./cmd/mcp-api-bridge --config ./config.yaml
+go run ./cmd/skyline --config ./config.yaml
 
 # streamable HTTP (for networked MCP clients)
-go run ./cmd/mcp-api-bridge --config ./config.yaml --transport http --listen :8080
+go run ./cmd/skyline --config ./config.yaml --transport http --listen :8080
 ```
 
 ### 3. Connect your AI
@@ -117,7 +117,7 @@ Add Skyline to your MCP client config. For Claude Desktop:
 {
   "mcpServers": {
     "skyline": {
-      "command": "./bin/mcp-api-bridge",
+      "command": "./bin/skyline",
       "args": ["--config", "./config.yaml"]
     }
   }
@@ -132,7 +132,7 @@ That's it. Your AI agent now has typed, validated tools for every API endpoint.
 
 Skyline is built around three components:
 
-### Skyline MCP Server &nbsp;`cmd/mcp-api-bridge`
+### Skyline MCP Server &nbsp;`cmd/skyline`
 
 The core. Loads your config, fetches and parses API specs, builds MCP tools, and serves them over stdio or HTTP.
 
@@ -309,7 +309,7 @@ go run ./cmd/skyline-server --listen :9190
 # Then run the MCP server with that profile:
 export MCP_PROFILE=dev
 export MCP_PROFILE_TOKEN=your-profile-token
-go run ./cmd/mcp-api-bridge --config-url http://localhost:9190
+go run ./cmd/skyline --config-url http://localhost:9190
 ```
 
 ---
@@ -317,10 +317,10 @@ go run ./cmd/mcp-api-bridge --config-url http://localhost:9190
 ## Project Layout
 
 ```
-skyline-mcp-api-bridge/
+skyline-mcp/
 │
 ├── cmd/                              # ── Entrypoints ────────────────
-│   ├── mcp-api-bridge/               #    Skyline MCP server
+│   ├── skyline/               #    Skyline MCP server
 │   │   └── main.go
 │   └── skyline-server/                #    Config profile server + web UI
 │       ├── main.go
@@ -566,7 +566,7 @@ apis:
 
 ```bash
 # Build both binaries
-go build -o ./bin/mcp-api-bridge ./cmd/mcp-api-bridge
+go build -o ./bin/skyline ./cmd/skyline
 go build -o ./bin/skyline-server ./cmd/skyline-server
 
 # Run tests
@@ -644,8 +644,8 @@ go run .
 # Listening on http://localhost:9999
 
 # In another terminal, run Skyline with mock config
-cd skyline-mcp-api-bridge
-go run ./cmd/mcp-api-bridge --config ./config.all-mocks.yaml
+cd skyline-mcp
+go run ./cmd/skyline --config ./config.all-mocks.yaml
 ```
 
 #### Example Config for Mocking Bird

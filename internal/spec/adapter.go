@@ -3,7 +3,7 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
+	"skyline-mcp/internal/canonical"
 )
 
 // SpecAdapter detects and parses API specs into canonical services.

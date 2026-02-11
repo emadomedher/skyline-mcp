@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/config"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
 )
 
 // ApplyOperationFilters filters operations according to filter config.

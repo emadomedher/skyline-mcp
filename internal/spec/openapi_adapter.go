@@ -3,8 +3,8 @@ package spec
 import (
 	"context"
 
-	"mcp-api-bridge/internal/canonical"
-	"mcp-api-bridge/internal/parsers/openapi"
+	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/openapi"
 )
 
 type OpenAPIAdapter struct{}

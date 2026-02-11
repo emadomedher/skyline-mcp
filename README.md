@@ -66,6 +66,9 @@ Skyline auto-detects the spec format. No manual configuration needed.
 
 ### 1. Create a config
 
+Config files support both **YAML** and **JSON** formats (auto-detected):
+
+**YAML** (recommended for readability):
 ```yaml
 # config.yaml
 apis:
@@ -75,6 +78,23 @@ apis:
       type: api-key
       header: X-API-Key
       value: ${PETSTORE_API_KEY}
+```
+
+**JSON** (for programmatic generation):
+```json
+{
+  "apis": [
+    {
+      "name": "petstore",
+      "spec_url": "https://petstore3.swagger.io/api/v3/openapi.json",
+      "auth": {
+        "type": "api-key",
+        "header": "X-API-Key",
+        "value": "${PETSTORE_API_KEY}"
+      }
+    }
+  ]
+}
 ```
 
 Secrets use `${ENV_VAR}` syntax and are automatically redacted from all logs.
@@ -258,7 +278,7 @@ retries: 1
 
 | Flag | Default | Description |
 |---|---|---|
-| `--config` | `./config.yaml` | Path to YAML config file |
+| `--config` | `./config.yaml` | Path to config file (YAML or JSON, auto-detected) |
 | `--config-url` | | Config server URL (replaces `--config`) |
 | `--profile` | | Profile name when using `--config-url` |
 | `--transport` | `stdio` | `stdio`, `http`, or `sse` |

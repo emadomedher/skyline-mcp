@@ -41,6 +41,46 @@ You describe your APIs in a YAML file. Skyline does the rest:
 
 ---
 
+## 🚀 Code Execution (Default)
+
+Skyline uses **code execution** by default, providing up to **98% cost reduction** compared to traditional MCP:
+
+**Traditional MCP:**
+- AI evaluates 100+ tool definitions (~20K tokens)
+- Makes 5-7 separate tool calls
+- Sends intermediate data back and forth (~5K tokens per call)
+- **Cost: ~$0.081 per request** (Claude Opus)
+
+**Code Execution (Default):**
+- AI receives tool hints (~2K tokens)
+- Writes one TypeScript script
+- Skyline executes code in Deno sandbox
+- Code calls tools internally, filters data locally
+- **Cost: ~$0.002 per request** (97.7% cheaper!)
+
+**Monthly savings:** $7,900 for 100K requests
+
+### Requirements
+
+Requires [Deno runtime](https://deno.com) (v2.0+):
+
+```bash
+curl -fsSL https://deno.land/install.sh | sh
+```
+
+If Deno is not available, Skyline automatically falls back to traditional MCP tools.
+
+### Disable Code Execution
+
+```yaml
+# config.yaml
+enable_code_execution: false  # Use traditional MCP tools
+```
+
+See [CODE-EXECUTION.md](CODE-EXECUTION.md) for full documentation.
+
+---
+
 ## Supported API Types
 
 Skyline auto-detects the spec format. No manual configuration needed.

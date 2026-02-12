@@ -116,10 +116,10 @@ openssl rand -hex 32 > .encryption-key
 export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 
 # Start Web UI
-./skyline-server --config=config.yaml --listen=:9190
+./skyline-server --config=config.yaml --bind=localhost:19190
 
 # Open browser
-# http://localhost:9190/ui/
+# http://localhost:19190/ui/
 ```
 
 ### Features
@@ -257,8 +257,8 @@ A web application for managing API configurations through profiles. Encrypted st
 
 ```bash
 export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
-go run ./cmd/skyline-server --listen :9190
-# Open http://localhost:9190/ui/
+go run ./cmd/skyline-server --bind localhost:19190
+# Open http://localhost:19190/ui/
 ```
 
 Features:
@@ -393,7 +393,7 @@ retries: 1
 
 | Flag | Default | Description |
 |---|---|---|
-| `--listen` | `:9190` | HTTP listen address |
+| `--bind` | `localhost:19190` | Network interface and port (e.g., localhost:19190 or 0.0.0.0:19190) |
 | `--storage` | `./profiles.enc.yaml` | Encrypted storage path |
 | `--auth-mode` | `bearer` | `bearer` or `none` |
 | `--key-env` | `SKYLINE_PROFILES_KEY` | Env var holding the 32-byte AES key |
@@ -408,13 +408,13 @@ Instead of local YAML files, pull config from the config server at runtime:
 ```bash
 # Start the config server
 export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
-go run ./cmd/skyline-server --listen :9190
+go run ./cmd/skyline-server --bind localhost:19190
 
-# Create a profile via the web UI at http://localhost:9190/ui/
+# Create a profile via the web UI at http://localhost:19190/ui/
 # Then run the MCP server with that profile:
 export MCP_PROFILE=dev
 export MCP_PROFILE_TOKEN=your-profile-token
-go run ./cmd/skyline --config-url http://localhost:9190
+go run ./cmd/skyline --config-url http://localhost:19190
 ```
 
 ---

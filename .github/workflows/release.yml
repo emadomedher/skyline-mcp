@@ -94,50 +94,9 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Generate install script
+      - name: Copy install script to release
         run: |
-          cat > release/install.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          # Detect OS and architecture
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          ARCH=$(uname -m)
-          
-          case "$ARCH" in
-            x86_64) ARCH="amd64" ;;
-            aarch64|arm64) ARCH="arm64" ;;
-            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
-          esac
-          
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          BINARY="skyline-${OS}-${ARCH}"
-          URL="https://github.com/emadomedher/skyline-mcp/releases/download/v${VERSION}/${BINARY}"
-          
-          echo "Installing Skyline v${VERSION} for ${OS}-${ARCH}..."
-          
-          # Download binary
-          if command -v curl &> /dev/null; then
-            curl -fsSL "$URL" -o skyline
-          elif command -v wget &> /dev/null; then
-            wget -q "$URL" -O skyline
-          else
-            echo "Error: curl or wget required"
-            exit 1
-          fi
-          
-          chmod +x skyline
-          
-          # Optionally move to /usr/local/bin (requires sudo)
-          if [ "$1" = "--install" ]; then
-            sudo mv skyline /usr/local/bin/skyline
-            echo "✅ Skyline installed to /usr/local/bin/skyline"
-          else
-            echo "✅ Skyline downloaded to ./skyline"
-            echo "Run with: ./skyline --version"
-            echo "Or install globally: sudo mv skyline /usr/local/bin/"
-          fi
-          EOF
+          cp install.sh release/install.sh
           chmod +x release/install.sh
 
       - name: Create GitHub Release

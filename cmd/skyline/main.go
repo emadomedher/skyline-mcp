@@ -54,6 +54,7 @@ func main() {
 
 	var registry *mcp.Registry
 	var executor mcp.Executor
+	var cfg *config.Config
 	redactor := redact.NewRedactor()
 
 	if gatewayMode {
@@ -105,7 +106,6 @@ func main() {
 		// STANDALONE MODE: Direct API access (backward compatible)
 		logger.Printf("standalone mode: loading specs directly")
 
-		var cfg *config.Config
 		if *configURL != "" {
 			token := *configToken
 			if token == "" {

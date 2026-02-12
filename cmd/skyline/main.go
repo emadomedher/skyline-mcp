@@ -126,15 +126,43 @@ func main() {
 				logger.Fatalf("config load: %v", err)
 			}
 		} else {
-			var err error
-			cfg, err = config.Load(*configPath)
-			if err != nil {
-				// If config file doesn't exist, start with empty config
-				if os.IsNotExist(err) {
-					logger.Printf("config file not found (%s), starting with empty profile", *configPath)
-					cfg = &config.Config{APIs: []config.APIConfig{}}
-					cfg.ApplyDefaults()
-				} else {
+			// Check if config file exists before trying to load it
+			if _, err := os.Stat(*configPath); os.IsNotExist(err) {
+				// Config file doesn't exist - guide the user
+				logger.Printf("")
+				logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				logger.Printf("  No config file found (%s)", *configPath)
+				logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				logger.Printf("")
+				logger.Printf("Skyline can work in two ways:")
+				logger.Printf("")
+				logger.Printf("1️⃣  Web UI (Recommended for getting started)")
+				logger.Printf("   Start the config server:")
+				logger.Printf("   $ skyline-server --bind=localhost:19190")
+				logger.Printf("   Then open: http://localhost:19190/ui/")
+				logger.Printf("")
+				logger.Printf("2️⃣  Config File (For advanced users)")
+				logger.Printf("   Create %s with your API configs:", *configPath)
+				logger.Printf("   $ cat > %s << 'EOF'", *configPath)
+				logger.Printf("   apis:")
+				logger.Printf("     - name: example-api")
+				logger.Printf("       spec_url: https://api.example.com/openapi.json")
+				logger.Printf("   EOF")
+				logger.Printf("")
+				logger.Printf("   See examples: https://github.com/emadomedher/skyline-mcp/tree/main/examples")
+				logger.Printf("")
+				logger.Printf("For now, starting with empty config (no APIs loaded)")
+				logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				logger.Printf("")
+				
+				// Start with empty config
+				cfg = &config.Config{APIs: []config.APIConfig{}}
+				cfg.ApplyDefaults()
+			} else {
+				// Config file exists, try to load it
+				var err error
+				cfg, err = config.Load(*configPath)
+				if err != nil {
 					logger.Fatalf("config load: %v", err)
 				}
 			}

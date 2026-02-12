@@ -1,0 +1,207 @@
+name: Release Skyline Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: linux
+            arch: amd64
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            goos: linux
+            goarch: arm64
+          # macOS
+          - os: darwin
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build skyline binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" -o skyline-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline
+
+      - name: Build skyline-server binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" -o skyline-server-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline-server
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skyline-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            skyline-${{ matrix.os }}-${{ matrix.arch }}
+            skyline-server-${{ matrix.os }}-${{ matrix.arch }}
+
+  create-release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move binaries to release directory
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec mv {} release/ \;
+
+      - name: Make binaries executable
+        run: chmod +x release/*
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate install script
+        run: |
+          cat > release/install.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # Detect OS and architecture
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          
+          case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+          
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          BINARY="skyline-${OS}-${ARCH}"
+          URL="https://github.com/emadomedher/skyline-mcp/releases/download/v${VERSION}/${BINARY}"
+          
+          echo "Installing Skyline v${VERSION} for ${OS}-${ARCH}..."
+          
+          # Download binary
+          if command -v curl &> /dev/null; then
+            curl -fsSL "$URL" -o skyline
+          elif command -v wget &> /dev/null; then
+            wget -q "$URL" -O skyline
+          else
+            echo "Error: curl or wget required"
+            exit 1
+          fi
+          
+          chmod +x skyline
+          
+          # Optionally move to /usr/local/bin (requires sudo)
+          if [ "$1" = "--install" ]; then
+            sudo mv skyline /usr/local/bin/skyline
+            echo "✅ Skyline installed to /usr/local/bin/skyline"
+          else
+            echo "✅ Skyline downloaded to ./skyline"
+            echo "Run with: ./skyline --version"
+            echo "Or install globally: sudo mv skyline /usr/local/bin/"
+          fi
+          EOF
+          chmod +x release/install.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          tag_name: ${{ github.ref_name }}
+          name: Skyline MCP v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## 🚀 Skyline MCP v${{ steps.version.outputs.VERSION }}
+            
+            Universal MCP bridge for AI agents. Connect any API to Claude, ChatGPT, or any MCP client.
+            
+            ### Quick Install
+            
+            **Linux/macOS (auto-detect):**
+            ```bash
+            curl -fsSL https://skyline.projex.cc/install | bash
+            ```
+            
+            **Manual Download:**
+            
+            | Platform | Architecture | Download |
+            |----------|--------------|----------|
+            | Linux | x86_64 | [skyline-linux-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-linux-amd64) |
+            | Linux | ARM64 | [skyline-linux-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-linux-arm64) |
+            | macOS | Intel | [skyline-darwin-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-darwin-amd64) |
+            | macOS | Apple Silicon | [skyline-darwin-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-darwin-arm64) |
+            
+            **Skyline Server (Web UI):**
+            
+            | Platform | Architecture | Download |
+            |----------|--------------|----------|
+            | Linux | x86_64 | [skyline-server-linux-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-linux-amd64) |
+            | Linux | ARM64 | [skyline-server-linux-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-linux-arm64) |
+            | macOS | Intel | [skyline-server-darwin-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-darwin-amd64) |
+            | macOS | Apple Silicon | [skyline-server-darwin-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-darwin-arm64) |
+            
+            ### Usage
+            
+            ```bash
+            # Make executable
+            chmod +x skyline-*
+            
+            # Run MCP server (STDIO mode for Claude Desktop)
+            ./skyline-linux-amd64 --config=config.yaml
+            
+            # Or run HTTP+UI mode
+            ./skyline-server-linux-amd64 --config=config.yaml
+            ```
+            
+            ### What's New
+            
+            See [CHANGELOG.md](https://github.com/emadomedher/skyline-mcp/blob/main/CHANGELOG.md) for full release notes.
+            
+            ### Documentation
+            
+            - 📚 [Full Documentation](https://skyline.projex.cc/docs)
+            - ⚡ [Code Execution Guide](https://skyline.projex.cc/docs/code-execution)
+            - 📊 [GraphQL Support](https://skyline.projex.cc/docs/graphql)
+            - 🔧 [Configuration Guide](https://github.com/emadomedher/skyline-mcp#configuration)
+            
+            ---
+            
+            **License:** Apache 2.0 | **Website:** https://skyline.projex.cc | **Support:** https://github.com/emadomedher/skyline-mcp/issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

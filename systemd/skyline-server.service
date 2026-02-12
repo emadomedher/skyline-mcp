@@ -6,14 +6,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/skyline-server --bind=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
+ExecStart=%h/.local/bin/skyline-server --listen=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
 # Environment
-Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=-%h/.skyline/skyline.env
 
 # Security

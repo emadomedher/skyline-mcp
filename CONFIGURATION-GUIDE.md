@@ -16,10 +16,10 @@ openssl rand -hex 32 > .encryption-key
 export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 
 # 3. Start Web UI
-./skyline-server --config=config.yaml --listen=:9190
+./skyline-server --config=config.yaml --bind=localhost:19190
 
 # 4. Open browser
-# http://localhost:9190/ui/
+# http://localhost:19190/ui/
 ```
 
 ### Web UI Features
@@ -309,7 +309,7 @@ log:
 export SKYLINE_PROFILES_KEY=$(cat /secure/path/.encryption-key)
 
 # Optional for skyline CLI with config server
-export CONFIG_SERVER_URL=http://localhost:9190
+export CONFIG_SERVER_URL=http://localhost:19190
 export PROFILE_NAME=production-api
 export PROFILE_TOKEN=your-profile-token
 ```

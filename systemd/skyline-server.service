@@ -1,0 +1,27 @@
+[Unit]
+Description=Skyline Web UI & Profile Server
+Documentation=https://skyline.projex.cc/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/skyline-server --bind=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-%h/.skyline/skyline.env
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Working directory
+WorkingDirectory=%h/.skyline
+
+[Install]
+WantedBy=default.target

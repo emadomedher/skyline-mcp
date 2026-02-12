@@ -3,7 +3,13 @@ name: Release Skyline Binaries
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags like v1.0.0
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        default: 'v0.1.2'
 
 permissions:
   contents: write
@@ -36,6 +42,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -48,8 +56,11 @@ jobs:
       - name: Get version
         id: version
         run: |
-          # Extract version from tag (e.g., v0.1.0 -> 0.1.0)
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION=$(echo ${{ github.event.inputs.tag }} | sed 's/v//')
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
@@ -84,91 +95,53 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Move binaries to release directory
+      
+      - name: Organize artifacts
         run: |
           mkdir -p release
-          find artifacts -type f -exec mv {} release/ \;
-
-      - name: Make binaries executable
-        run: chmod +x release/*
-
-      - name: Get version from tag
+          find artifacts -type f -name 'skyline*' -exec cp {} release/ \;
+          ls -lh release/
+      
+      - name: Get version for release
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Copy install script to release
         run: |
-          cp install.sh release/install.sh
-          chmod +x release/install.sh
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: false
           files: release/*
-          tag_name: ${{ github.ref_name }}
-          name: Skyline MCP v${{ steps.version.outputs.VERSION }}
           body: |
-            ## 🚀 Skyline MCP v${{ steps.version.outputs.VERSION }}
+            ## Skyline MCP ${{ steps.version.outputs.tag }}
             
-            Universal MCP bridge for AI agents. Connect any API to Claude, ChatGPT, or any MCP client.
+            **Installation:**
             
-            ### Quick Install
-            
-            **Linux/macOS (auto-detect):**
             ```bash
             curl -fsSL https://skyline.projex.cc/install | bash
             ```
             
-            **Manual Download:**
-            
-            | Platform | Architecture | Download |
-            |----------|--------------|----------|
-            | Linux | x86_64 | [skyline-linux-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-linux-amd64) |
-            | Linux | ARM64 | [skyline-linux-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-linux-arm64) |
-            | macOS | Intel | [skyline-darwin-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-darwin-amd64) |
-            | macOS | Apple Silicon | [skyline-darwin-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-darwin-arm64) |
-            
-            **Skyline Server (Web UI):**
-            
-            | Platform | Architecture | Download |
-            |----------|--------------|----------|
-            | Linux | x86_64 | [skyline-server-linux-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-linux-amd64) |
-            | Linux | ARM64 | [skyline-server-linux-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-linux-arm64) |
-            | macOS | Intel | [skyline-server-darwin-amd64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-darwin-amd64) |
-            | macOS | Apple Silicon | [skyline-server-darwin-arm64](https://github.com/emadomedher/skyline-mcp/releases/download/${{ github.ref_name }}/skyline-server-darwin-arm64) |
-            
-            ### Usage
+            **Update from existing installation:**
             
             ```bash
-            # Make executable
-            chmod +x skyline-*
-            
-            # Run MCP server (STDIO mode for Claude Desktop)
-            ./skyline-linux-amd64 --config=config.yaml
-            
-            # Or run HTTP+UI mode
-            ./skyline-server-linux-amd64 --config=config.yaml
+            skyline update
             ```
             
-            ### What's New
-            
-            See [CHANGELOG.md](https://github.com/emadomedher/skyline-mcp/blob/main/CHANGELOG.md) for full release notes.
-            
-            ### Documentation
-            
-            - 📚 [Full Documentation](https://skyline.projex.cc/docs)
-            - ⚡ [Code Execution Guide](https://skyline.projex.cc/docs/code-execution)
-            - 📊 [GraphQL Support](https://skyline.projex.cc/docs/graphql)
-            - 🔧 [Configuration Guide](https://github.com/emadomedher/skyline-mcp#configuration)
-            
-            ---
-            
-            **License:** Apache 2.0 | **Website:** https://skyline.projex.cc | **Support:** https://github.com/emadomedher/skyline-mcp/issues
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            **Binaries included:**
+            - Linux (x86_64, ARM64)
+            - macOS (Intel, Apple Silicon)
+            - Both `skyline` and `skyline-server`

@@ -13,7 +13,7 @@ Complete guide to configuring Skyline MCP for secure API integration.
 openssl rand -hex 32 > .encryption-key
 
 # 2. Export the key
-export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 
 # 3. Start Web UI
 ./skyline-server --config=config.yaml --listen=:9190
@@ -29,6 +29,39 @@ export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
 - ✅ **Syntax validation** - Catch errors before they break
 - ✅ **Auth management** - Secure credential storage
 - ✅ **Zero CLI knowledge** - Point, click, done
+
+### Understanding Keys vs Tokens
+
+**🔑 Encryption Key (`SKYLINE_PROFILES_KEY`):**
+- **Purpose:** Encrypts the ENTIRE `profiles.enc.yaml` file (all profiles)
+- **Sharing:** Share with your team (via 1Password, Vault, secure channel)
+- **Security:** Protects data at rest on disk
+- **Analogy:** Like encrypting a ZIP file - everyone who needs to open it needs the password
+
+**🎫 Profile Tokens (per profile):**
+- **Purpose:** Control WHO can access WHICH profile via API
+- **Sharing:** Give each user only the tokens for profiles they need
+- **Security:** Controls access and authentication
+- **Analogy:** Like individual room keys in a building - different people get different keys
+
+**Example Team Setup:**
+```yaml
+# profiles.enc.yaml (decrypted)
+profiles:
+  - name: dev-api
+    token: dev-token-abc123        # ← Developers get this
+    config_yaml: ...
+  
+  - name: prod-api  
+    token: prod-token-xyz789       # ← DevOps gets this
+    config_yaml: ...
+```
+
+**Flow:**
+1. **Everyone** shares the encryption key to decrypt the file
+2. **Developers** get `dev-token-abc123` to access dev-api
+3. **DevOps** get `prod-token-xyz789` to access prod-api
+4. Access control happens via tokens, not the encryption key
 
 ### Security
 
@@ -251,7 +284,7 @@ log:
 1. **Always use the Web UI** for profile management (easier + safer)
 2. **Generate strong keys**: `openssl rand -hex 32`
 3. **Protect your key file**: `chmod 600 .encryption-key`
-4. **Use environment variables**: `export SKYLINE_PROFILE_KEY=$(cat .encryption-key)`
+4. **Use environment variables**: `export SKYLINE_PROFILES_KEY=$(cat .encryption-key)`
 5. **Add to .gitignore**: `.encryption-key` and `profiles.dec.yaml`
 6. **Rotate keys periodically** (re-encrypt with new key)
 7. **Use different keys** for different environments (dev/staging/prod)
@@ -273,7 +306,7 @@ log:
 
 ```bash
 # Required for skyline-server
-export SKYLINE_PROFILE_KEY=$(cat /secure/path/.encryption-key)
+export SKYLINE_PROFILES_KEY=$(cat /secure/path/.encryption-key)
 
 # Optional for skyline CLI with config server
 export CONFIG_SERVER_URL=http://localhost:9190
@@ -290,14 +323,14 @@ FROM skyline:latest
 COPY profiles.enc.yaml /app/profiles.enc.yaml
 
 # Key passed at runtime
-ENV SKYLINE_PROFILE_KEY=""
+ENV SKYLINE_PROFILES_KEY=""
 
 CMD ["skyline-server", "--config=/app/config.yaml"]
 ```
 
 ```bash
 # Run with key from file
-docker run -e SKYLINE_PROFILE_KEY="$(cat .encryption-key)" skyline:latest
+docker run -e SKYLINE_PROFILES_KEY="$(cat .encryption-key)" skyline:latest
 ```
 
 ### Kubernetes Secret
@@ -311,7 +344,7 @@ kubectl create secret generic skyline-key \
 # Use in deployment
 kubectl create deployment skyline-server \
   --image=skyline:latest \
-  --env="SKYLINE_PROFILE_KEY=$(kubectl get secret skyline-key -o jsonpath='{.data.key}' | base64 -d)"
+  --env="SKYLINE_PROFILES_KEY=$(kubectl get secret skyline-key -o jsonpath='{.data.key}' | base64 -d)"
 ```
 
 ---
@@ -325,7 +358,7 @@ kubectl create deployment skyline-server \
 openssl rand -hex 32 > .encryption-key
 
 # Set environment variable
-export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 ```
 
 ### "Invalid key length"
@@ -384,7 +417,7 @@ openssl rand -hex 32 > .encryption-key
 
 **Start Web UI (recommended):**
 ```bash
-export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 ./skyline-server --config=config.yaml
 ```
 

@@ -767,3 +767,23 @@ mcpx tools call calculator-jsonrpc__add '{"a": 5, "b": 3}'
 <p align="center">
   <sub>Built with Go. Powered by MCP.</sub>
 </p>
+
+---
+
+## License
+
+**Apache License 2.0**
+
+Skyline is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text.
+
+### Why Apache 2.0?
+
+- ✅ **Patent protection**: Explicit grant protects you from patent litigation
+- ✅ **Commercial use**: Safe for enterprise and commercial projects
+- ✅ **Permissive**: Modify and distribute freely, including in proprietary software
+- ✅ **Attribution**: Requires credit to contributors (fair and simple)
+
+**Copyright 2026 [Projex Digital](https://projex.cc)**
+
+Used by Apache Foundation, Kubernetes, Android, TensorFlow, and thousands of enterprise projects.
+

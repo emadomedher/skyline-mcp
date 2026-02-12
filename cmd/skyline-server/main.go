@@ -77,7 +77,7 @@ type upsertRequest struct {
 }
 
 func main() {
-	listen := flag.String("listen", ":9190", "HTTP listen address")
+	bind := flag.String("bind", "localhost:19190", "Network interface and port to bind to (e.g., localhost:19190 or 0.0.0.0:19190)")
 	storagePath := flag.String("storage", "./profiles.enc.yaml", "Encrypted profiles storage path")
 	authMode := flag.String("auth-mode", "bearer", "Auth mode: none or bearer")
 	keyEnv := flag.String("key-env", "SKYLINE_PROFILES_KEY", "Env var name containing encryption key")
@@ -227,14 +227,14 @@ func main() {
 	mux.HandleFunc("/admin/stats", s.handleStats)
 
 	httpServer := &http.Server{
-		Addr:         *listen,
+		Addr:         *bind,
 		Handler:      logRequests(mux, logger),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	logger.Printf("config server listening on %s", *listen)
+	logger.Printf("Skyline Web UI listening on http://%s", *bind)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatalf("server error: %v", err)
 	}

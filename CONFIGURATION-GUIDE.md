@@ -13,7 +13,7 @@ Complete guide to configuring Skyline MCP for secure API integration.
 openssl rand -hex 32 > .encryption-key
 
 # 2. Export the key
-export CONFIG_SERVER_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
 
 # 3. Start Web UI
 ./skyline-server --config=config.yaml --listen=:9190
@@ -251,7 +251,7 @@ log:
 1. **Always use the Web UI** for profile management (easier + safer)
 2. **Generate strong keys**: `openssl rand -hex 32`
 3. **Protect your key file**: `chmod 600 .encryption-key`
-4. **Use environment variables**: `export CONFIG_SERVER_KEY=$(cat .encryption-key)`
+4. **Use environment variables**: `export SKYLINE_PROFILE_KEY=$(cat .encryption-key)`
 5. **Add to .gitignore**: `.encryption-key` and `profiles.dec.yaml`
 6. **Rotate keys periodically** (re-encrypt with new key)
 7. **Use different keys** for different environments (dev/staging/prod)
@@ -273,7 +273,7 @@ log:
 
 ```bash
 # Required for skyline-server
-export CONFIG_SERVER_KEY=$(cat /secure/path/.encryption-key)
+export SKYLINE_PROFILE_KEY=$(cat /secure/path/.encryption-key)
 
 # Optional for skyline CLI with config server
 export CONFIG_SERVER_URL=http://localhost:9190
@@ -290,14 +290,14 @@ FROM skyline:latest
 COPY profiles.enc.yaml /app/profiles.enc.yaml
 
 # Key passed at runtime
-ENV CONFIG_SERVER_KEY=""
+ENV SKYLINE_PROFILE_KEY=""
 
 CMD ["skyline-server", "--config=/app/config.yaml"]
 ```
 
 ```bash
 # Run with key from file
-docker run -e CONFIG_SERVER_KEY="$(cat .encryption-key)" skyline:latest
+docker run -e SKYLINE_PROFILE_KEY="$(cat .encryption-key)" skyline:latest
 ```
 
 ### Kubernetes Secret
@@ -311,7 +311,7 @@ kubectl create secret generic skyline-key \
 # Use in deployment
 kubectl create deployment skyline-server \
   --image=skyline:latest \
-  --env="CONFIG_SERVER_KEY=$(kubectl get secret skyline-key -o jsonpath='{.data.key}' | base64 -d)"
+  --env="SKYLINE_PROFILE_KEY=$(kubectl get secret skyline-key -o jsonpath='{.data.key}' | base64 -d)"
 ```
 
 ---
@@ -325,7 +325,7 @@ kubectl create deployment skyline-server \
 openssl rand -hex 32 > .encryption-key
 
 # Set environment variable
-export CONFIG_SERVER_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
 ```
 
 ### "Invalid key length"
@@ -384,7 +384,7 @@ openssl rand -hex 32 > .encryption-key
 
 **Start Web UI (recommended):**
 ```bash
-export CONFIG_SERVER_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
 ./skyline-server --config=config.yaml
 ```
 

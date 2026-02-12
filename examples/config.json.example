@@ -1,4 +1,5 @@
 {
+  "_comment": "Code execution is ENABLED by default (98% cost reduction). Requires Deno: https://deno.com. To disable: enable_code_execution: false",
   "apis": [
     {
       "name": "petstore-openapi",

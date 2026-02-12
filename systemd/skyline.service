@@ -6,14 +6,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/skyline --config=%h/.skyline/config.yaml --transport=http --listen=:8191
+ExecStart=%h/.local/bin/skyline --config=%h/.skyline/config.yaml --transport=http --listen=:8191
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
 # Environment
-Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 # Security
 NoNewPrivileges=true

@@ -80,7 +80,7 @@ func main() {
 	listen := flag.String("listen", ":9190", "HTTP listen address")
 	storagePath := flag.String("storage", "./profiles.enc.yaml", "Encrypted profiles storage path")
 	authMode := flag.String("auth-mode", "bearer", "Auth mode: none or bearer")
-	keyEnv := flag.String("key-env", "CONFIG_SERVER_KEY", "Env var name containing encryption key")
+	keyEnv := flag.String("key-env", "SKYLINE_PROFILE_KEY", "Env var name containing encryption key")
 	envFile := flag.String("env-file", "", "Optional env file to load before startup")
 	flag.Parse()
 
@@ -92,13 +92,48 @@ func main() {
 		}
 	}
 
+	// Check if encryption key is set
 	keyRaw := os.Getenv(*keyEnv)
+	var key []byte
+	var err error
+	profileExists := fileExists(*storagePath)
+
 	if keyRaw == "" {
-		logger.Fatalf("missing encryption key in %s", *keyEnv)
-	}
-	key, err := decodeKey(keyRaw)
-	if err != nil {
-		logger.Fatalf("invalid encryption key: %v", err)
+		// No key set - generate a new one
+		key = make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			logger.Fatalf("failed to generate encryption key: %v", err)
+		}
+		keyHex := hex.EncodeToString(key)
+		
+		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		logger.Printf("⚠️  SKYLINE_PROFILE_KEY not set - Generated new encryption key")
+		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		logger.Printf("")
+		logger.Printf("🔑 Your encryption key:")
+		logger.Printf("")
+		logger.Printf("    %s", keyHex)
+		logger.Printf("")
+		logger.Printf("📝 SAVE THIS KEY! You will need it to decrypt profiles.")
+		logger.Printf("")
+		logger.Printf("   To use this key in the future, set the environment variable:")
+		logger.Printf("   export SKYLINE_PROFILE_KEY=%s", keyHex)
+		logger.Printf("")
+		logger.Printf("   Or save it to a file:")
+		logger.Printf("   echo \"%s\" > .skyline-key", keyHex)
+		logger.Printf("   export SKYLINE_PROFILE_KEY=$(cat .skyline-key)")
+		logger.Printf("")
+		logger.Printf("🔒 All new profiles created through the Web UI will be")
+		logger.Printf("   encrypted with this key.")
+		logger.Printf("")
+		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		logger.Printf("")
+	} else {
+		// Key is set - decode it
+		key, err = decodeKey(keyRaw)
+		if err != nil {
+			logger.Fatalf("invalid encryption key in %s: %v", *keyEnv, err)
+		}
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(*authMode))
@@ -126,7 +161,33 @@ func main() {
 		metrics:     metricsCollector,
 	}
 
+	// Try to load existing profiles
 	if err := s.load(); err != nil {
+		// If profile exists but decryption failed, show helpful error
+		if profileExists && keyRaw != "" {
+			absPath, _ := filepath.Abs(*storagePath)
+			logger.Printf("")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("❌ Failed to decrypt profile")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("")
+			logger.Printf("The encryption key you provided is invalid for this profile.")
+			logger.Printf("")
+			logger.Printf("📁 Profile location:")
+			logger.Printf("   %s", absPath)
+			logger.Printf("")
+			logger.Printf("🔑 Current key (from %s):", *keyEnv)
+			logger.Printf("   %s...%s", keyRaw[:16], keyRaw[len(keyRaw)-16:])
+			logger.Printf("")
+			logger.Printf("💡 Possible solutions:")
+			logger.Printf("   1. Use the correct key that was used to encrypt this profile")
+			logger.Printf("   2. Delete the profile and start fresh (data will be lost)")
+			logger.Printf("   3. Restore from backup if you have one")
+			logger.Printf("")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("")
+			logger.Fatalf("Error: %v", err)
+		}
 		logger.Fatalf("load store: %v", err)
 	}
 
@@ -1407,7 +1468,7 @@ func (s *server) load() error {
 	}
 	plain, err := decrypt(env, s.key)
 	if err != nil {
-		return err
+		return fmt.Errorf("decryption failed (wrong key or corrupted data): %w", err)
 	}
 	var store profileStore
 	if err := yaml.Unmarshal(plain, &store); err != nil {
@@ -1540,4 +1601,9 @@ func loadEnvFile(path string) error {
 		_ = os.Setenv(key, strings.Trim(val, `"'`))
 	}
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

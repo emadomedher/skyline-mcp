@@ -33,7 +33,24 @@ func main() {
 	sseAuthPassword := flag.String("sse-auth-password", "", "SSE basic auth password")
 	sseAuthHeader := flag.String("sse-auth-header", "", "SSE api-key header")
 	sseAuthValue := flag.String("sse-auth-value", "", "SSE api-key value")
+	versionFlag := flag.Bool("version", false, "Show version information")
 	flag.Parse()
+	
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	
+	// Handle version flag
+	if *versionFlag {
+		showVersion()
+		os.Exit(0)
+	}
+	
+	// Handle update command
+	if len(flag.Args()) > 0 && flag.Args()[0] == "update" {
+		if err := runUpdate(logger); err != nil {
+			logger.Fatalf("update failed: %v", err)
+		}
+		os.Exit(0)
+	}
 
 	// Create debug log file
 	debugLog, err := os.OpenFile("/tmp/mcp-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -43,7 +60,6 @@ func main() {
 		fmt.Fprintf(debugLog, "PID: %d\n", os.Getpid())
 	}
 
-	logger := log.New(os.Stderr, "", log.LstdFlags)
 	ctx := context.Background()
 
 	// Check for gateway mode (env vars take precedence)

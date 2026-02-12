@@ -34,12 +34,13 @@ func main() {
 	sseAuthHeader := flag.String("sse-auth-header", "", "SSE api-key header")
 	sseAuthValue := flag.String("sse-auth-value", "", "SSE api-key value")
 	versionFlag := flag.Bool("version", false, "Show version information")
+	versionShort := flag.Bool("v", false, "Show version information (shorthand)")
 	flag.Parse()
 	
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	
-	// Handle version flag
-	if *versionFlag {
+	// Handle version flag (both -v and --version)
+	if *versionFlag || *versionShort {
 		showVersion()
 		os.Exit(0)
 	}

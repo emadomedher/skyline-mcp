@@ -1,3 +1,8 @@
+# Code execution is ENABLED by default (98% cost reduction)
+# Requires Deno runtime: https://deno.com
+# To disable: enable_code_execution: false
+# See CODE-EXECUTION.md for details
+
 apis:
   - name: petstore-openapi
     spec_url: http://localhost:9999/openapi/openapi.json

@@ -6,9 +6,10 @@ import (
 )
 
 type Config struct {
-	APIs           []APIConfig `json:"apis" yaml:"apis"`
-	TimeoutSeconds int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
-	Retries        int         `json:"retries,omitempty" yaml:"retries,omitempty"`
+	APIs               []APIConfig `json:"apis" yaml:"apis"`
+	TimeoutSeconds     int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries            int         `json:"retries,omitempty" yaml:"retries,omitempty"`
+	EnableCodeExecution *bool      `json:"enable_code_execution,omitempty" yaml:"enable_code_execution,omitempty"`
 }
 
 type APIConfig struct {
@@ -38,6 +39,11 @@ func (c *Config) ApplyDefaults() {
 	if c.TimeoutSeconds == 0 {
 		c.TimeoutSeconds = 10
 	}
+	// Default: enable code execution (98% cost reduction)
+	if c.EnableCodeExecution == nil {
+		defaultTrue := true
+		c.EnableCodeExecution = &defaultTrue
+	}
 	for i := range c.APIs {
 		if c.APIs[i].TimeoutSeconds == nil {
 			val := c.TimeoutSeconds
@@ -55,6 +61,14 @@ func (c *Config) ApplyDefaults() {
 			}
 		}
 	}
+}
+
+// CodeExecutionEnabled returns whether code execution is enabled (default: true)
+func (c *Config) CodeExecutionEnabled() bool {
+	if c.EnableCodeExecution == nil {
+		return true // Default enabled
+	}
+	return *c.EnableCodeExecution
 }
 
 func (c *Config) Validate() error {

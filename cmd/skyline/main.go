@@ -165,11 +165,25 @@ func main() {
 
 	server := mcp.NewServer(registry, executor, logger, redactor)
 	
-	// Setup code execution (optional, only if Deno is available)
-	if codeExec, err := setupCodeExecution(registry, logger); err != nil {
-		logger.Printf("WARNING: Code execution setup failed: %v", err)
-	} else if codeExec != nil {
-		server.SetCodeExecutor(codeExec)
+	// Setup code execution (optional, enabled by default)
+	// Can be disabled with: enable_code_execution: false in config
+	enableCodeExecution := true // default for gateway mode
+	if !gatewayMode && cfg != nil {
+		cfg.ApplyDefaults()
+		enableCodeExecution = cfg.CodeExecutionEnabled()
+	}
+	
+	if enableCodeExecution {
+		if codeExec, err := setupCodeExecution(registry, logger); err != nil {
+			logger.Printf("WARNING: Code execution setup failed: %v", err)
+			logger.Printf("         Code execution requires Deno runtime (https://deno.com)")
+			logger.Printf("         Falling back to traditional MCP tools")
+		} else if codeExec != nil {
+			server.SetCodeExecutor(codeExec)
+			logger.Printf("Code execution enabled (Deno executor ready)")
+		}
+	} else {
+		logger.Printf("Code execution disabled by config")
 	}
 	
 	if debugLog != nil {

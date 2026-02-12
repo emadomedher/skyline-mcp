@@ -32,6 +32,20 @@ esac
 echo "🚀 Installing Skyline MCP..."
 echo "   Platform: ${OS}-${ARCH}"
 
+# Check if skyline is already installed
+EXISTING_VERSION=""
+SKYLINE_PATH=""
+if command -v skyline &> /dev/null; then
+  SKYLINE_PATH=$(command -v skyline)
+  if EXISTING_VERSION=$(skyline --version 2>/dev/null | head -n1); then
+    echo ""
+    echo "📦 Existing installation found:"
+    echo "   Location: $SKYLINE_PATH"
+    echo "   Version: $EXISTING_VERSION"
+    echo "   Status: Will be replaced"
+  fi
+fi
+
 if [ "$BUILD_FROM_SOURCE" = true ]; then
   echo "   Mode: Build from source"
   echo ""
@@ -124,7 +138,20 @@ else
 fi
 
 echo ""
-echo "🎉 Skyline MCP installed successfully!"
+# Check new version
+NEW_VERSION=$(skyline --version 2>/dev/null | head -n1 || echo "Unknown version")
+
+if [ -n "$EXISTING_VERSION" ]; then
+  echo "✅ Skyline MCP updated successfully!"
+  echo ""
+  echo "   Old: $EXISTING_VERSION"
+  echo "   New: $NEW_VERSION"
+else
+  echo "🎉 Skyline MCP installed successfully!"
+  echo ""
+  echo "   Version: $NEW_VERSION"
+fi
+
 echo ""
 echo "📝 Next steps:"
 echo "   1. Create config.yaml with your API specs"

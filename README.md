@@ -102,7 +102,50 @@ Skyline auto-detects the spec format. No manual configuration needed.
 
 ---
 
-## Quickstart
+## 🎯 Recommended: Web UI Configuration
+
+**The Web UI is the easiest and most secure way to configure Skyline.** All configurations are encrypted automatically with AES-256-GCM.
+
+### Start the Web UI
+
+```bash
+# Generate encryption key (first time only)
+openssl rand -hex 32 > .encryption-key
+
+# Export the key
+export CONFIG_SERVER_KEY=$(cat .encryption-key)
+
+# Start Web UI
+./skyline-server --config=config.yaml --listen=:9190
+
+# Open browser
+# http://localhost:9190/ui/
+```
+
+### Features
+
+- ✅ **Point-and-click configuration** - No YAML editing required
+- ✅ **Automatic encryption** - All profiles encrypted at rest with AES-256-GCM
+- ✅ **API testing** - Test endpoints before saving
+- ✅ **Syntax validation** - Catch errors before they break
+- ✅ **Secure credential storage** - Never store plaintext secrets
+- ✅ **Multiple profiles** - Separate configs for dev/staging/prod
+
+### Security
+
+Profiles are encrypted using:
+- **Algorithm:** AES-256-GCM (Galois/Counter Mode)
+- **Key size:** 256 bits (32 bytes)
+- **Authentication:** Built-in MAC prevents tampering
+- **Storage:** `profiles.enc.yaml` (encrypted JSON envelope)
+
+**See [CONFIGURATION-GUIDE.md](CONFIGURATION-GUIDE.md) for complete documentation.**
+
+---
+
+## 🔧 Alternative: Manual Configuration
+
+For users who prefer command-line tools:
 
 ### 1. Create a config
 

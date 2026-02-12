@@ -1,123 +1,91 @@
 # Skyline Systemd Services
 
-Run Skyline as a systemd user service (like OpenClaw).
+Run Skyline as systemd user services with easy management via `skyline service` commands.
+
+## Features
+
+- ✅ Interactive installation
+- ✅ Auto-start on boot
+- ✅ Auto-restart on failure
+- ✅ Simple service management (`skyline service start/stop/restart`)
+- ✅ Background operation (survives logout)
+- ✅ Clean logs via journalctl
+
+---
 
 ## Quick Install
 
 ```bash
-cd systemd
+cd ~/code/skyline-mcp/systemd
 ./install.sh
 ```
 
-This will:
-- Create `~/.skyline/` directory
-- Generate encryption key
-- Install systemd service files
-- Create default config
+**The installer will:**
+1. Check if skyline is installed
+2. Ask if you want to install systemd services
+3. Create config directory (`~/.skyline/`)
+4. Generate encryption key
+5. Install service files
+6. Ask if you want to start services now
 
-## Services
+---
 
-### skyline.service
-**MCP Server** - Exposes APIs as MCP tools
-
-- **Port:** 8191 (HTTP transport)
-- **Config:** `~/.skyline/config.yaml`
-- **Logs:** `journalctl --user -u skyline -f`
-
-### skyline-server.service
-**Web UI & Profile Server** - Manage API profiles
-
-- **URL:** http://localhost:19190/ui/
-- **Storage:** `~/.skyline/profiles.enc.yaml`
-- **Key:** `~/.skyline/skyline.env`
-- **Logs:** `journalctl --user -u skyline-server -f`
-
-## Usage
-
-### Enable & Start
-```bash
-# Start Web UI
-systemctl --user enable --now skyline-server
-
-# Start MCP Server
-systemctl --user enable --now skyline
-```
+## Service Management
 
 ### Check Status
 ```bash
-systemctl --user status skyline
-systemctl --user status skyline-server
+skyline service status
+```
+
+### Start Services
+```bash
+skyline service start
+```
+
+### Stop Services
+```bash
+skyline service stop
+```
+
+### Restart Services
+```bash
+skyline service restart
+```
+
+### Enable Auto-Start (on boot)
+```bash
+skyline service enable
+```
+
+### Disable Auto-Start
+```bash
+skyline service disable
 ```
 
 ### View Logs
 ```bash
-# Follow logs
-journalctl --user -u skyline -f
-journalctl --user -u skyline-server -f
+# Follow skyline logs
+skyline service logs
 
-# Last 50 lines
-journalctl --user -u skyline -n 50
+# Follow skyline-server logs
+skyline service logs server
 ```
 
-### Restart
-```bash
-systemctl --user restart skyline
-systemctl --user restart skyline-server
-```
+---
 
-### Stop
-```bash
-systemctl --user stop skyline
-systemctl --user stop skyline-server
-```
+## What Gets Installed
 
-### Disable
-```bash
-systemctl --user disable skyline
-systemctl --user disable skyline-server
-```
+### Services
 
-## Configuration
+**skyline.service** - MCP Server
+- Port: 8191 (HTTP transport)
+- Config: `~/.skyline/config.yaml`
 
-### MCP Server Config
-Edit: `~/.skyline/config.yaml`
+**skyline-server.service** - Web UI
+- URL: http://localhost:19190/ui/
+- Storage: `~/.skyline/profiles.enc.yaml`
 
-```yaml
-apis:
-  - name: example-api
-    spec_url: https://api.example.com/openapi.json
-    auth:
-      type: bearer
-      token: ${API_TOKEN}
-```
-
-After editing:
-```bash
-systemctl --user restart skyline
-```
-
-### Web UI (Profiles)
-**Recommended:** Use the Web UI at http://localhost:19190/ui/
-
-Or edit manually:
-1. Export encryption key: `export SKYLINE_PROFILES_KEY=$(grep SKYLINE_PROFILES_KEY ~/.skyline/skyline.env | cut -d= -f2)`
-2. Edit profiles (they're encrypted)
-3. Restart: `systemctl --user restart skyline-server`
-
-## Environment Variables
-
-Stored in: `~/.skyline/skyline.env`
-
-```bash
-SKYLINE_PROFILES_KEY=<32-byte-hex-key>
-```
-
-To view:
-```bash
-cat ~/.skyline/skyline.env
-```
-
-## Directory Structure
+### Files
 
 ```
 ~/.skyline/
@@ -128,115 +96,280 @@ cat ~/.skyline/skyline.env
 ~/.config/systemd/user/
 ├── skyline.service
 └── skyline-server.service
+
+~/.local/bin/  (or /usr/local/bin/)
+├── skyline              # Service wrapper script
+└── skyline-bin          # Original binary
 ```
+
+---
+
+## How It Works
+
+The installer creates a wrapper script that intercepts `skyline service` commands:
+
+```bash
+skyline service start     # → Handled by wrapper (systemctl)
+skyline --version         # → Passed to real binary (skyline-bin)
+skyline --config=...      # → Passed to real binary
+```
+
+All normal skyline commands work as before!
+
+---
+
+## Configuration
+
+### MCP Server Config
+
+Edit: `~/.skyline/config.yaml`
+
+```yaml
+apis:
+  - name: github
+    spec_url: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml
+    auth:
+      type: bearer
+      token: ${GITHUB_TOKEN}
+```
+
+After editing:
+```bash
+skyline service restart
+```
+
+### Web UI (Recommended)
+
+Open: http://localhost:19190/ui/
+
+Profiles are encrypted automatically with the key in `~/.skyline/skyline.env`
+
+---
 
 ## Troubleshooting
 
-### Service won't start
+### Service Won't Start
+
 ```bash
-# Check logs for errors
-journalctl --user -u skyline -n 50
-journalctl --user -u skyline-server -n 50
+# Check logs
+skyline service logs
+skyline service logs server
 
-# Verify binary exists
+# Verify binary
 which skyline
-which skyline-server
+skyline --version
 
-# Test manually
-/usr/local/bin/skyline --version
-/usr/local/bin/skyline-server --version
+# Check systemd status
+systemctl --user status skyline
+systemctl --user status skyline-server
 ```
 
-### Can't connect to Web UI
-```bash
-# Check if service is running
-systemctl --user status skyline-server
+### Port Already in Use
 
-# Check if port is listening
+```bash
+# Check what's using port 8191
+ss -tlnp | grep 8191
+
+# Check what's using port 19190
 ss -tlnp | grep 19190
 
-# Check logs
-journalctl --user -u skyline-server -f
+# Kill old process if needed
+kill <pid>
+skyline service restart
 ```
 
-### MCP Server not responding
+### Can't Connect to Web UI
+
 ```bash
-# Check status
-systemctl --user status skyline
+# Verify service is running
+skyline service status
 
 # Test connection
-curl http://localhost:8191/health
+curl http://localhost:19190/healthz
 
 # Check logs
-journalctl --user -u skyline -f
+skyline service logs server
 ```
 
-### Update after system reboot
+### Services Don't Start on Boot
+
 ```bash
 # Enable lingering (services start without login)
 loginctl enable-linger $USER
 
 # Verify
 loginctl show-user $USER | grep Linger
+# Should show: Linger=yes
+
+# Enable services
+skyline service enable
 ```
+
+---
+
+## Advanced Usage
+
+### Manual systemctl Commands
+
+You can still use systemctl directly:
+
+```bash
+systemctl --user status skyline
+systemctl --user restart skyline
+journalctl --user -u skyline -f
+```
+
+### Edit Service Files
+
+```bash
+# Edit skyline service
+nano ~/.config/systemd/user/skyline.service
+
+# Reload after editing
+systemctl --user daemon-reload
+skyline service restart
+```
+
+### Custom Port for MCP Server
+
+Edit `~/.config/systemd/user/skyline.service`:
+
+```ini
+ExecStart=%h/.local/bin/skyline-bin --config=%h/.skyline/config.yaml --transport=http --listen=:9999
+```
+
+Then:
+```bash
+systemctl --user daemon-reload
+skyline service restart
+```
+
+---
 
 ## Uninstall
 
-```bash
-# Stop and disable services
-systemctl --user disable --now skyline
-systemctl --user disable --now skyline-server
+### Stop and Disable Services
 
-# Remove service files
+```bash
+skyline service stop
+skyline service disable
+```
+
+### Remove Service Files
+
+```bash
 rm ~/.config/systemd/user/skyline.service
 rm ~/.config/systemd/user/skyline-server.service
-
-# Reload systemd
 systemctl --user daemon-reload
-
-# Optional: Remove data (careful!)
-# rm -rf ~/.skyline
 ```
 
-## Comparison with Manual Run
+### Remove Wrapper (Restore Original Binary)
 
-### Manual (foreground)
+```bash
+# If skyline-bin exists
+if [ -f ~/.local/bin/skyline-bin ]; then
+    mv ~/.local/bin/skyline-bin ~/.local/bin/skyline
+fi
+```
+
+### Optional: Remove Data
+
+```bash
+# ⚠️  This deletes your config and profiles!
+rm -rf ~/.skyline
+```
+
+---
+
+## Comparison
+
+### Before (Manual)
 ```bash
 skyline --config config.yaml
-# Blocks terminal, stops when you log out
+# ❌ Blocks terminal
+# ❌ Stops when you log out
+# ❌ No auto-restart
 ```
 
-### Systemd (background)
+### After (Systemd Service)
 ```bash
-systemctl --user start skyline
-# Runs in background, survives logout, auto-restarts
+skyline service start
+# ✅ Runs in background
+# ✅ Survives logout
+# ✅ Auto-restarts on failure
+# ✅ Auto-starts on boot
+# ✅ Easy management
 ```
 
-## Auto-start on Boot
+---
 
-Services start automatically after installation. To prevent:
+## Examples
+
+### First Time Setup
+
 ```bash
-systemctl --user disable skyline
-systemctl --user disable skyline-server
+# 1. Install skyline binary
+curl -fsSL https://skyline.projex.cc/install | bash
+
+# 2. Install as service (interactive)
+cd ~/code/skyline-mcp/systemd
+./install.sh
+# Answer: y (install services)
+# Answer: y (start now)
+
+# 3. Configure via Web UI
+# Open: http://localhost:19190/ui/
+
+# 4. Check status
+skyline service status
 ```
 
-To re-enable:
+### Daily Usage
+
 ```bash
-systemctl --user enable skyline
-systemctl --user enable skyline-server
+# Check status
+skyline service status
+
+# View logs
+skyline service logs
+
+# Restart after config changes
+skyline service restart
 ```
+
+### Update Skyline
+
+```bash
+# 1. Update binary
+skyline update
+
+# 2. Restart services
+skyline service restart
+
+# 3. Verify new version
+skyline --version
+```
+
+---
 
 ## Like OpenClaw
 
-Both Skyline and OpenClaw use systemd user services:
+Both use systemd user services:
 
 ```bash
 # OpenClaw
 systemctl --user status openclaw
 
 # Skyline
-systemctl --user status skyline
-systemctl --user status skyline-server
+skyline service status
 ```
 
-Same commands, same behavior, same reliability! 🚀
+**Same reliability, same convenience!** 🚀
+
+---
+
+## Support
+
+- **Docs:** https://skyline.projex.cc/docs
+- **Source:** https://github.com/emadomedher/skyline-mcp
+- **Issues:** https://github.com/emadomedher/skyline-mcp/issues

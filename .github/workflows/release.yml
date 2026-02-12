@@ -45,13 +45,21 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+      - name: Get version
+        id: version
+        run: |
+          # Extract version from tag (e.g., v0.1.0 -> 0.1.0)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
       - name: Build skyline binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o skyline-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline
 
       - name: Build skyline-server binary
         env:
@@ -59,7 +67,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o skyline-server-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline-server
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-server-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline-server
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

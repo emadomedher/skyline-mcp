@@ -82,9 +82,24 @@ func main() {
 	authMode := flag.String("auth-mode", "bearer", "Auth mode: none or bearer")
 	keyEnv := flag.String("key-env", "SKYLINE_PROFILES_KEY", "Env var name containing encryption key")
 	envFile := flag.String("env-file", "", "Optional env file to load before startup")
+	versionFlag := flag.Bool("version", false, "Show version information")
 	flag.Parse()
-
+	
 	logger := log.New(os.Stderr, "", log.LstdFlags)
+	
+	// Handle version flag
+	if *versionFlag {
+		showVersion()
+		os.Exit(0)
+	}
+	
+	// Handle update command
+	if len(flag.Args()) > 0 && flag.Args()[0] == "update" {
+		if err := runUpdate(logger); err != nil {
+			logger.Fatalf("update failed: %v", err)
+		}
+		os.Exit(0)
+	}
 
 	if *envFile != "" {
 		if err := loadEnvFile(*envFile); err != nil {

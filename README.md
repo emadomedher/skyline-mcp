@@ -113,7 +113,7 @@ Skyline auto-detects the spec format. No manual configuration needed.
 openssl rand -hex 32 > .encryption-key
 
 # Export the key
-export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
+export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 
 # Start Web UI
 ./skyline-server --config=config.yaml --listen=:9190
@@ -130,6 +130,28 @@ export SKYLINE_PROFILE_KEY=$(cat .encryption-key)
 - ✅ **Syntax validation** - Catch errors before they break
 - ✅ **Secure credential storage** - Never store plaintext secrets
 - ✅ **Multiple profiles** - Separate configs for dev/staging/prod
+
+### Understanding Encryption Key vs Profile Tokens
+
+**🔑 Encryption Key (`SKYLINE_PROFILES_KEY`):**
+- Encrypts the ENTIRE `profiles.enc.yaml` file containing ALL your profiles
+- Share with your team via secure channels (1Password, Vault, etc.)
+- Protects data at rest on disk
+
+**🎫 Profile Tokens (per profile):**
+- Control WHO can access WHICH specific profile
+- Give each user only the tokens for profiles they need
+- Provide access control and authentication
+
+**Team Example:**
+```yaml
+# Everyone shares the encryption key to decrypt the file
+export SKYLINE_PROFILES_KEY=abc123...
+
+# But each person gets different profile tokens:
+# - Developer: dev-token-abc (can only access dev-api)
+# - DevOps: prod-token-xyz (can only access prod-api)
+```
 
 ### Security
 
@@ -234,7 +256,7 @@ Config (YAML)
 A web application for managing API configurations through profiles. Encrypted storage, bearer-token auth, and a built-in UI for creating, editing, and testing configurations before deploying them.
 
 ```bash
-export SKYLINE_PROFILE_KEY="$(openssl rand -base64 32)"
+export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
 go run ./cmd/skyline-server --listen :9190
 # Open http://localhost:9190/ui/
 ```
@@ -374,7 +396,7 @@ retries: 1
 | `--listen` | `:9190` | HTTP listen address |
 | `--storage` | `./profiles.enc.yaml` | Encrypted storage path |
 | `--auth-mode` | `bearer` | `bearer` or `none` |
-| `--key-env` | `SKYLINE_PROFILE_KEY` | Env var holding the 32-byte AES key |
+| `--key-env` | `SKYLINE_PROFILES_KEY` | Env var holding the 32-byte AES key |
 | `--env-file` | | Optional `.env` file to load |
 
 ---
@@ -385,7 +407,7 @@ Instead of local YAML files, pull config from the config server at runtime:
 
 ```bash
 # Start the config server
-export SKYLINE_PROFILE_KEY="$(openssl rand -base64 32)"
+export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
 go run ./cmd/skyline-server --listen :9190
 
 # Create a profile via the web UI at http://localhost:9190/ui/

@@ -16,8 +16,20 @@ import (
 
 const (
 	githubAPIURL = "https://api.github.com/repos/emadomedher/skyline-mcp/releases/latest"
-	currentVersion = "v1.0.0"
 )
+
+// Version is set via -ldflags at build time
+var Version = "dev"
+
+func currentVersion() string {
+	if Version == "dev" {
+		return "v" + Version
+	}
+	if Version[0] != 'v' {
+		return "v" + Version
+	}
+	return Version
+}
 
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
@@ -40,7 +52,7 @@ func runUpdate(logger *log.Logger) error {
 		return fmt.Errorf("resolve symlinks: %w", err)
 	}
 	
-	logger.Printf("Current version: %s", currentVersion)
+	logger.Printf("Current version: %s", currentVersion())
 	logger.Printf("Current binary: %s", exePath)
 	
 	// Check for latest release
@@ -70,12 +82,12 @@ func runUpdate(logger *log.Logger) error {
 	logger.Printf("Latest version: %s", release.TagName)
 	
 	// Check if update needed
-	if release.TagName == currentVersion {
+	if release.TagName == currentVersion() {
 		logger.Printf("✅ Already up to date!")
 		return nil
 	}
 	
-	logger.Printf("🔄 Update available: %s → %s", currentVersion, release.TagName)
+	logger.Printf("🔄 Update available: %s → %s", currentVersion(), release.TagName)
 	
 	// Determine platform binary name (skyline-server)
 	var binaryName string
@@ -183,6 +195,6 @@ func runUpdate(logger *log.Logger) error {
 
 // showVersion prints version information
 func showVersion() {
-	fmt.Printf("Skyline MCP Server %s\n", currentVersion)
+	fmt.Printf("Skyline MCP Server %s\n", currentVersion())
 	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }

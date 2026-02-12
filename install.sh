@@ -354,7 +354,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/skyline-server --listen=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
+ExecStart=${INSTALL_DIR}/skyline-server --bind=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
 Restart=always
 RestartSec=10
 StandardOutput=journal

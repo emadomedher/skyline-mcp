@@ -22,11 +22,19 @@ if ! command -v skyline &> /dev/null; then
   echo "  • /usr/local/bin/skyline"
   echo "  • ~/.local/bin/skyline"
   echo ""
-  read -p "Continue with cleanup anyway? (y/N): " -n 1 -r
-  echo ""
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Cancelled."
-    exit 0
+  
+  if [ -t 0 ]; then
+    # Interactive terminal
+    read -p "Continue with cleanup anyway? (y/N): " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+  elif [ "$CONFIRM_UNINSTALL" != "yes" ]; then
+    # Non-interactive without confirmation
+    echo "Skyline not found and CONFIRM_UNINSTALL not set. Exiting."
+    exit 1
   fi
 else
   SKYLINE_PATH=$(command -v skyline)
@@ -53,16 +61,28 @@ if [ -t 0 ]; then
   # Interactive terminal
   read -p "Proceed with uninstallation? (y/N): " -n 1 -r
   echo ""
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    exit 0
+  fi
 else
-  # Non-interactive - require explicit confirmation
-  echo -e "${RED}❌ Non-interactive mode not supported for uninstall${NC}"
-  echo "Please run this script directly (not via curl pipe)."
-  exit 1
-fi
-
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-  echo "Cancelled."
-  exit 0
+  # Non-interactive mode - check for confirmation
+  if [ "$CONFIRM_UNINSTALL" = "yes" ]; then
+    echo -e "${YELLOW}⚠️  Non-interactive mode: CONFIRM_UNINSTALL=yes detected${NC}"
+    echo "Proceeding with uninstallation..."
+    echo ""
+  else
+    echo -e "${RED}❌ Non-interactive mode requires confirmation${NC}"
+    echo ""
+    echo "To uninstall via curl pipe, use:"
+    echo -e "  ${BLUE}curl -fsSL https://skyline.projex.cc/uninstall | CONFIRM_UNINSTALL=yes bash${NC}"
+    echo ""
+    echo "Or download and run interactively:"
+    echo "  curl -fsSL https://skyline.projex.cc/uninstall -o uninstall.sh"
+    echo "  chmod +x uninstall.sh"
+    echo "  ./uninstall.sh"
+    exit 1
+  fi
 fi
 
 echo ""

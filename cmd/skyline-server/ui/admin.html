@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Skyline · Admin Dashboard</title>
+    <title>Skyline MCP · Admin Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/ui/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -18,40 +19,63 @@
       }
 
       body {
-        font-family: 'Space Grotesk', sans-serif;
-        background: linear-gradient(135deg, #1a1333 0%, #2d1b69 50%, #1a1333 100%);
+        font-family: 'Space+Grotesk', system-ui, -apple-system, sans-serif;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
         color: #1e1b4b;
         min-height: 100vh;
-        padding: 20px;
+        padding: 0;
       }
 
       .container {
         max-width: 1400px;
         margin: 0 auto;
+        padding: 20px;
       }
 
+      /* Header with logo and nav */
       .header {
-        background: white;
+        background: rgba(255, 255, 255, 0.98);
         border-radius: 16px;
-        padding: 24px;
+        padding: 20px 24px;
         margin-bottom: 24px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        backdrop-filter: blur(10px);
+      }
+
+      .header-content {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        margin-bottom: 20px;
       }
 
-      .header h1 {
-        font-size: 28px;
+      .logo-section {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .logo-section img {
+        height: 32px;
+        width: auto;
+      }
+
+      .logo-section h1 {
+        font-size: 24px;
         font-weight: 700;
-        background: linear-gradient(135deg, #6366f1, #a78bfa);
+        background: linear-gradient(135deg, #0EA5E9, #3B82F6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
       }
 
-      .refresh-btn {
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      .header-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .btn {
+        background: linear-gradient(135deg, #0EA5E9, #3B82F6);
         color: white;
         border: none;
         padding: 10px 20px;
@@ -59,11 +83,63 @@
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s;
+        font-size: 14px;
       }
 
-      .refresh-btn:hover {
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      .btn:hover {
+        background: linear-gradient(135deg, #0284c7, #2563eb);
         transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+      }
+
+      .btn-secondary {
+        background: white;
+        color: #0EA5E9;
+        border: 2px solid #0EA5E9;
+      }
+
+      .btn-secondary:hover {
+        background: #f0f9ff;
+        transform: translateY(-2px);
+      }
+
+      /* Navigation Tabs */
+      .nav-tabs {
+        display: flex;
+        gap: 8px;
+        border-bottom: 2px solid #e2e8f0;
+      }
+
+      .nav-tab {
+        padding: 12px 24px;
+        background: none;
+        border: none;
+        font-size: 15px;
+        font-weight: 600;
+        color: #64748b;
+        cursor: pointer;
+        transition: all 0.2s;
+        border-bottom: 3px solid transparent;
+        position: relative;
+        top: 2px;
+      }
+
+      .nav-tab:hover {
+        color: #0EA5E9;
+      }
+
+      .nav-tab.active {
+        color: #0EA5E9;
+        border-bottom-color: #0EA5E9;
+      }
+
+      /* Page containers */
+      .page {
+        display: none;
+      }
+
+      .page.active {
+        display: block;
       }
 
       .grid {
@@ -74,17 +150,18 @@
       }
 
       .card {
-        background: white;
+        background: rgba(255, 255, 255, 0.98);
         border-radius: 16px;
         padding: 24px;
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(10px);
       }
 
       .card h2 {
         font-size: 14px;
         font-weight: 600;
         text-transform: uppercase;
-        color: #a0aec0;
+        color: #94a3b8;
         margin-bottom: 12px;
         letter-spacing: 0.5px;
       }
@@ -92,25 +169,25 @@
       .metric {
         font-size: 42px;
         font-weight: 700;
-        color: #2d3748;
+        color: #1e293b;
         margin-bottom: 8px;
       }
 
       .metric-label {
         font-size: 14px;
-        color: #718096;
+        color: #64748b;
       }
 
       .metric.success {
-        color: #48bb78;
+        color: #10b981;
       }
 
       .metric.error {
-        color: #f56565;
+        color: #ef4444;
       }
 
       .metric.info {
-        color: #818cf8;
+        color: #0EA5E9;
       }
 
       .table-container {
@@ -128,7 +205,7 @@
         padding: 12px;
         border-bottom: 2px solid #e2e8f0;
         font-weight: 600;
-        color: #4a5568;
+        color: #475569;
         text-transform: uppercase;
         font-size: 12px;
         letter-spacing: 0.5px;
@@ -148,35 +225,35 @@
       }
 
       .badge.success {
-        background: #c6f6d5;
-        color: #22543d;
+        background: #d1fae5;
+        color: #065f46;
       }
 
       .badge.error {
-        background: #fed7d7;
-        color: #742a2a;
+        background: #fee2e2;
+        color: #991b1b;
       }
 
       .badge.info {
-        background: #ddd6fe;
-        color: #4338ca;
+        background: #e0f2fe;
+        color: #075985;
       }
 
       .timestamp {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 12px;
-        color: #9ca3af;
+        color: #94a3b8;
       }
 
       .loading {
         text-align: center;
         padding: 40px;
-        color: #a0aec0;
+        color: #94a3b8;
       }
 
       .spinner {
         border: 3px solid #e5e7eb;
-        border-top-color: #6366f1;
+        border-top-color: #0EA5E9;
         border-radius: 50%;
         width: 40px;
         height: 40px;
@@ -187,100 +264,313 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+
+      /* Settings Page Styles */
+      .settings-section {
+        margin-bottom: 32px;
+      }
+
+      .settings-section h3 {
+        font-size: 18px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #e2e8f0;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 8px;
+      }
+
+      .form-group input,
+      .form-group select,
+      .form-group textarea {
+        width: 100%;
+        padding: 10px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: 'IBM Plex Mono', monospace;
+        transition: all 0.2s;
+      }
+
+      .form-group input:focus,
+      .form-group select:focus,
+      .form-group textarea:focus {
+        outline: none;
+        border-color: #0EA5E9;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+      }
+
+      .form-group textarea {
+        font-family: 'IBM Plex Mono', monospace;
+        min-height: 200px;
+        resize: vertical;
+      }
+
+      .form-help {
+        font-size: 13px;
+        color: #64748b;
+        margin-top: 6px;
+      }
+
+      .settings-actions {
+        display: flex;
+        gap: 12px;
+        padding-top: 20px;
+        border-top: 2px solid #e2e8f0;
+      }
+
+      .alert {
+        padding: 14px 18px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+      }
+
+      .alert-success {
+        background: #d1fae5;
+        color: #065f46;
+        border-left: 4px solid #10b981;
+      }
+
+      .alert-error {
+        background: #fee2e2;
+        color: #991b1b;
+        border-left: 4px solid #ef4444;
+      }
+
+      .alert-info {
+        background: #e0f2fe;
+        color: #075985;
+        border-left: 4px solid #0EA5E9;
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <div class="header">
-        <h1>📊 Skyline Admin Dashboard</h1>
-        <button class="refresh-btn" onclick="loadData()">🔄 Refresh</button>
-      </div>
-
-      <div id="loading" class="card loading">
-        <div class="spinner"></div>
-        <div>Loading metrics...</div>
-      </div>
-
-      <div id="content" style="display: none;">
-        <div class="grid">
-          <div class="card">
-            <h2>Total Requests</h2>
-            <div class="metric" id="totalRequests">-</div>
-            <div class="metric-label">Since startup</div>
+        <div class="header-content">
+          <div class="logo-section">
+            <img src="/ui/skyline-logo.svg" alt="Skyline MCP" />
+            <h1>Skyline MCP</h1>
           </div>
-
-          <div class="card">
-            <h2>Success Rate</h2>
-            <div class="metric success" id="successRate">-</div>
-            <div class="metric-label">Successful executions</div>
-          </div>
-
-          <div class="card">
-            <h2>Error Rate</h2>
-            <div class="metric error" id="errorRate">-</div>
-            <div class="metric-label">Failed executions</div>
-          </div>
-
-          <div class="card">
-            <h2>Avg Duration</h2>
-            <div class="metric info" id="avgDuration">-</div>
-            <div class="metric-label">Milliseconds</div>
-          </div>
-
-          <div class="card">
-            <h2>Active Connections</h2>
-            <div class="metric info" id="activeConnections">-</div>
-            <div class="metric-label">WebSocket connections</div>
-          </div>
-
-          <div class="card">
-            <h2>Uptime</h2>
-            <div class="metric" id="uptime">-</div>
-            <div class="metric-label">Hours</div>
+          <div class="header-actions">
+            <button class="btn-secondary btn" onclick="window.open('https://skyline.projex.cc/docs', '_blank')">📚 Docs</button>
+            <button class="btn" onclick="loadDashboard()">🔄 Refresh</button>
           </div>
         </div>
+        <div class="nav-tabs">
+          <button class="nav-tab active" onclick="showPage('dashboard')">📊 Dashboard</button>
+          <button class="nav-tab" onclick="showPage('profiles')">🔑 Profiles</button>
+          <button class="nav-tab" onclick="showPage('settings')">⚙️ Settings</button>
+        </div>
+      </div>
 
-        <div class="card">
-          <h2>Recent API Calls (Last 50)</h2>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Profile</th>
-                  <th>Tool</th>
-                  <th>Duration</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="auditTable">
-                <tr>
-                  <td colspan="5" class="loading">Loading audit log...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      <!-- Dashboard Page -->
+      <div id="dashboard-page" class="page active">
+        <div id="loading" class="card loading">
+          <div class="spinner"></div>
+          <div>Loading metrics...</div>
         </div>
 
+        <div id="content" style="display: none;">
+          <div class="grid">
+            <div class="card">
+              <h2>Total Requests</h2>
+              <div class="metric" id="totalRequests">-</div>
+              <div class="metric-label">Since startup</div>
+            </div>
+
+            <div class="card">
+              <h2>Success Rate</h2>
+              <div class="metric success" id="successRate">-</div>
+              <div class="metric-label">Successful executions</div>
+            </div>
+
+            <div class="card">
+              <h2>Error Rate</h2>
+              <div class="metric error" id="errorRate">-</div>
+              <div class="metric-label">Failed executions</div>
+            </div>
+
+            <div class="card">
+              <h2>Avg Duration</h2>
+              <div class="metric info" id="avgDuration">-</div>
+              <div class="metric-label">Milliseconds</div>
+            </div>
+
+            <div class="card">
+              <h2>Active Connections</h2>
+              <div class="metric info" id="activeConnections">-</div>
+              <div class="metric-label">WebSocket connections</div>
+            </div>
+
+            <div class="card">
+              <h2>Uptime</h2>
+              <div class="metric" id="uptime">-</div>
+              <div class="metric-label">Hours</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Recent API Calls (Last 50)</h2>
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Profile</th>
+                    <th>Tool</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="auditTable">
+                  <tr>
+                    <td colspan="5" class="loading">Loading audit log...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Requests by Profile (Last 24h)</h2>
+            <div id="profileStats"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profiles Page -->
+      <div id="profiles-page" class="page">
         <div class="card">
-          <h2>Requests by Profile (Last 24h)</h2>
-          <div id="profileStats"></div>
+          <h2>API Profiles</h2>
+          <div class="alert alert-info">
+            Profiles contain API credentials, rate limiting, and custom configurations. They are encrypted using the key in <code>~/.skyline/skyline.env</code>.
+          </div>
+          <p style="color: #64748b; text-align: center; padding: 40px;">
+            Profile management UI coming soon. For now, use the command line:<br><br>
+            <code style="background: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-family: 'IBM Plex Mono', monospace;">skyline profile add &lt;name&gt;</code>
+          </p>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div id="settings-page" class="page">
+        <div class="card">
+          <h2>Server Configuration</h2>
+          <div id="settingsAlert"></div>
+          
+          <div class="settings-section">
+            <h3>🌐 Server</h3>
+            <div class="form-group">
+              <label for="serverListen">Listen Address</label>
+              <input type="text" id="serverListen" value="localhost:8191" />
+              <div class="form-help">Address and port for the HTTP server</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>⚡ Runtime</h3>
+            <div class="form-group">
+              <label for="codeExecutionEnabled">Code Execution</label>
+              <select id="codeExecutionEnabled">
+                <option value="true">Enabled (98% cost reduction)</option>
+                <option value="false">Disabled (traditional MCP)</option>
+              </select>
+              <div class="form-help">Discovery-assisted code execution via Deno</div>
+            </div>
+            <div class="form-group">
+              <label for="cacheEnabled">Discovery Cache</label>
+              <select id="cacheEnabled">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+              <div class="form-help">Cache API discovery results for faster repeated calls</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>🔍 Audit</h3>
+            <div class="form-group">
+              <label for="auditEnabled">Audit Logging</label>
+              <select id="auditEnabled">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+              <div class="form-help">Log all API calls to SQLite database</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>📝 Logging</h3>
+            <div class="form-group">
+              <label for="logLevel">Log Level</label>
+              <select id="logLevel">
+                <option value="debug">Debug</option>
+                <option value="info">Info</option>
+                <option value="warn">Warning</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>📄 Advanced (YAML)</h3>
+            <div class="form-group">
+              <label for="configYaml">config.yaml</label>
+              <textarea id="configYaml" spellcheck="false"></textarea>
+              <div class="form-help">Direct YAML editing for advanced configuration. Changes require server restart.</div>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
+            <button class="btn-secondary btn" onclick="loadSettings()">🔄 Reset</button>
+          </div>
         </div>
       </div>
     </div>
 
+    <script src="/ui/app.js"></script>
     <script>
-      async function loadData() {
+      // Page navigation
+      function showPage(pageName) {
+        // Hide all pages
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+
+        // Show selected page
+        document.getElementById(pageName + '-page').classList.add('active');
+        event.target.classList.add('active');
+
+        // Load page data
+        if (pageName === 'dashboard') {
+          loadDashboard();
+        } else if (pageName === 'settings') {
+          loadSettings();
+        }
+      }
+
+      // Dashboard functions
+      async function loadDashboard() {
         try {
-          // Load stats
           const statsResponse = await fetch('/admin/stats');
           const stats = await statsResponse.json();
 
-          // Load audit log
           const auditResponse = await fetch('/admin/audit?limit=50');
           const audit = await auditResponse.json();
 
-          // Update metrics
           const metrics = stats.metrics_snapshot;
           document.getElementById('totalRequests').textContent = metrics.total_requests.toLocaleString();
 
@@ -302,7 +592,6 @@
           const uptimeHours = (metrics.uptime_seconds / 3600).toFixed(1);
           document.getElementById('uptime').textContent = uptimeHours + 'h';
 
-          // Update audit table
           const tbody = document.getElementById('auditTable');
           tbody.innerHTML = '';
 
@@ -311,7 +600,6 @@
               if (event.event_type !== 'execute') return;
 
               const row = document.createElement('tr');
-
               const timestamp = new Date(event.timestamp).toLocaleString();
               const statusBadge = event.success
                 ? '<span class="badge success">✓ Success</span>'
@@ -327,10 +615,9 @@
               tbody.appendChild(row);
             });
           } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #a0aec0;">No API calls yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94a3b8;">No API calls yet</td></tr>';
           }
 
-          // Update profile stats
           const profileStatsDiv = document.getElementById('profileStats');
           profileStatsDiv.innerHTML = '';
 
@@ -347,27 +634,77 @@
 
             profileStatsDiv.appendChild(profileTable);
           } else {
-            profileStatsDiv.innerHTML = '<p style="color: #a0aec0; text-align: center; padding: 20px;">No profile data yet</p>';
+            profileStatsDiv.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 20px;">No profile data yet</p>';
           }
 
-          // Hide loading, show content
           document.getElementById('loading').style.display = 'none';
           document.getElementById('content').style.display = 'block';
 
         } catch (error) {
           console.error('Failed to load data:', error);
           document.getElementById('loading').innerHTML = `
-            <div style="color: #f56565;">⚠️ Failed to load data</div>
+            <div style="color: #ef4444;">⚠️ Failed to load data</div>
             <div style="margin-top: 12px;">${error.message}</div>
           `;
         }
       }
 
-      // Load data on page load
-      loadData();
+      // Settings functions
+      async function loadSettings() {
+        try {
+          const response = await fetch('/admin/config');
+          const config = await response.json();
 
-      // Auto-refresh every 10 seconds
-      setInterval(loadData, 10000);
+          // Populate form fields
+          document.getElementById('serverListen').value = config.server?.listen || 'localhost:8191';
+          document.getElementById('codeExecutionEnabled').value = String(config.runtime?.codeExecution?.enabled !== false);
+          document.getElementById('cacheEnabled').value = String(config.runtime?.cache?.enabled !== false);
+          document.getElementById('auditEnabled').value = String(config.audit?.enabled !== false);
+          document.getElementById('logLevel').value = config.logging?.level || 'info';
+
+          // Show full YAML
+          document.getElementById('configYaml').value = config.raw || '';
+
+        } catch (error) {
+          showAlert('error', 'Failed to load settings: ' + error.message);
+        }
+      }
+
+      async function saveSettings() {
+        try {
+          const yamlContent = document.getElementById('configYaml').value;
+
+          const response = await fetch('/admin/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: yamlContent
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to save settings');
+          }
+
+          showAlert('success', '✓ Settings saved! Restart the server for changes to take effect.');
+        } catch (error) {
+          showAlert('error', 'Failed to save settings: ' + error.message);
+        }
+      }
+
+      function showAlert(type, message) {
+        const alertDiv = document.getElementById('settingsAlert');
+        alertDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+        setTimeout(() => alertDiv.innerHTML = '', 5000);
+      }
+
+      // Load dashboard on page load
+      loadDashboard();
+
+      // Auto-refresh dashboard every 10 seconds
+      setInterval(() => {
+        if (document.getElementById('dashboard-page').classList.contains('active')) {
+          loadDashboard();
+        }
+      }, 10000);
     </script>
   </body>
 </html>

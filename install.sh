@@ -268,18 +268,143 @@ if [ "$OS" = "linux" ] && command -v systemctl &> /dev/null; then
     mkdir -p ~/.skyline
     echo -e "${GREEN}✓ Created ~/.skyline/${NC}"
     
-    # Generate encryption key if not exists
-    if [ ! -f ~/.skyline/skyline.env ]; then
-      KEY=$(openssl rand -hex 32)
-      cat > ~/.skyline/skyline.env << EOF
-SKYLINE_PROFILES_KEY=$KEY
-CONFIG_SERVER_KEY=$KEY
-EOF
-      chmod 600 ~/.skyline/skyline.env
-      echo -e "${GREEN}✓ Generated encryption key${NC}"
-    else
-      echo -e "${GREEN}✓ Using existing encryption key${NC}"
-    fi
+    # Validate/initialize encryption key and profiles
+    echo ""
+    echo -e "${BLUE}🔐 Checking encryption setup...${NC}"
+    
+    # Helper function: Ensure key is in systemd environment
+    ensure_key_in_systemd_env() {
+      local KEY="$1"
+      mkdir -p ~/.config/environment.d
+      echo "SKYLINE_PROFILES_KEY=$KEY" > ~/.config/environment.d/skyline.conf
+      chmod 600 ~/.config/environment.d/skyline.conf
+      # Also set for current systemd user manager
+      systemctl --user set-environment SKYLINE_PROFILES_KEY="$KEY" 2>/dev/null || true
+    }
+    
+    # Helper function: Ensure key is in shell profile (if file exists)
+    ensure_key_in_shell_profile() {
+      local KEY="$1"
+      
+      # Detect shell profile
+      if [ -n "$ZSH_VERSION" ] || [ "$SHELL" = "$(which zsh 2>/dev/null)" ]; then
+        PROFILE_FILE="$HOME/.zshrc"
+      elif [ -n "$BASH_VERSION" ] || [ "$SHELL" = "$(which bash 2>/dev/null)" ]; then
+        PROFILE_FILE="$HOME/.bashrc"
+      else
+        PROFILE_FILE="$HOME/.profile"
+      fi
+      
+      # Only write if profile file already exists (don't create it)
+      if [ -f "$PROFILE_FILE" ]; then
+        if grep -q "SKYLINE_PROFILES_KEY" "$PROFILE_FILE" 2>/dev/null; then
+          echo -e "${GREEN}✓ Key already in $PROFILE_FILE${NC}"
+        else
+          echo "" >> "$PROFILE_FILE"
+          echo "# Skyline MCP encryption key (added $(date +%Y-%m-%d))" >> "$PROFILE_FILE"
+          echo "export SKYLINE_PROFILES_KEY=\"$KEY\"" >> "$PROFILE_FILE"
+          echo -e "${GREEN}✓ Added key to $PROFILE_FILE${NC}"
+        fi
+      fi
+    }
+    
+    # Run validation
+    $INSTALL_DIR/skyline --validate 2>/dev/null
+    VALIDATE_EXIT=$?
+    
+    case $VALIDATE_EXIT in
+      0)
+        # Case 1: File exists + Key valid
+        echo -e "${GREEN}✓ Encryption setup valid${NC}"
+        # Ensure key is persisted in both locations
+        if [ -n "$SKYLINE_PROFILES_KEY" ]; then
+          ensure_key_in_systemd_env "$SKYLINE_PROFILES_KEY"
+          ensure_key_in_shell_profile "$SKYLINE_PROFILES_KEY"
+        fi
+        ;;
+      
+      1)
+        # Case 3 or 4: File not found
+        if [ -n "$SKYLINE_PROFILES_KEY" ]; then
+          # Case 3: Key exists but no file
+          echo -e "${YELLOW}⚠️  Encryption key found, but profiles file missing${NC}"
+          echo -e "${BLUE}Creating encrypted profiles file...${NC}"
+          $INSTALL_DIR/skyline --init-profiles
+          if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Created encrypted profiles file${NC}"
+            ensure_key_in_systemd_env "$SKYLINE_PROFILES_KEY"
+            ensure_key_in_shell_profile "$SKYLINE_PROFILES_KEY"
+          else
+            echo -e "${RED}❌ Failed to create profiles file${NC}"
+            exit 1
+          fi
+        else
+          # Case 4: Neither exists (fresh install)
+          echo -e "${BLUE}Generating new encryption key...${NC}"
+          KEY=$(openssl rand -hex 32)
+          export SKYLINE_PROFILES_KEY="$KEY"
+          
+          # Create encrypted profiles file
+          $INSTALL_DIR/skyline --init-profiles
+          if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Failed to create profiles file${NC}"
+            exit 1
+          fi
+          
+          # Persist key in both locations
+          ensure_key_in_systemd_env "$KEY"
+          ensure_key_in_shell_profile "$KEY"
+          
+          # Display key to user
+          echo ""
+          echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+          echo -e "${GREEN}🔑 ENCRYPTION KEY GENERATED${NC}"
+          echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+          echo ""
+          echo "  $KEY"
+          echo ""
+          echo -e "${YELLOW}⚠️  SAVE THIS KEY SECURELY!${NC}"
+          echo ""
+          echo "This key encrypts your API credentials in:"
+          echo "  ~/.skyline/profiles.enc.yaml"
+          echo ""
+          echo "It has been automatically saved to:"
+          echo "  ~/.config/environment.d/skyline.conf (for systemd)"
+          if [ -f "$PROFILE_FILE" ]; then
+            echo "  $PROFILE_FILE (for interactive shells)"
+          fi
+          echo ""
+          echo "Without this key, your encrypted profiles cannot be decrypted!"
+          echo ""
+          echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+          echo ""
+        fi
+        ;;
+      
+      2|3)
+        # Case 2: File exists but key missing/invalid
+        echo -e "${RED}❌ Encrypted profiles file exists but key is missing or invalid${NC}"
+        echo ""
+        echo "You have an encrypted profiles file at:"
+        echo "  ~/.skyline/profiles.enc.yaml"
+        echo ""
+        echo "But SKYLINE_PROFILES_KEY is not set or cannot decrypt the file."
+        echo ""
+        echo "To fix this:"
+        echo "  1. If you have the key, set it:"
+        echo "     export SKYLINE_PROFILES_KEY=<your-key>"
+        echo "     Then re-run this installer"
+        echo ""
+        echo "  2. If you lost the key, delete the file and start fresh:"
+        echo "     rm ~/.skyline/profiles.enc.yaml"
+        echo "     Then re-run this installer"
+        echo ""
+        echo "Service will be installed but will NOT start until this is fixed."
+        echo ""
+        # Continue installation but don't start service
+        SKIP_SERVICE_START=true
+        ;;
+    esac
     
     # Create config if not exists
     if [ ! -f ~/.skyline/config.yaml ]; then
@@ -391,65 +516,75 @@ EOF
     echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
     echo ""
     
-    # Ask if user wants to start services now
-    echo -e "${YELLOW}Would you like to start the services now?${NC}"
-    
-    if [ -t 0 ]; then
-      # Interactive terminal
-      read -p "Start services? (Y/n): " -n 1 -r
+    # Ask if user wants to start services now (unless blocked by validation failure)
+    if [ "$SKIP_SERVICE_START" = "true" ]; then
+      # Case 2: Validation failed - don't ask, just skip
       echo ""
-    else
-      # Non-interactive (curl pipe) - default to yes
-      echo "Non-interactive mode detected. Starting services..."
-      REPLY="y"
-    fi
-    
-    # Default to yes if user just presses Enter
-    if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo -e "${YELLOW}⏭️  Service installed but NOT started (encryption key issue)${NC}"
       echo ""
-      echo -e "${BLUE}🚀 Starting service...${NC}"
-      systemctl --user enable --now skyline
-      
-      sleep 2
-      
-      echo ""
-      echo -e "${GREEN}✅ Service started!${NC}"
-      echo ""
-      systemctl --user status skyline --no-pager | head -15
-      
-      echo ""
-      echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-      echo -e "${GREEN}📚 Quick Reference${NC}"
-      echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-      echo ""
-      echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
-      echo -e "  ${BLUE}systemctl --user restart skyline${NC}  - Restart service"
-      echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
-      echo ""
-      echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
-      echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
-      echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
-      echo ""
-    else
-      echo ""
-      echo -e "${YELLOW}⏭️  Service not started${NC}"
-      echo ""
-      echo "To start it later, run:"
+      echo "Fix the encryption key issue above, then start the service:"
       echo -e "  ${BLUE}systemctl --user start skyline${NC}"
       echo ""
-      echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-      echo -e "${GREEN}📚 Quick Reference${NC}"
-      echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-      echo ""
-      echo -e "  ${BLUE}systemctl --user start skyline${NC}    - Start service"
-      echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
-      echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
-      echo ""
-      echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
-      echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
-      echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
-      echo ""
-    fi
+    else
+      echo -e "${YELLOW}Would you like to start the services now?${NC}"
+      
+      if [ -t 0 ]; then
+        # Interactive terminal
+        read -p "Start services? (Y/n): " -n 1 -r
+        echo ""
+      else
+        # Non-interactive (curl pipe) - default to yes
+        echo "Non-interactive mode detected. Starting services..."
+        REPLY="y"
+      fi
+      
+        # Default to yes if user just presses Enter
+        if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+          echo ""
+          echo -e "${BLUE}🚀 Starting service...${NC}"
+          systemctl --user enable --now skyline
+      
+          sleep 2
+          
+          echo ""
+          echo -e "${GREEN}✅ Service started!${NC}"
+          echo ""
+          systemctl --user status skyline --no-pager | head -15
+          
+          echo ""
+          echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+          echo -e "${GREEN}📚 Quick Reference${NC}"
+          echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+          echo ""
+          echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
+          echo -e "  ${BLUE}systemctl --user restart skyline${NC}  - Restart service"
+          echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
+          echo ""
+          echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
+          echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
+          echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
+          echo ""
+        else
+          echo ""
+          echo -e "${YELLOW}⏭️  Service not started${NC}"
+          echo ""
+          echo "To start it later, run:"
+          echo -e "  ${BLUE}systemctl --user start skyline${NC}"
+          echo ""
+          echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+          echo -e "${GREEN}📚 Quick Reference${NC}"
+          echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+          echo ""
+          echo -e "  ${BLUE}systemctl --user start skyline${NC}    - Start service"
+          echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
+          echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
+          echo ""
+          echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
+          echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
+          echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
+          echo ""
+        fi
+      fi # End of SKIP_SERVICE_START check
   else
     echo ""
     echo -e "${YELLOW}⏭️  Skipping service installation${NC}"

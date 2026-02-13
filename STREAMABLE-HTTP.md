@@ -34,14 +34,14 @@ Streamable HTTP is the current standard MCP transport that:
 
 ```bash
 # Streamable HTTP (recommended)
-./skyline-server --config config.yaml --transport http --listen :8080
+./skyline --config config.yaml --transport http --listen :8080
 
 # With authentication
-./skyline-server --config config.yaml --transport http --listen :8080 \
+./skyline --config config.yaml --transport http --listen :8080 \
   --sse-auth-type bearer --sse-auth-token "your-secret-token"
 
 # Legacy HTTP+SSE (backwards compatibility)
-./skyline-server --config config.yaml --transport sse --listen :8080
+./skyline --config config.yaml --transport sse --listen :8080
 ```
 
 ### Transport Options
@@ -158,7 +158,7 @@ All three auth types work with Streamable HTTP:
 ### Bearer Token
 
 ```bash
-./skyline-server --transport http --listen :8080 \
+./skyline --transport http --listen :8080 \
   --sse-auth-type bearer --sse-auth-token "your-secret-token"
 
 # Client:
@@ -168,7 +168,7 @@ curl -H "Authorization: Bearer your-secret-token" ...
 ### Basic Auth
 
 ```bash
-./skyline-server --transport http --listen :8080 \
+./skyline --transport http --listen :8080 \
   --sse-auth-type basic --sse-auth-username admin --sse-auth-password secret
 
 # Client:
@@ -178,7 +178,7 @@ curl -u admin:secret ...
 ### API Key
 
 ```bash
-./skyline-server --transport http --listen :8080 \
+./skyline --transport http --listen :8080 \
   --sse-auth-type api-key --sse-auth-header X-API-Key --sse-auth-value "your-key"
 
 # Client:
@@ -362,12 +362,12 @@ If you're currently using `--transport sse`, migration is straightforward:
 
 **Old (HTTP+SSE):**
 ```bash
-./skyline-server --transport sse --listen :8080
+./skyline --transport sse --listen :8080
 ```
 
 **New (Streamable HTTP):**
 ```bash
-./skyline-server --transport http --listen :8080
+./skyline --transport http --listen :8080
 ```
 
 **Client changes:**

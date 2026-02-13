@@ -202,7 +202,7 @@ if ! cmp -s "$TEMP_DECRYPTED" <(go run /tmp/decrypt-skyline.go "$KEY" "$PROFILES
   echo ""
   echo "🔒 Re-encrypting..."
   
-  # Use skyline-server binary to re-encrypt (most reliable)
+  # Use skyline binary to re-encrypt (most reliable)
   # For now, use Go script
   cat > /tmp/encrypt-skyline.go << 'GOEOF'
 package main
@@ -280,4 +280,4 @@ fi
 rm -f "$TEMP_DECRYPTED" "$TEMP_REENCRYPTED"
 
 echo ""
-echo "💡 Tip: Use the Web UI for easier editing: skyline-server --config=config.yaml"
+echo "💡 Tip: Use the Web UI for easier editing: skyline --config=config.yaml"

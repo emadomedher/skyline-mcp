@@ -38,6 +38,79 @@ esac
 
 echo "🚀 Installing Skyline MCP..."
 echo "   Platform: ${OS}-${ARCH}"
+echo ""
+
+# Check for Deno (required for code execution - 98% cost reduction)
+if command -v deno &> /dev/null; then
+  DENO_VERSION=$(deno --version | head -n1 | awk '{print $2}')
+  echo -e "${GREEN}✓ Deno found:${NC} v${DENO_VERSION}"
+  echo "  Code execution enabled (98% cost reduction)"
+else
+  echo -e "${YELLOW}⚠️  Deno not found${NC}"
+  echo ""
+  echo "Skyline uses code execution by default for 98% cost reduction."
+  echo "Without Deno, it will fall back to traditional MCP (slower, more expensive)."
+  echo ""
+  echo -e "${BLUE}Would you like to install Deno now? (recommended)${NC}"
+  
+  if [ -t 0 ]; then
+    # Interactive terminal
+    read -p "Install Deno? (Y/n): " -n 1 -r
+    echo ""
+  else
+    # Non-interactive (curl pipe) - default to yes
+    echo "Non-interactive mode detected. Installing Deno..."
+    REPLY="y"
+  fi
+  
+  if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+    echo ""
+    echo -e "${BLUE}📥 Installing Deno...${NC}"
+    
+    if curl -fsSL https://deno.land/install.sh | sh; then
+      # Add Deno to PATH for this session
+      export DENO_INSTALL="$HOME/.deno"
+      export PATH="$DENO_INSTALL/bin:$PATH"
+      
+      DENO_VERSION=$(deno --version 2>/dev/null | head -n1 | awk '{print $2}')
+      echo -e "${GREEN}✓ Deno installed:${NC} v${DENO_VERSION}"
+      echo "  Code execution enabled (98% cost reduction)"
+      
+      # Add to shell profile if not already there
+      SHELL_RC=""
+      if [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
+      elif [ -f "$HOME/.zshrc" ]; then
+        SHELL_RC="$HOME/.zshrc"
+      fi
+      
+      if [ -n "$SHELL_RC" ]; then
+        if ! grep -q 'DENO_INSTALL' "$SHELL_RC"; then
+          echo "" >> "$SHELL_RC"
+          echo '# Deno' >> "$SHELL_RC"
+          echo 'export DENO_INSTALL="$HOME/.deno"' >> "$SHELL_RC"
+          echo 'export PATH="$DENO_INSTALL/bin:$PATH"' >> "$SHELL_RC"
+          echo -e "${GREEN}✓ Added Deno to ${SHELL_RC}${NC}"
+        fi
+      fi
+    else
+      echo -e "${RED}❌ Deno installation failed${NC}"
+      echo "You can install it manually later:"
+      echo "  curl -fsSL https://deno.land/install.sh | sh"
+      echo ""
+      echo "Skyline will use traditional MCP mode (no code execution)."
+    fi
+  else
+    echo ""
+    echo -e "${YELLOW}⏭️  Skipping Deno installation${NC}"
+    echo "Skyline will use traditional MCP mode (slower, higher costs)."
+    echo ""
+    echo "To install Deno later and enable code execution:"
+    echo "  curl -fsSL https://deno.land/install.sh | sh"
+  fi
+fi
+
+echo ""
 
 # Check if skyline is already installed
 EXISTING_VERSION=""

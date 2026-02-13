@@ -296,13 +296,66 @@ EOF
       echo -e "${GREEN}✓ Using existing encryption key${NC}"
     fi
     
-    # Create empty config if not exists
+    # Create config if not exists
     if [ ! -f ~/.skyline/config.yaml ]; then
       cat > ~/.skyline/config.yaml << 'EOF'
-# Skyline MCP Configuration
-# Add your APIs here or use the Web UI at http://localhost:19190/ui/
+# Skyline MCP Server Configuration
+# Manage these settings via Web UI at http://localhost:19190/ui/settings
+# or edit this file directly
 
-apis: []
+server:
+  # HTTP transport settings
+  listen: "localhost:8191"
+  # timeout: 30s
+  # maxRequestSize: 10MB
+  
+  # TLS (optional, for production)
+  # tls:
+  #   enabled: false
+  #   cert: /path/to/cert.pem
+  #   key: /path/to/key.pem
+
+runtime:
+  # Code execution engine (98% cost reduction vs traditional MCP)
+  codeExecution:
+    enabled: true
+    engine: "deno"  # or "node", "bun"
+    # denoPath: "/home/user/.deno/bin/deno"  # auto-detect if not set
+    timeout: 30s
+    memoryLimit: "512MB"
+    
+  # Discovery cache (for repeated API calls)
+  cache:
+    enabled: true
+    ttl: 1h
+    maxSize: 100MB
+
+audit:
+  enabled: true
+  database: "~/.skyline/skyline-audit.db"
+  # rotateAfter: 30d
+  # maxSize: 1GB
+
+profiles:
+  # API credentials & rate-limiting configurations
+  # Managed via Web UI - stores auth tokens, rate limits, custom headers
+  storage: "~/.skyline/profiles.enc.yaml"
+  encryptionKey: "${SKYLINE_PROFILES_KEY}"  # from skyline.env
+
+# Security
+security:
+  # Allowed domains for discovery mode (wildcard supported)
+  allowedDomains:
+    - "*"  # Allow all by default (can restrict in production)
+  # cors:
+  #   enabled: true
+  #   origins: ["http://localhost:*"]
+  
+# Logging
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json or text
+  # output: "~/.skyline/skyline.log"
 EOF
       echo -e "${GREEN}✓ Created default config.yaml${NC}"
     fi

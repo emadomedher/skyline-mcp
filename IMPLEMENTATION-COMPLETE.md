@@ -238,8 +238,8 @@ Spec: 2025-11-25 (current standard)
    ```bash
    # Compile and run server
    cd ~/code/skyline-mcp
-   go build -o skyline-server ./cmd/skyline/main.go
-   ./skyline-server --config config.yaml --transport http --listen :8080
+   go build -o skyline ./cmd/skyline/main.go
+   ./skyline --config config.yaml --transport http --listen :8080
    
    # Run test client
    go run test-streamable-http.go
@@ -377,7 +377,7 @@ go list -m all
 curl http://localhost:8080/mcp
 
 # Check logs
-./skyline-server --config config.yaml --transport http --listen :8080
+./skyline --config config.yaml --transport http --listen :8080
 
 # Enable debug logging
 # (add debug print statements in streamable_http.go)

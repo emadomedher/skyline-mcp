@@ -5,6 +5,33 @@ All notable changes to Skyline MCP will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-13
+
+### Changed
+- **BREAKING: Unified binary architecture** - Merged `skyline-bin` and `skyline-server` into single `skyline` binary
+- Binary now uses `--transport` flag to switch between stdio and http modes (default: http)
+- Admin UI now controlled via `--admin` flag (default: enabled)
+- Updated all documentation to reflect unified binary (99 references cleaned)
+- Updated CI/CD workflow to build single binary for all platforms
+- Simplified Makefile with unified build targets
+
+### Removed
+- **BREAKING:** Separate `skyline-server` binary (now unified with main binary)
+- Deprecated systemd files (skyline-server.service, wrapper scripts, old install script)
+
+### Fixed
+- Self-update mechanism now downloads correct binary names
+- Error messages now reference correct binary name
+- Documentation consistency across all user-facing docs
+
+### Migration Guide
+- Replace `skyline-server` commands with `skyline`
+- Default behavior: `skyline` runs HTTP + Admin UI
+- For STDIO mode (coming soon): `skyline --transport stdio`
+- For HTTP without UI: `skyline --admin=false`
+
+---
+
 ## [1.0.0] - 2026-02-12
 
 ### Added
@@ -18,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamable HTTP transport**: Full MCP standard compliance (2025-11-25)
 - **STDIO mode**: Native support for Claude Desktop and similar clients
 - **Jenkins 2.545 support**: 34 operations across 10 API categories
-- **Web UI**: Profile management and API testing interface (skyline-server)
+- **Web UI**: Profile management and API testing interface (unified binary)
 
 ### Core Features
 - Universal API bridge supporting 10+ API types:

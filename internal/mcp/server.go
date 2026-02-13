@@ -63,6 +63,11 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 }
 
+// HandleRequest handles a single MCP JSON-RPC request (exported for HTTP transport)
+func (s *Server) HandleRequest(ctx context.Context, req *rpcRequest) *rpcResponse {
+	return s.handleRequest(ctx, req)
+}
+
 func (s *Server) handleRequest(ctx context.Context, req *rpcRequest) *rpcResponse {
 	if req.Jsonrpc != "2.0" {
 		return rpcErrorResponse(req.ID, -32600, "invalid jsonrpc version", nil)
@@ -211,25 +216,33 @@ func (s *Server) handleReadResource(ctx context.Context, id json.RawMessage, par
 
 // RPC types
 
-type rpcRequest struct {
+// RPCRequest represents an MCP JSON-RPC request
+type RPCRequest struct {
 	Jsonrpc string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
 }
 
-type rpcResponse struct {
+// RPCResponse represents an MCP JSON-RPC response
+type RPCResponse struct {
 	Jsonrpc string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
 }
 
-type rpcError struct {
-	Code    int   `json:"code"`
+// RPCError represents an MCP JSON-RPC error
+type RPCError struct {
+	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Data    any   `json:"data,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
+
+// Internal types (backwards compatibility)
+type rpcRequest = RPCRequest
+type rpcResponse = RPCResponse
+type rpcError = RPCError
 
 type toolCallParams struct {
 	Name      string         `json:"name"`

@@ -32,7 +32,7 @@ STDIO is the **primary recommended transport** for MCP servers:
 ### Basic Command
 
 ```bash
-./skyline-server --config config.yaml --transport stdio
+./skyline --config config.yaml --transport stdio
 ```
 
 That's it! Server reads from stdin, writes to stdout.
@@ -41,13 +41,13 @@ That's it! Server reads from stdin, writes to stdout.
 
 ```bash
 GITLAB_TOKEN=glpat-xxx GITHUB_TOKEN=ghp_xxx \
-./skyline-server --config config.yaml --transport stdio
+./skyline --config config.yaml --transport stdio
 ```
 
 ### With Config File
 
 ```bash
-./skyline-server --config my-config.yaml --transport stdio
+./skyline --config my-config.yaml --transport stdio
 ```
 
 ---
@@ -64,7 +64,7 @@ GITLAB_TOKEN=glpat-xxx GITHUB_TOKEN=ghp_xxx \
 {
   "mcpServers": {
     "skyline-gitlab": {
-      "command": "/path/to/skyline-server",
+      "command": "/path/to/skyline",
       "args": ["--config", "/path/to/config.yaml", "--transport", "stdio"],
       "env": {
         "GITLAB_TOKEN": "glpat-xxx"
@@ -80,7 +80,7 @@ GITLAB_TOKEN=glpat-xxx GITHUB_TOKEN=ghp_xxx \
 
 ```toml
 [mcp_servers.skyline]
-command = "/path/to/skyline-server"
+command = "/path/to/skyline"
 args = ["--config", "/path/to/config.yaml", "--transport", "stdio"]
 
 [mcp_servers.skyline.env]
@@ -95,7 +95,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from "child_process";
 
-const serverProcess = spawn("/path/to/skyline-server", [
+const serverProcess = spawn("/path/to/skyline", [
   "--config", "/path/to/config.yaml",
   "--transport", "stdio"
 ], {
@@ -131,7 +131,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 server_params = StdioServerParameters(
-    command="/path/to/skyline-server",
+    command="/path/to/skyline",
     args=["--config", "/path/to/config.yaml", "--transport", "stdio"],
     env={
         "GITLAB_TOKEN": "glpat-xxx"
@@ -164,7 +164,7 @@ asyncio.run(main())
 
 ```bash
 # Start server
-./skyline-server --config config.yaml --transport stdio
+./skyline --config config.yaml --transport stdio
 
 # Type this (then press Enter):
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
@@ -182,7 +182,7 @@ asyncio.run(main())
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | \
-./skyline-server --config config.yaml --transport stdio
+./skyline --config config.yaml --transport stdio
 ```
 
 ### Test Script
@@ -191,7 +191,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 #!/bin/bash
 
 # test-stdio.sh
-SERVER="./skyline-server --config config.yaml --transport stdio"
+SERVER="./skyline --config config.yaml --transport stdio"
 
 # Start server in background, connect pipes
 exec 3< <($SERVER 2>/dev/null)
@@ -267,7 +267,7 @@ Server logs go to **stderr**, not stdout:
 
 ```bash
 # Server output
-./skyline-server --config config.yaml --transport stdio 2>server.log
+./skyline --config config.yaml --transport stdio 2>server.log
 
 # Now only JSON-RPC goes to stdout, logs go to server.log
 ```
@@ -333,14 +333,14 @@ apis:
 ❌ **Don't:**
 ```json
 {
-  "command": "./skyline-server"
+  "command": "./skyline"
 }
 ```
 
 ✅ **Do:**
 ```json
 {
-  "command": "/home/user/bin/skyline-server"
+  "command": "/home/user/bin/skyline"
 }
 ```
 
@@ -348,7 +348,7 @@ apis:
 
 ```json
 {
-  "command": "/path/to/skyline-server",
+  "command": "/path/to/skyline",
   "env": {
     "GITLAB_TOKEN": "glpat-xxx",
     "GITHUB_TOKEN": "ghp-xxx"
@@ -360,7 +360,7 @@ apis:
 
 ```json
 {
-  "command": "/path/to/skyline-server",
+  "command": "/path/to/skyline",
   "args": ["--config", "/path/to/config.yaml", "--transport", "stdio"],
   "stderr": "/path/to/logs/skyline.log"
 }
@@ -395,7 +395,7 @@ Don't pass secrets as command-line args (visible in `ps`):
 ### Server doesn't start
 
 **Check:**
-1. Server binary exists and is executable: `chmod +x skyline-server`
+1. Server binary exists and is executable: `chmod +x skyline`
 2. Config file exists: `ls -la /path/to/config.yaml`
 3. Environment variables are set correctly
 4. Check stderr logs
@@ -414,7 +414,7 @@ Don't pass secrets as command-line args (visible in `ps`):
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | jq .
 
 # Test with verbose logging
-./skyline-server --config config.yaml --transport stdio 2>&1 | tee debug.log
+./skyline --config config.yaml --transport stdio 2>&1 | tee debug.log
 ```
 
 ### Client can't find server
@@ -426,16 +426,16 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | jq .
 **Fix:**
 ```bash
 # Option 1: Use absolute path
-"command": "/home/user/bin/skyline-server"
+"command": "/home/user/bin/skyline"
 
 # Option 2: Install to PATH
-sudo cp skyline-server /usr/local/bin/
+sudo cp skyline /usr/local/bin/
 ```
 
 ### Server exits immediately
 
 **Check:**
-1. Config file valid: `./skyline-server --config config.yaml --transport stdio < /dev/null`
+1. Config file valid: `./skyline --config config.yaml --transport stdio < /dev/null`
 2. Auth tokens set: `echo $GITLAB_TOKEN`
 3. No syntax errors in config
 
@@ -564,7 +564,7 @@ Claude: Created issue #42: "Fix login bug"
 
 1. **Token storage:** Use environment variables, not config files
 2. **File permissions:** `chmod 600 config.yaml` (owner-only)
-3. **Binary permissions:** `chmod 755 skyline-server` (executable)
+3. **Binary permissions:** `chmod 755 skyline` (executable)
 4. **Logging:** Don't log secrets (Skyline has built-in redaction)
 
 ---
@@ -597,11 +597,11 @@ Claude: Created issue #42: "Fix login bug"
 ```bash
 # 1. Build
 cd ~/code/skyline-mcp
-go build -o skyline-server ./cmd/skyline/main.go
+go build -o skyline ./cmd/skyline/main.go
 
 # 2. Test
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | \
-./skyline-server --config config.yaml --transport stdio
+./skyline --config config.yaml --transport stdio
 
 # 3. Configure Claude Desktop
 # Edit: ~/.config/Claude/claude_desktop_config.json

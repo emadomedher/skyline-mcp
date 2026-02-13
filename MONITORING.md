@@ -18,7 +18,7 @@ Skyline includes comprehensive monitoring and logging capabilities for tracking 
 
 ```bash
 export CONFIG_SERVER_KEY="base64:$(openssl rand -base64 32)"
-go run ./cmd/skyline-server --listen :9190
+go run ./cmd/skyline --listen :9190
 ```
 
 The audit database is automatically created at `./skyline-audit.db`

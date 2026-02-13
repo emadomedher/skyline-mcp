@@ -4,29 +4,21 @@ VERSION := $(shell cat VERSION)
 # Build flags to inject version
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -s -w"
 
-.PHONY: all build build-skyline build-server install test clean version
+.PHONY: all build install test clean version
 
 all: build
 
-# Build both binaries
-build: build-skyline build-server
-
-# Build skyline (MCP server)
-build-skyline:
-	@echo "Building skyline v$(VERSION)..."
+# Build unified binary (HTTP + Admin UI + STDIO modes)
+build:
+	@echo "Building skyline v$(VERSION) (unified binary)..."
 	go build $(LDFLAGS) -o bin/skyline ./cmd/skyline
-
-# Build skyline-server (config server + web UI)
-build-server:
-	@echo "Building skyline-server v$(VERSION)..."
-	go build $(LDFLAGS) -o bin/skyline-server ./cmd/skyline-server
+	@echo "✅ Built bin/skyline"
 
 # Install to system
 install: build
-	@echo "Installing binaries..."
+	@echo "Installing skyline..."
 	cp bin/skyline /usr/local/bin/skyline
-	cp bin/skyline-server /usr/local/bin/skyline-server
-	@echo "Installed skyline v$(VERSION)"
+	@echo "✅ Installed skyline v$(VERSION) to /usr/local/bin/"
 
 # Run tests
 test:
@@ -35,7 +27,7 @@ test:
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	rm -f skyline skyline-server
+	rm -f skyline
 
 # Show current version
 version:

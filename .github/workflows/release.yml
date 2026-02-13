@@ -72,21 +72,12 @@ jobs:
         run: |
           go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline
 
-      - name: Build skyline-server binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-server-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline-server
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: skyline-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             skyline-${{ matrix.os }}-${{ matrix.arch }}
-            skyline-server-${{ matrix.os }}-${{ matrix.arch }}
 
   create-release:
     needs: build-and-release
@@ -141,7 +132,12 @@ jobs:
             skyline update
             ```
             
-            **Binaries included:**
+            **Unified Binary Architecture:**
+            - One `skyline` binary with configurable modes
+            - Default: HTTP server + Admin UI
+            - Use `--transport` flag for stdio/http modes
+            - Use `--admin` flag to enable/disable Web UI
+            
+            **Platforms:**
             - Linux (x86_64, ARM64)
             - macOS (Intel, Apple Silicon)
-            - Both `skyline` and `skyline-server`

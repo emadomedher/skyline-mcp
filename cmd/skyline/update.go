@@ -89,20 +89,20 @@ func runUpdate(logger *log.Logger) error {
 	
 	logger.Printf("🔄 Update available: %s → %s", currentVersion(), release.TagName)
 	
-	// Determine platform binary name
+	// Determine platform binary name (skyline-server)
 	var binaryName string
 	switch runtime.GOOS {
 	case "linux":
 		if runtime.GOARCH == "arm64" {
-			binaryName = "skyline-linux-arm64"
+			binaryName = "skyline-server-linux-arm64"
 		} else {
-			binaryName = "skyline-linux-amd64"
+			binaryName = "skyline-server-linux-amd64"
 		}
 	case "darwin":
 		if runtime.GOARCH == "arm64" {
-			binaryName = "skyline-darwin-arm64"
+			binaryName = "skyline-server-darwin-arm64"
 		} else {
-			binaryName = "skyline-darwin-amd64"
+			binaryName = "skyline-server-darwin-amd64"
 		}
 	default:
 		return fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
@@ -140,7 +140,7 @@ func runUpdate(logger *log.Logger) error {
 	}
 	
 	// Create temp file
-	tmpFile, err := os.CreateTemp("", "skyline-update-*")
+	tmpFile, err := os.CreateTemp("", "skyline-server-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
@@ -188,13 +188,13 @@ func runUpdate(logger *log.Logger) error {
 	
 	logger.Printf("✅ Successfully updated to %s!", release.TagName)
 	logger.Printf("")
-	logger.Printf("Run 'skyline' to use the new version")
+	logger.Printf("Restart skyline-server to use the new version")
 	
 	return nil
 }
 
 // showVersion prints version information
 func showVersion() {
-	fmt.Printf("Skyline MCP %s\n", currentVersion())
+	fmt.Printf("Skyline MCP Server %s\n", currentVersion())
 	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }

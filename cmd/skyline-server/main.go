@@ -62,6 +62,7 @@ type server struct {
 	mu          sync.RWMutex
 	store       profileStore
 	path        string
+	configPath  string
 	key         []byte
 	authMode    string
 	logger      *log.Logger
@@ -79,6 +80,7 @@ type upsertRequest struct {
 func main() {
 	bind := flag.String("bind", "localhost:19190", "Network interface and port to bind to (e.g., localhost:19190 or 0.0.0.0:19190)")
 	storagePath := flag.String("storage", "./profiles.enc.yaml", "Encrypted profiles storage path")
+	configPath := flag.String("config", "", "Server config.yaml path (default: ~/.skyline/config.yaml)")
 	authMode := flag.String("auth-mode", "bearer", "Auth mode: none or bearer")
 	keyEnv := flag.String("key-env", "SKYLINE_PROFILES_KEY", "Env var name containing encryption key")
 	envFile := flag.String("env-file", "", "Optional env file to load before startup")
@@ -166,8 +168,20 @@ func main() {
 	// Initialize metrics collector
 	metricsCollector := metrics.NewCollector()
 
+	// Determine config file path
+	serverConfigPath := *configPath
+	if serverConfigPath == "" {
+		// Default to ~/.skyline/config.yaml
+		home, err := os.UserHomeDir()
+		if err != nil {
+			logger.Fatalf("get home dir: %v", err)
+		}
+		serverConfigPath = filepath.Join(home, ".skyline", "config.yaml")
+	}
+
 	s := &server{
 		path:        *storagePath,
+		configPath:  serverConfigPath,
 		key:         key,
 		authMode:    mode,
 		logger:      logger,
@@ -241,6 +255,7 @@ func main() {
 	mux.HandleFunc("/admin/metrics", s.handleMetrics)
 	mux.HandleFunc("/admin/audit", s.handleAudit)
 	mux.HandleFunc("/admin/stats", s.handleStats)
+	mux.HandleFunc("/admin/config", s.handleConfig)
 
 	httpServer := &http.Server{
 		Addr:         *bind,
@@ -1336,6 +1351,128 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 			"since": since,
 			"until": time.Now(),
 		},
+	})
+}
+
+// handleConfig manages server configuration (config.yaml)
+func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetConfig(w, r)
+	case http.MethodPost:
+		s.handlePostConfig(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleGetConfig returns the current server configuration
+func (s *server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	// Read config file
+	data, err := os.ReadFile(s.configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Config file doesn't exist - return empty default
+			writeJSON(w, http.StatusOK, map[string]any{
+				"raw": "# Skyline MCP Server Configuration\n# File not found - using defaults\n",
+				"server": map[string]any{
+					"listen": "localhost:8191",
+				},
+				"runtime": map[string]any{
+					"codeExecution": map[string]any{
+						"enabled": true,
+					},
+				},
+				"audit": map[string]any{
+					"enabled": true,
+				},
+				"logging": map[string]any{
+					"level": "info",
+				},
+			})
+			return
+		}
+		http.Error(w, fmt.Sprintf("read config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse YAML to validate and provide structured response
+	var configData map[string]any
+	if err := yaml.Unmarshal(data, &configData); err != nil {
+		http.Error(w, fmt.Sprintf("parse config: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Return both raw YAML and parsed structure
+	response := map[string]any{
+		"raw": string(data),
+	}
+
+	// Add parsed fields if they exist
+	if server, ok := configData["server"].(map[string]any); ok {
+		response["server"] = server
+	}
+	if runtime, ok := configData["runtime"].(map[string]any); ok {
+		response["runtime"] = runtime
+	}
+	if audit, ok := configData["audit"].(map[string]any); ok {
+		response["audit"] = audit
+	}
+	if profiles, ok := configData["profiles"].(map[string]any); ok {
+		response["profiles"] = profiles
+	}
+	if security, ok := configData["security"].(map[string]any); ok {
+		response["security"] = security
+	}
+	if logging, ok := configData["logging"].(map[string]any); ok {
+		response["logging"] = logging
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// handlePostConfig saves updated server configuration
+func (s *server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
+	// Read request body (raw YAML)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate YAML syntax
+	var configData map[string]any
+	if err := yaml.Unmarshal(data, &configData); err != nil {
+		http.Error(w, fmt.Sprintf("invalid yaml: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Create config directory if it doesn't exist
+	configDir := filepath.Dir(s.configPath)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		http.Error(w, fmt.Sprintf("create config dir: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Write config file atomically (write to temp, then rename)
+	tmp := s.configPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		http.Error(w, fmt.Sprintf("write temp file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.Rename(tmp, s.configPath); err != nil {
+		os.Remove(tmp) // Clean up temp file on error
+		http.Error(w, fmt.Sprintf("save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Printf("config saved to %s", s.configPath)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"message": "Configuration saved successfully. Restart the server for changes to take effect.",
+		"path": s.configPath,
 	})
 }
 

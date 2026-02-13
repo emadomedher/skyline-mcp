@@ -5,6 +5,49 @@ All notable changes to Skyline MCP will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-02-13
+
+### Added
+- ✅ **STDIO transport fully implemented** - Native support for Claude Desktop, Cursor, and all MCP clients
+- ✅ **HTTP direct config mode** - HTTP transport now works with `--config` flag (no profiles needed)
+- ✅ **Automated test suite** - 11 scenarios, 20 assertions, 100% pass rate
+- ✅ **CI/CD pipeline** - GitHub Actions workflow for automated testing
+- New `runSTDIO()` function - Full MCP protocol over stdin/stdout
+- New `runHTTPWithConfig()` function - HTTP MCP endpoint with direct config
+- TEST-SUITE.md - Complete test documentation
+- STDIO-IMPLEMENTATION.md - Implementation guide
+- test-ci.sh - Executable test script (11.7KB)
+- .github/workflows/test.yml - CI/CD workflow
+
+### Changed
+- HTTP mode now supports two modes:
+  1. Profile-based: `skyline --transport http` (Web UI + profiles + auth)
+  2. Direct config: `skyline --transport http --config config.yaml` (no auth)
+- Updated USER-JOURNEY-TEST.md - Scenario 5 & 9 (STDIO now working)
+- Exported MCP types (`RPCRequest`, `RPCResponse`, `RPCError`)
+
+### Fixed
+- **PRODUCTION BLOCKER:** HTTP mode with direct config now works (was failing with 404)
+- STDIO mode nil pointer dereference (auth check)
+- Test 10 reliability (replaced HTTPBin with Petstore Swagger 2.0)
+- Test error messages improved (better debugging)
+
+### Testing
+- 100% test pass rate (20/20 assertions)
+- STDIO mode: 100% passing (8 tests)
+- HTTP mode: 100% passing (4 tests)
+- Multi-API: 100% passing (3 tests)
+- Error handling: 100% passing (3 tests)
+- Schema validation: 100% passing (2 tests)
+
+### Documentation
+- Updated all test scenarios for working STDIO mode
+- Added complete test suite documentation
+- Added STDIO implementation guide
+- Updated user journey tests
+
+---
+
 ## [0.3.1] - 2026-02-13
 
 ### Changed

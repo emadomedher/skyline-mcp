@@ -263,8 +263,16 @@ if [ "$OS" = "linux" ] && command -v systemctl &> /dev/null; then
   echo "  • Auto-start on boot"
   echo "  • Manage with 'skyline service' commands"
   echo ""
-  read -p "Install systemd services? (Y/n): " -n 1 -r
-  echo ""
+  
+  if [ -t 0 ]; then
+    # Interactive terminal
+    read -p "Install systemd services? (Y/n): " -n 1 -r
+    echo ""
+  else
+    # Non-interactive (curl pipe) - default to yes
+    echo "Non-interactive mode detected. Installing systemd services..."
+    REPLY="y"
+  fi
   
   # Default to yes if user just presses Enter
   if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -460,8 +468,16 @@ EOF
     
     # Ask if user wants to start services now
     echo -e "${YELLOW}Would you like to start the services now?${NC}"
-    read -p "Start services? (Y/n): " -n 1 -r
-    echo ""
+    
+    if [ -t 0 ]; then
+      # Interactive terminal
+      read -p "Start services? (Y/n): " -n 1 -r
+      echo ""
+    else
+      # Non-interactive (curl pipe) - default to yes
+      echo "Non-interactive mode detected. Starting services..."
+      REPLY="y"
+    fi
     
     # Default to yes if user just presses Enter
     if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then

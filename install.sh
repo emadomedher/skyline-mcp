@@ -153,21 +153,18 @@ if [ "$BUILD_FROM_SOURCE" = true ]; then
   
   cd skyline-mcp
   
-  echo "🔨 Building binaries..."
+  echo "🔨 Building binary..."
   go build -ldflags="-s -w" -o skyline ./cmd/skyline
-  go build -ldflags="-s -w" -o skyline-server ./cmd/skyline-server
   
   # Move to install location
   if [ -w /usr/local/bin ]; then
     mv skyline /usr/local/bin/skyline
-    mv skyline-server /usr/local/bin/skyline-server
     INSTALL_DIR="/usr/local/bin"
     echo ""
     echo "✅ Installed to /usr/local/bin/"
   else
     mkdir -p "$HOME/.local/bin"
     mv skyline "$HOME/.local/bin/skyline"
-    mv skyline-server "$HOME/.local/bin/skyline-server"
     INSTALL_DIR="$HOME/.local/bin"
     echo ""
     echo "✅ Installed to $HOME/.local/bin/"
@@ -183,9 +180,7 @@ else
   echo ""
   
   BINARY="skyline-${OS}-${ARCH}"
-  SERVER_BINARY="skyline-server-${OS}-${ARCH}"
   URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${BINARY}"
-  SERVER_URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${SERVER_BINARY}"
   
   echo "📥 Downloading from GitHub releases..."
   
@@ -195,17 +190,9 @@ else
       echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
       exit 1
     fi
-    if ! curl -fsSL "$SERVER_URL" -o skyline-server; then
-      echo "❌ Download failed for skyline-server"
-      exit 1
-    fi
   elif command -v wget &> /dev/null; then
     if ! wget -q "$URL" -O skyline; then
       echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
-      exit 1
-    fi
-    if ! wget -q "$SERVER_URL" -O skyline-server; then
-      echo "❌ Download failed for skyline-server"
       exit 1
     fi
   else
@@ -213,19 +200,17 @@ else
     exit 1
   fi
   
-  chmod +x skyline skyline-server
+  chmod +x skyline
   
   # Move to install location
   if [ -w /usr/local/bin ]; then
     mv skyline /usr/local/bin/skyline
-    mv skyline-server /usr/local/bin/skyline-server
     INSTALL_DIR="/usr/local/bin"
     echo ""
     echo "✅ Installed to /usr/local/bin/"
   else
     mkdir -p "$HOME/.local/bin"
     mv skyline "$HOME/.local/bin/skyline"
-    mv skyline-server "$HOME/.local/bin/skyline-server"
     INSTALL_DIR="$HOME/.local/bin"
     echo ""
     echo "✅ Installed to $HOME/.local/bin/"
@@ -360,136 +345,23 @@ EOF
       echo -e "${GREEN}✓ Created default config.yaml${NC}"
     fi
     
-    # Install service wrapper if skyline binary exists
-    SKYLINE_BIN="${INSTALL_DIR}/skyline"
-    if [ -f "$SKYLINE_BIN" ]; then
-      # Backup original binary
-      if [ ! -f "${INSTALL_DIR}/skyline-bin" ]; then
-        mv "$SKYLINE_BIN" "${INSTALL_DIR}/skyline-bin"
-        echo -e "${GREEN}✓ Backed up skyline binary to skyline-bin${NC}"
-      fi
-      
-      # Create wrapper script
-      cat > "$SKYLINE_BIN" << 'WRAPPER_EOF'
-#!/bin/bash
-REAL_BINARY="$(dirname "$0")/skyline-bin"
-
-if [ "$1" = "service" ]; then
-    shift
-    COMMAND="$1"
+    # No wrapper needed - skyline is a single binary with service commands built-in
+    echo -e "${GREEN}✓ Skyline binary installed${NC}"
     
-    case "$COMMAND" in
-        status)
-            echo "📊 Skyline Service Status"
-            echo ""
-            systemctl --user status skyline --no-pager | head -15
-            echo ""
-            systemctl --user status skyline-server --no-pager | head -15
-            ;;
-        start)
-            echo "🚀 Starting Skyline services..."
-            systemctl --user start skyline
-            systemctl --user start skyline-server
-            sleep 1
-            systemctl --user status skyline --no-pager | head -10
-            systemctl --user status skyline-server --no-pager | head -10
-            ;;
-        stop)
-            echo "⏹️  Stopping Skyline services..."
-            systemctl --user stop skyline
-            systemctl --user stop skyline-server
-            echo "✓ Services stopped"
-            ;;
-        restart)
-            echo "🔄 Restarting Skyline services..."
-            systemctl --user restart skyline
-            systemctl --user restart skyline-server
-            sleep 1
-            systemctl --user status skyline --no-pager | head -10
-            systemctl --user status skyline-server --no-pager | head -10
-            ;;
-        enable)
-            echo "🔧 Enabling Skyline services..."
-            systemctl --user enable skyline
-            systemctl --user enable skyline-server
-            echo "✓ Services enabled"
-            ;;
-        disable)
-            echo "🔧 Disabling Skyline services..."
-            systemctl --user disable skyline
-            systemctl --user disable skyline-server
-            echo "✓ Services disabled"
-            ;;
-        logs)
-            SERVICE="${2:-skyline}"
-            [ "$SERVICE" = "server" ] && SERVICE="skyline-server"
-            echo "📜 Following logs for $SERVICE (Ctrl+C to exit)..."
-            journalctl --user -u "$SERVICE" -f
-            ;;
-        *)
-            echo "Usage: skyline service <command>"
-            echo ""
-            echo "Commands:"
-            echo "  status   - Show service status"
-            echo "  start    - Start services"
-            echo "  stop     - Stop services"
-            echo "  restart  - Restart services"
-            echo "  enable   - Enable auto-start"
-            echo "  disable  - Disable auto-start"
-            echo "  logs [server] - Follow logs"
-            exit 1
-            ;;
-    esac
-else
-    exec "$REAL_BINARY" "$@"
-fi
-WRAPPER_EOF
-      
-      chmod +x "$SKYLINE_BIN"
-      echo -e "${GREEN}✓ Installed service management wrapper${NC}"
-    fi
-    
-    # Install systemd service files
+    # Install systemd service file
     mkdir -p ~/.config/systemd/user
     
-    # skyline.service
+    # skyline.service (single service with default flags: http + admin)
     cat > ~/.config/systemd/user/skyline.service << EOF
 [Unit]
-Description=Skyline MCP Server
+Description=Skyline MCP Server (HTTP + Admin UI)
 Documentation=https://skyline.projex.cc/docs
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/skyline-bin --config=%h/.skyline/config.yaml --transport=http --listen=:8191
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-Environment="PATH=${INSTALL_DIR}:/usr/local/bin:/usr/bin:/bin"
-
-NoNewPrivileges=true
-PrivateTmp=true
-
-WorkingDirectory=%h/.skyline
-
-[Install]
-WantedBy=default.target
-EOF
-    
-    # skyline-server.service
-    cat > ~/.config/systemd/user/skyline-server.service << EOF
-[Unit]
-Description=Skyline Web UI & Profile Server
-Documentation=https://skyline.projex.cc/docs
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${INSTALL_DIR}/skyline-server --bind=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml
+ExecStart=${INSTALL_DIR}/skyline --bind=localhost:19190 --storage=%h/.skyline/profiles.enc.yaml --config=%h/.skyline/config.yaml
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -507,7 +379,7 @@ WorkingDirectory=%h/.skyline
 WantedBy=default.target
 EOF
     
-    echo -e "${GREEN}✓ Installed systemd service files${NC}"
+    echo -e "${GREEN}✓ Installed systemd service file${NC}"
     
     # Reload systemd
     systemctl --user daemon-reload
@@ -535,45 +407,46 @@ EOF
     # Default to yes if user just presses Enter
     if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
       echo ""
-      echo -e "${BLUE}🚀 Starting services...${NC}"
+      echo -e "${BLUE}🚀 Starting service...${NC}"
       systemctl --user enable --now skyline
-      systemctl --user enable --now skyline-server
       
       sleep 2
       
       echo ""
-      echo -e "${GREEN}✅ Services started!${NC}"
+      echo -e "${GREEN}✅ Service started!${NC}"
       echo ""
-      skyline service status
+      systemctl --user status skyline --no-pager | head -15
       
       echo ""
       echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
       echo -e "${GREEN}📚 Quick Reference${NC}"
       echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
       echo ""
-      echo -e "  ${BLUE}skyline service status${NC}   - Check service status"
-      echo -e "  ${BLUE}skyline service restart${NC}  - Restart services"
-      echo -e "  ${BLUE}skyline service logs${NC}     - View logs"
+      echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
+      echo -e "  ${BLUE}systemctl --user restart skyline${NC}  - Restart service"
+      echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
       echo ""
       echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
+      echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
       echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
       echo ""
     else
       echo ""
-      echo -e "${YELLOW}⏭️  Services not started${NC}"
+      echo -e "${YELLOW}⏭️  Service not started${NC}"
       echo ""
-      echo "To start them later, run:"
-      echo -e "  ${BLUE}skyline service start${NC}"
+      echo "To start it later, run:"
+      echo -e "  ${BLUE}systemctl --user start skyline${NC}"
       echo ""
       echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
       echo -e "${GREEN}📚 Quick Reference${NC}"
       echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
       echo ""
-      echo -e "  ${BLUE}skyline service start${NC}    - Start services"
-      echo -e "  ${BLUE}skyline service status${NC}   - Check service status"
-      echo -e "  ${BLUE}skyline service logs${NC}     - View logs"
+      echo -e "  ${BLUE}systemctl --user start skyline${NC}    - Start service"
+      echo -e "  ${BLUE}systemctl --user status skyline${NC}   - Check service status"
+      echo -e "  ${BLUE}journalctl --user -u skyline -f${NC}   - View logs"
       echo ""
       echo -e "  ${BLUE}Web UI:${NC} http://localhost:19190/ui/"
+      echo -e "  ${BLUE}Admin:${NC} http://localhost:19190/admin/"
       echo -e "  ${BLUE}Config:${NC} ~/.skyline/config.yaml"
       echo ""
     fi

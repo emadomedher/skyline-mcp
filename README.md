@@ -74,8 +74,18 @@ Skyline uses **code execution** by default, providing up to **98% cost reduction
 
 ### Requirements
 
-Requires [Deno runtime](https://deno.com) (v2.0+):
+The **install script automatically installs Deno** when you run:
 
+```bash
+curl -fsSL https://skyline.projex.cc/install | bash
+```
+
+It will:
+- ✅ Detect if Deno is already installed
+- ✅ Prompt to install if missing (default: yes)
+- ✅ Add Deno to your shell profile automatically
+
+**Manual Deno installation** (if needed):
 ```bash
 curl -fsSL https://deno.land/install.sh | sh
 ```

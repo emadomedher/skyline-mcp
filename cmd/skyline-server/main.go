@@ -112,13 +112,61 @@ func main() {
 		}
 	}
 
+	// Determine profiles path early to check if file exists
+	tempProfilesPath := *storagePath
+	if tempProfilesPath == "./profiles.enc.yaml" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			tempProfilesPath = filepath.Join(home, ".skyline", "profiles.enc.yaml")
+		}
+	}
+	
+	// Check if profiles file exists BEFORE loading config
+	profilesFileExists := fileExists(tempProfilesPath)
+
 	// Check if encryption key is set
 	keyRaw := os.Getenv(*keyEnv)
 	var key []byte
 	var err error
 
 	if keyRaw == "" {
-		// No key set - generate a new one
+		// No encryption key set
+		if profilesFileExists {
+			// Encrypted profiles file exists - need key to decrypt it
+			logger.Printf("")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("🔐 Encrypted profiles file found")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("")
+			logger.Printf("An encrypted profiles file exists at:")
+			logger.Printf("  %s", tempProfilesPath)
+			logger.Printf("")
+			logger.Printf("This file contains your API credentials and cannot be accessed")
+			logger.Printf("without the encryption key.")
+			logger.Printf("")
+			logger.Printf("❌ SKYLINE_PROFILES_KEY environment variable is not set")
+			logger.Printf("")
+			logger.Printf("To decrypt your profiles, you need to set the encryption key:")
+			logger.Printf("")
+			logger.Printf("  1. If you saved the key to ~/.skyline/skyline.env:")
+			logger.Printf("     source ~/.skyline/skyline.env")
+			logger.Printf("     skyline-server")
+			logger.Printf("")
+			logger.Printf("  2. If you have the key in a password manager:")
+			logger.Printf("     export SKYLINE_PROFILES_KEY=<your-64-char-hex-key>")
+			logger.Printf("     skyline-server")
+			logger.Printf("")
+			logger.Printf("  3. If you lost the key:")
+			logger.Printf("     ⚠️  Your profiles are permanently encrypted")
+			logger.Printf("     You'll need to delete the file and start fresh:")
+			logger.Printf("     rm %s", tempProfilesPath)
+			logger.Printf("")
+			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			logger.Printf("")
+			logger.Fatalf("Encryption key required to decrypt profiles file")
+		}
+		
+		// No key and no file - generate new key
 		key = make([]byte, 32)
 		if _, err := rand.Read(key); err != nil {
 			logger.Fatalf("failed to generate encryption key: %v", err)
@@ -147,6 +195,7 @@ func main() {
 		// Set the env var for this session
 		os.Setenv(*keyEnv, keyHex)
 		
+		logger.Printf("")
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		logger.Printf("🔑 Generated new encryption key")
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -157,16 +206,22 @@ func main() {
 		logger.Printf("")
 		logger.Printf("    %s", keyHex)
 		logger.Printf("")
-		logger.Printf("📝 IMPORTANT: Save this key somewhere safe!")
+		logger.Printf("⚠️  CRITICAL: Save this key in a secure location!")
 		logger.Printf("")
-		logger.Printf("   This key is required to decrypt your API profiles.")
+		logger.Printf("   • This key encrypts your API profiles (credentials, tokens)")
+		logger.Printf("   • Without this key, your profiles CANNOT be decrypted")
+		logger.Printf("   • If you lose this key, you will lose access to all profiles")
+		logger.Printf("")
 		logger.Printf("   The key has been saved to ~/.skyline/skyline.env")
 		logger.Printf("")
-		logger.Printf("   To use it, add this to your shell profile (~/.bashrc or ~/.zshrc):")
-		logger.Printf("   export SKYLINE_PROFILES_KEY=%s", keyHex)
+		logger.Printf("   To use this key in future sessions:")
+		logger.Printf("   1. Add to your shell profile (~/.bashrc or ~/.zshrc):")
+		logger.Printf("      export SKYLINE_PROFILES_KEY=%s", keyHex)
 		logger.Printf("")
-		logger.Printf("   Or load it from the env file:")
-		logger.Printf("   source ~/.skyline/skyline.env")
+		logger.Printf("   2. Or load the env file each time:")
+		logger.Printf("      source ~/.skyline/skyline.env")
+		logger.Printf("")
+		logger.Printf("   Recommended: Store a backup copy in your password manager!")
 		logger.Printf("")
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		logger.Printf("")
@@ -237,7 +292,7 @@ func main() {
 		}
 	}
 
-	// Check if profiles file exists (after path is finalized)
+	// Check if profiles file exists at final path
 	profileExists := fileExists(profilesPath)
 
 	// Expand audit database path from config

@@ -131,18 +131,18 @@ Skyline auto-detects the spec format. No manual configuration needed.
 ### Start the Web UI
 
 ```bash
-# Generate encryption key (first time only)
-openssl rand -hex 32 > .encryption-key
+# Default mode: HTTP + Admin UI
+skyline
 
-# Export the key
-export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
-
-# Start Web UI
-./skyline-server --config=config.yaml --bind=localhost:19190
+# Or with explicit flags
+skyline --transport http --admin --bind localhost:19190
 
 # Open browser
 # http://localhost:19190/ui/
+# http://localhost:19190/admin/
 ```
+
+The encryption key is **automatically generated** on first run and saved to `~/.skyline/skyline.env`.
 
 ### Features
 
@@ -273,22 +273,27 @@ Config (YAML)
             → Runtime Executor (HTTP requests, gRPC calls, JSON-RPC envelopes, auth, retries)
 ```
 
-### Config Server &nbsp;`cmd/skyline-server`
+### Admin UI & Profile Management
 
-A web application for managing API configurations through profiles. Encrypted storage, bearer-token auth, and a built-in UI for creating, editing, and testing configurations before deploying them.
+Built-in web interface for managing configurations, profiles, and server settings. Accessible via `--admin` flag (enabled by default).
 
 ```bash
-export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
-go run ./cmd/skyline-server --bind localhost:19190
+# Start with admin UI (default)
+skyline
+
+# Or explicitly
+skyline --transport http --admin --bind localhost:19190
+
 # Open http://localhost:19190/ui/
+# Open http://localhost:19190/admin/
 ```
 
 Features:
-- **Profile management** — Create named profiles (dev, staging, prod) each with their own API config
-- **AES-GCM encryption** — Profiles are encrypted at rest
-- **Spec detection** — Paste a base URL and auto-discover what API specs are available
-- **Spec testing** — Verify spec URLs are reachable before saving
-- **Remote config** — The MCP server can pull its config from the config server at startup
+- **Profile management** — Create named profiles (dev, staging, prod) with encrypted storage
+- **AES-GCM encryption** — All profiles encrypted at rest, key auto-generated
+- **Spec detection** — Auto-discover API specs from base URLs
+- **Settings editor** — Edit server config.yaml via Web UI
+- **Metrics & audit** — View API call history and performance stats
 
 ### Mock API Server &nbsp;`mock-api/`
 
@@ -423,20 +428,21 @@ retries: 1
 
 ---
 
-## Using with Config Server Profiles
+## Transport Modes
 
-Instead of local YAML files, pull config from the config server at runtime:
+Skyline supports multiple transport modes:
 
 ```bash
-# Start the config server
-export SKYLINE_PROFILES_KEY="$(openssl rand -base64 32)"
-go run ./cmd/skyline-server --bind localhost:19190
+# HTTP + Admin UI (default)
+skyline
+# or explicitly:
+skyline --transport http --admin
 
-# Create a profile via the web UI at http://localhost:19190/ui/
-# Then run the MCP server with that profile:
-export MCP_PROFILE=dev
-export MCP_PROFILE_TOKEN=your-profile-token
-go run ./cmd/skyline --config-url http://localhost:19190
+# HTTP only (no UI)
+skyline --transport http --admin=false
+
+# STDIO for Claude Desktop (coming soon)
+skyline --transport stdio
 ```
 
 ---
@@ -446,13 +452,12 @@ go run ./cmd/skyline --config-url http://localhost:19190
 ```
 skyline-mcp/
 │
-├── cmd/                              # ── Entrypoints ────────────────
-│   ├── skyline/               #    Skyline MCP server
-│   │   └── main.go
-│   └── skyline-server/                #    Config profile server + web UI
-│       ├── main.go
-│       └── ui/                       #    Embedded frontend
+├── cmd/                              # ── Entrypoint ─────────────────
+│   └── skyline/                      #    Unified binary
+│       ├── main.go                   #      All transports (http, stdio)
+│       └── ui/                       #      Embedded Web UI & admin
 │           ├── index.html
+│           ├── admin.html
 │           ├── app.js
 │           └── styles.css
 │
@@ -513,7 +518,7 @@ skyline-mcp/
 │   ├── config.yaml.example           #    Full config with all API types
 │   ├── config.mock.yaml              #    Config for mock-api server
 │   ├── config.yaml                   #    Minimal working config
-│   └── skyline-server.env.example     #    Config server env template
+│   └── skyline.env.example           #    Server env template
 │
 ├── assets/                           # ── Branding ───────────────────
 │   ├── skyline-banner.svg
@@ -692,12 +697,14 @@ apis:
 ## Building
 
 ```bash
-# Build both binaries
+# Build the binary
 go build -o ./bin/skyline ./cmd/skyline
-go build -o ./bin/skyline-server ./cmd/skyline-server
 
 # Run tests
 go test ./...
+
+# Build from source (install script does this)
+curl -fsSL https://skyline.projex.cc/install | bash -s source
 ```
 
 ---
@@ -856,28 +863,27 @@ curl -fsSL https://skyline.projex.cc/uninstall | bash
 ```
 
 This will:
-- Stop and disable systemd services
-- Remove service files
-- Remove binaries from `/usr/local/bin` and `~/.local/bin`
-- Prompt to remove config directory (keeps by default)
+- Stop and disable systemd service
+- Remove service file
+- Remove binary from `/usr/local/bin` or `~/.local/bin`
+- Preserve your data in `~/.skyline/` (profiles, config, audit DB)
 
 **Manual removal:**
 
 ```bash
-# Stop services
-systemctl --user stop skyline skyline-server
-systemctl --user disable skyline skyline-server
+# Stop service
+systemctl --user stop skyline
+systemctl --user disable skyline
 
-# Remove service files
+# Remove service file
 rm -f ~/.config/systemd/user/skyline.service
-rm -f ~/.config/systemd/user/skyline-server.service
 systemctl --user daemon-reload
 
-# Remove binaries
-sudo rm -f /usr/local/bin/skyline /usr/local/bin/skyline-server /usr/local/bin/skyline-bin
-rm -f ~/.local/bin/skyline ~/.local/bin/skyline-server ~/.local/bin/skyline-bin
+# Remove binary
+sudo rm -f /usr/local/bin/skyline
+rm -f ~/.local/bin/skyline
 
-# Optional: remove config
+# Optional: remove data
 rm -rf ~/.skyline/
 ```
 

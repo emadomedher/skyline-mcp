@@ -11,6 +11,18 @@
   No glue code. No per-API adapters. Just config.
 </p>
 
+<p align="center">
+  <a href="https://skyline.projex.cc">
+    <img src="https://img.shields.io/badge/🌐_Website-skyline.projex.cc-0EA5E9?style=for-the-badge" alt="Visit Website"/>
+  </a>
+  <a href="https://skyline.projex.cc/docs">
+    <img src="https://img.shields.io/badge/📚_Documentation-Read_the_Docs-3B82F6?style=for-the-badge" alt="Documentation"/>
+  </a>
+  <a href="https://github.com/emadomedher/skyline-mcp/releases/latest">
+    <img src="https://img.shields.io/badge/⚡_Quick_Install-Download-F97316?style=for-the-badge" alt="Download"/>
+  </a>
+</p>
+
 <br/>
 
 ---

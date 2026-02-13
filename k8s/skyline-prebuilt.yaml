@@ -17,7 +17,7 @@ spec:
       - name: skyline
         image: debian:bookworm-slim
         command:
-        - /skyline-bin/skyline
+        - /skyline/skyline
         args:
         - --transport
         - http
@@ -29,8 +29,8 @@ spec:
         - name: config
           mountPath: /config
           readOnly: true
-        - name: skyline-binary
-          mountPath: /skyline-bin
+        - name: skylineary
+          mountPath: /skyline
           readOnly: true
         resources:
           requests:
@@ -55,7 +55,7 @@ spec:
       - name: config
         secret:
           secretName: skyline-mockingbird-config
-      - name: skyline-binary
+      - name: skylineary
         hostPath:
           path: /home/emad/code/skyline-mcp/bin
           type: Directory

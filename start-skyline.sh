@@ -9,4 +9,4 @@ cd "$(dirname "$0")"
 export CONFIG_SERVER_KEY="base64:PUDZs5yRMx+9TS1HW4ud2p+ZZKcZEPGtcYPVT3Y+8r0="
 
 # Start server
-./bin/skyline-server --listen :9190 --auth-mode none "$@"
+./bin/skyline --listen :9190 --auth-mode none "$@"

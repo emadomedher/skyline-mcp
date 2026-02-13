@@ -16,7 +16,7 @@ openssl rand -hex 32 > .encryption-key
 export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
 
 # 3. Start Web UI
-./skyline-server --config=config.yaml --bind=localhost:19190
+./skyline --config=config.yaml --bind=localhost:19190
 
 # 4. Open browser
 # http://localhost:19190/ui/
@@ -305,7 +305,7 @@ log:
 ### Environment Variables
 
 ```bash
-# Required for skyline-server
+# Required for skyline
 export SKYLINE_PROFILES_KEY=$(cat /secure/path/.encryption-key)
 
 # Optional for skyline CLI with config server
@@ -325,7 +325,7 @@ COPY profiles.enc.yaml /app/profiles.enc.yaml
 # Key passed at runtime
 ENV SKYLINE_PROFILES_KEY=""
 
-CMD ["skyline-server", "--config=/app/config.yaml"]
+CMD ["skyline", "--config=/app/config.yaml"]
 ```
 
 ```bash
@@ -342,7 +342,7 @@ kubectl create secret generic skyline-key \
   --namespace=skyline
 
 # Use in deployment
-kubectl create deployment skyline-server \
+kubectl create deployment skyline \
   --image=skyline:latest \
   --env="SKYLINE_PROFILES_KEY=$(kubectl get secret skyline-key -o jsonpath='{.data.key}' | base64 -d)"
 ```
@@ -418,7 +418,7 @@ openssl rand -hex 32 > .encryption-key
 **Start Web UI (recommended):**
 ```bash
 export SKYLINE_PROFILES_KEY=$(cat .encryption-key)
-./skyline-server --config=config.yaml
+./skyline --config=config.yaml
 ```
 
 **Edit via CLI (advanced):**

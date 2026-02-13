@@ -847,6 +847,42 @@ mcpx tools call calculator-jsonrpc__add '{"a": 5, "b": 3}'
 
 ---
 
+## Uninstall
+
+To completely remove Skyline from your system:
+
+```bash
+curl -fsSL https://skyline.projex.cc/uninstall | bash
+```
+
+This will:
+- Stop and disable systemd services
+- Remove service files
+- Remove binaries from `/usr/local/bin` and `~/.local/bin`
+- Prompt to remove config directory (keeps by default)
+
+**Manual removal:**
+
+```bash
+# Stop services
+systemctl --user stop skyline skyline-server
+systemctl --user disable skyline skyline-server
+
+# Remove service files
+rm -f ~/.config/systemd/user/skyline.service
+rm -f ~/.config/systemd/user/skyline-server.service
+systemctl --user daemon-reload
+
+# Remove binaries
+sudo rm -f /usr/local/bin/skyline /usr/local/bin/skyline-server /usr/local/bin/skyline-bin
+rm -f ~/.local/bin/skyline ~/.local/bin/skyline-server ~/.local/bin/skyline-bin
+
+# Optional: remove config
+rm -rf ~/.skyline/
+```
+
+---
+
 <p align="center">
   <img src="assets/skyline-logo.svg" alt="Skyline" width="400"/>
 </p>

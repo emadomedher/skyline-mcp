@@ -36,6 +36,7 @@ import (
 	"skyline-mcp/internal/parsers/postman"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/runtime"
+	"skyline-mcp/internal/serverconfig"
 	"skyline-mcp/internal/spec"
 )
 
@@ -63,6 +64,7 @@ type server struct {
 	store       profileStore
 	path        string
 	configPath  string
+	serverCfg   *serverconfig.ServerConfig
 	key         []byte
 	authMode    string
 	logger      *log.Logger
@@ -179,9 +181,72 @@ func main() {
 		serverConfigPath = filepath.Join(home, ".skyline", "config.yaml")
 	}
 
+	// Load server configuration
+	serverCfg, err := serverconfig.Load(serverConfigPath)
+	if err != nil {
+		logger.Fatalf("load server config: %v", err)
+	}
+
+	// Check if config file exists, if not create default
+	if _, err := os.Stat(serverConfigPath); os.IsNotExist(err) {
+		logger.Printf("Config file not found, creating default: %s", serverConfigPath)
+		if err := serverconfig.GenerateDefault(serverConfigPath); err != nil {
+			logger.Printf("Warning: could not create default config: %v", err)
+		} else {
+			logger.Printf("✓ Created default config.yaml")
+		}
+	}
+
+	// Apply configuration
+	// Override bind address if set via command line flag
+	listenAddr := *bind
+	if listenAddr == "localhost:19190" && serverCfg.Server.Listen != "" {
+		// Use config file value if command line is default
+		listenAddr = serverCfg.Server.Listen
+	}
+
+	// Override storage path from config if not set via flag
+	profilesPath := *storagePath
+	if profilesPath == "./profiles.enc.yaml" && serverCfg.Profiles.Storage != "" {
+		expandedPath, err := serverconfig.ExpandPath(serverCfg.Profiles.Storage)
+		if err == nil {
+			profilesPath = expandedPath
+		}
+	}
+
+	// Expand audit database path from config
+	auditDBPath := "./skyline-audit.db"
+	if serverCfg.Audit.Database != "" {
+		expandedPath, err := serverconfig.ExpandPath(serverCfg.Audit.Database)
+		if err == nil {
+			auditDBPath = expandedPath
+		}
+	}
+
+	// Re-initialize audit logger with config path
+	auditLogger.Close()
+	auditLogger, err = audit.NewLogger(auditDBPath)
+	if err != nil {
+		logger.Fatalf("init audit logger: %v", err)
+	}
+	defer auditLogger.Close()
+
+	// Set log level from config
+	setLogLevel(logger, serverCfg.Logging.Level)
+
+	logger.Printf("Skyline MCP Server starting...")
+	logger.Printf("  Listen: %s", listenAddr)
+	logger.Printf("  Config: %s", serverConfigPath)
+	logger.Printf("  Profiles: %s", profilesPath)
+	logger.Printf("  Audit DB: %s", auditDBPath)
+	logger.Printf("  Code Execution: %v", serverCfg.Runtime.CodeExecution.Enabled)
+	logger.Printf("  Cache: %v", serverCfg.Runtime.Cache.Enabled)
+	logger.Printf("  Log Level: %s", serverCfg.Logging.Level)
+
 	s := &server{
-		path:        *storagePath,
+		path:        profilesPath,
 		configPath:  serverConfigPath,
+		serverCfg:   serverCfg,
 		key:         key,
 		authMode:    mode,
 		logger:      logger,
@@ -258,14 +323,19 @@ func main() {
 	mux.HandleFunc("/admin/config", s.handleConfig)
 
 	httpServer := &http.Server{
-		Addr:         *bind,
+		Addr:         listenAddr,
 		Handler:      logRequests(mux, logger),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	logger.Printf("Skyline Web UI listening on http://%s", *bind)
+	logger.Printf("")
+	logger.Printf("✓ Skyline Web UI ready")
+	logger.Printf("  → http://%s/ui/", listenAddr)
+	logger.Printf("  → http://%s/admin/", listenAddr)
+	logger.Printf("")
+	
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatalf("server error: %v", err)
 	}
@@ -1758,4 +1828,16 @@ func loadEnvFile(path string) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func setLogLevel(logger *log.Logger, level string) {
+	// Note: Go's standard logger doesn't have levels built-in
+	// This is a placeholder for future structured logging
+	// For now, we just log the configured level
+	switch strings.ToLower(level) {
+	case "debug", "info", "warn", "error":
+		// Valid levels - no action needed for now
+	default:
+		logger.Printf("Warning: unknown log level %q, using 'info'", level)
+	}
 }

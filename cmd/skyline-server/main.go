@@ -116,7 +116,6 @@ func main() {
 	keyRaw := os.Getenv(*keyEnv)
 	var key []byte
 	var err error
-	profileExists := fileExists(*storagePath)
 
 	if keyRaw == "" {
 		// No key set - generate a new one
@@ -126,24 +125,48 @@ func main() {
 		}
 		keyHex := hex.EncodeToString(key)
 		
+		// Determine skyline.env path
+		home, err := os.UserHomeDir()
+		if err != nil {
+			logger.Fatalf("get home dir: %v", err)
+		}
+		skylineDir := filepath.Join(home, ".skyline")
+		envPath := filepath.Join(skylineDir, "skyline.env")
+		
+		// Create .skyline directory if it doesn't exist
+		if err := os.MkdirAll(skylineDir, 0o755); err != nil {
+			logger.Fatalf("create .skyline dir: %v", err)
+		}
+		
+		// Save key to skyline.env
+		envContent := fmt.Sprintf("SKYLINE_PROFILES_KEY=%s\nCONFIG_SERVER_KEY=%s\n", keyHex, keyHex)
+		if err := os.WriteFile(envPath, []byte(envContent), 0o600); err != nil {
+			logger.Fatalf("save encryption key: %v", err)
+		}
+		
+		// Set the env var for this session
+		os.Setenv(*keyEnv, keyHex)
+		
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		logger.Printf("⚠️  SKYLINE_PROFILES_KEY not set - Generated new encryption key")
+		logger.Printf("🔑 Generated new encryption key")
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		logger.Printf("")
+		logger.Printf("✓ Saved encryption key to: %s", envPath)
 		logger.Printf("")
 		logger.Printf("🔑 Your encryption key:")
 		logger.Printf("")
 		logger.Printf("    %s", keyHex)
 		logger.Printf("")
-		logger.Printf("📝 Save this key - you'll need it to decrypt profiles.")
+		logger.Printf("📝 IMPORTANT: Save this key somewhere safe!")
 		logger.Printf("")
-		logger.Printf("   To use this key:")
+		logger.Printf("   This key is required to decrypt your API profiles.")
+		logger.Printf("   The key has been saved to ~/.skyline/skyline.env")
+		logger.Printf("")
+		logger.Printf("   To use it, add this to your shell profile (~/.bashrc or ~/.zshrc):")
 		logger.Printf("   export SKYLINE_PROFILES_KEY=%s", keyHex)
 		logger.Printf("")
-		logger.Printf("   Or save to a file:")
-		logger.Printf("   echo \"%s\" > .skyline-key", keyHex)
-		logger.Printf("   export SKYLINE_PROFILES_KEY=$(cat .skyline-key)")
-		logger.Printf("")
-		logger.Printf("ℹ️  This key encrypts the profiles file (profiles.enc.yaml)")
+		logger.Printf("   Or load it from the env file:")
+		logger.Printf("   source ~/.skyline/skyline.env")
 		logger.Printf("")
 		logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		logger.Printf("")
@@ -214,6 +237,9 @@ func main() {
 		}
 	}
 
+	// Check if profiles file exists (after path is finalized)
+	profileExists := fileExists(profilesPath)
+
 	// Expand audit database path from config
 	auditDBPath := "./skyline-audit.db"
 	if serverCfg.Audit.Database != "" {
@@ -259,7 +285,7 @@ func main() {
 	if err := s.load(); err != nil {
 		// If profile exists but decryption failed, show helpful error
 		if profileExists && keyRaw != "" {
-			absPath, _ := filepath.Abs(*storagePath)
+			absPath, _ := filepath.Abs(profilesPath)
 			logger.Printf("")
 			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 			logger.Printf("❌ Failed to decrypt profiles file")
@@ -283,6 +309,16 @@ func main() {
 			logger.Fatalf("Error: %v", err)
 		}
 		logger.Fatalf("load store: %v", err)
+	}
+
+	// If profiles file doesn't exist, create an empty encrypted one
+	if !profileExists {
+		logger.Printf("Profiles file not found, creating empty encrypted file: %s", profilesPath)
+		if err := s.save(); err != nil {
+			logger.Printf("Warning: could not create profiles file: %v", err)
+		} else {
+			logger.Printf("✓ Created empty profiles file")
+		}
 	}
 
 	mux := http.NewServeMux()

@@ -263,10 +263,11 @@ if [ "$OS" = "linux" ] && command -v systemctl &> /dev/null; then
   echo "  • Auto-start on boot"
   echo "  • Manage with 'skyline service' commands"
   echo ""
-  read -p "Install systemd services? (y/n): " -n 1 -r
+  read -p "Install systemd services? (Y/n): " -n 1 -r
   echo ""
   
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  # Default to yes if user just presses Enter
+  if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     echo -e "${BLUE}📦 Installing systemd services...${NC}"
     
@@ -459,10 +460,11 @@ EOF
     
     # Ask if user wants to start services now
     echo -e "${YELLOW}Would you like to start the services now?${NC}"
-    read -p "Start services? (y/n): " -n 1 -r
+    read -p "Start services? (Y/n): " -n 1 -r
     echo ""
     
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    # Default to yes if user just presses Enter
+    if [[ -z $REPLY ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
       echo ""
       echo -e "${BLUE}🚀 Starting services...${NC}"
       systemctl --user enable --now skyline

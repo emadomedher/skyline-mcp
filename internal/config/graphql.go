@@ -21,7 +21,7 @@ type TypeBasedFilter struct {
 	ExcludeTypes []string `json:"exclude_types,omitempty" yaml:"exclude_types,omitempty"`
 }
 
-// Update OperationFilter to support type-based mode
+// OperationFilterEnhanced supports allowlist, blocklist, and type-based filtering modes.
 type OperationFilterEnhanced struct {
 	Mode           string            `json:"mode" yaml:"mode"` // "allowlist", "blocklist", "type-based"
 	Operations     []OperationPattern `json:"operations,omitempty" yaml:"operations,omitempty"`

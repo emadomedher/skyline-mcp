@@ -227,6 +227,7 @@ func buildOperation(schema *ast.Schema, apiName, opType string, field *ast.Field
 		GraphQL: &canonical.GraphQLOperation{
 			OperationType:     opType,
 			FieldName:         field.Name,
+			ReturnTypeName:    baseTypeName(field.Type),
 			ArgTypes:          argTypes,
 			DefaultSelection:  selection,
 			RequiresSelection: requiresSelection,

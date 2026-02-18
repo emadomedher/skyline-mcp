@@ -8,38 +8,33 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
 
       body {
-        font-family: 'Space+Grotesk', system-ui, -apple-system, sans-serif;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-        color: #1e1b4b;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        background: #0F172A;
+        color: #F1F5F9;
         min-height: 100vh;
-        padding: 0;
       }
 
       .container {
         max-width: 1400px;
         margin: 0 auto;
-        padding: 20px;
+        padding: 24px;
       }
 
-      /* Header with logo and nav */
+      /* Header */
       .header {
-        background: rgba(255, 255, 255, 0.98);
-        border-radius: 16px;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 12px;
         padding: 20px 24px;
         margin-bottom: 24px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
       }
 
       .header-content {
@@ -61,7 +56,7 @@
       }
 
       .logo-section h1 {
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 700;
         background: linear-gradient(135deg, #0EA5E9, #3B82F6);
         -webkit-background-clip: text;
@@ -69,13 +64,10 @@
         background-clip: text;
       }
 
-      .header-actions {
-        display: flex;
-        gap: 12px;
-      }
+      .header-actions { display: flex; gap: 12px; }
 
       .btn {
-        background: linear-gradient(135deg, #0EA5E9, #3B82F6);
+        background: #F97316;
         color: white;
         border: none;
         padding: 10px 20px;
@@ -84,115 +76,98 @@
         cursor: pointer;
         transition: all 0.2s;
         font-size: 14px;
+        font-family: inherit;
       }
 
       .btn:hover {
-        background: linear-gradient(135deg, #0284c7, #2563eb);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        background: #ea580c;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
       }
 
       .btn-secondary {
-        background: white;
+        background: transparent;
         color: #0EA5E9;
-        border: 2px solid #0EA5E9;
+        border: 1px solid rgba(14, 165, 233, 0.3);
       }
 
       .btn-secondary:hover {
-        background: #f0f9ff;
-        transform: translateY(-2px);
+        background: rgba(14, 165, 233, 0.1);
+        border-color: #0EA5E9;
+        transform: translateY(-1px);
       }
 
-      /* Navigation Tabs */
+      /* Nav Tabs */
       .nav-tabs {
         display: flex;
-        gap: 8px;
-        border-bottom: 2px solid #e2e8f0;
+        gap: 4px;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.8);
       }
 
       .nav-tab {
         padding: 12px 24px;
         background: none;
         border: none;
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 600;
-        color: #64748b;
+        color: #64748B;
         cursor: pointer;
         transition: all 0.2s;
-        border-bottom: 3px solid transparent;
+        border-bottom: 2px solid transparent;
         position: relative;
-        top: 2px;
+        top: 1px;
+        font-family: inherit;
       }
 
-      .nav-tab:hover {
-        color: #0EA5E9;
-      }
+      .nav-tab:hover { color: #0EA5E9; }
+      .nav-tab.active { color: #0EA5E9; border-bottom-color: #0EA5E9; }
 
-      .nav-tab.active {
-        color: #0EA5E9;
-        border-bottom-color: #0EA5E9;
-      }
-
-      /* Page containers */
-      .page {
-        display: none;
-      }
-
-      .page.active {
-        display: block;
-      }
+      /* Pages */
+      .page { display: none; }
+      .page.active { display: block; }
 
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
         margin-bottom: 24px;
       }
 
       .card {
-        background: rgba(255, 255, 255, 0.98);
-        border-radius: 16px;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 12px;
         padding: 24px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
       }
 
       .card h2 {
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
-        color: #94a3b8;
+        color: #64748B;
         margin-bottom: 12px;
         letter-spacing: 0.5px;
       }
 
       .metric {
-        font-size: 42px;
+        font-size: 36px;
         font-weight: 700;
-        color: #1e293b;
-        margin-bottom: 8px;
+        color: #F1F5F9;
+        margin-bottom: 4px;
       }
 
       .metric-label {
-        font-size: 14px;
-        color: #64748b;
+        font-size: 13px;
+        color: #64748B;
       }
 
-      .metric.success {
-        color: #10b981;
-      }
+      .metric.success { color: #10B981; }
+      .metric.error { color: #EF4444; }
+      .metric.info { color: #0EA5E9; }
 
-      .metric.error {
-        color: #ef4444;
-      }
-
-      .metric.info {
-        color: #0EA5E9;
-      }
-
-      .table-container {
-        overflow-x: auto;
-      }
+      /* Tables */
+      .table-container { overflow-x: auto; }
 
       table {
         width: 100%;
@@ -203,91 +178,88 @@
       th {
         text-align: left;
         padding: 12px;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.8);
         font-weight: 600;
-        color: #475569;
+        color: #64748B;
         text-transform: uppercase;
-        font-size: 12px;
+        font-size: 11px;
         letter-spacing: 0.5px;
       }
 
       td {
         padding: 12px;
-        border-bottom: 1px solid #e2e8f0;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+        color: #CBD5E1;
+      }
+
+      tr:hover td {
+        background: rgba(14, 165, 233, 0.04);
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        background: rgba(14, 165, 233, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #38bdf8;
       }
 
       .badge {
         display: inline-block;
-        padding: 4px 12px;
-        border-radius: 12px;
+        padding: 3px 10px;
+        border-radius: 999px;
         font-size: 12px;
         font-weight: 600;
       }
 
-      .badge.success {
-        background: #d1fae5;
-        color: #065f46;
-      }
-
-      .badge.error {
-        background: #fee2e2;
-        color: #991b1b;
-      }
-
-      .badge.info {
-        background: #e0f2fe;
-        color: #075985;
-      }
+      .badge.success { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+      .badge.error { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+      .badge.info { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
 
       .timestamp {
-        font-family: 'IBM Plex Mono', monospace;
+        font-family: 'JetBrains Mono', monospace;
         font-size: 12px;
-        color: #94a3b8;
+        color: #64748B;
       }
 
       .loading {
         text-align: center;
         padding: 40px;
-        color: #94a3b8;
+        color: #64748B;
       }
 
       .spinner {
-        border: 3px solid #e5e7eb;
+        border: 3px solid rgba(51, 65, 85, 0.5);
         border-top-color: #0EA5E9;
         border-radius: 50%;
-        width: 40px;
-        height: 40px;
+        width: 36px;
+        height: 36px;
         animation: spin 1s linear infinite;
         margin: 0 auto 16px;
       }
 
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
+      @keyframes spin { to { transform: rotate(360deg); } }
 
-      /* Settings Page Styles */
-      .settings-section {
-        margin-bottom: 32px;
-      }
+      /* Settings */
+      .settings-section { margin-bottom: 32px; }
 
       .settings-section h3 {
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 700;
-        color: #1e293b;
+        color: #F1F5F9;
         margin-bottom: 16px;
         padding-bottom: 12px;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.8);
       }
 
-      .form-group {
-        margin-bottom: 20px;
-      }
+      .form-group { margin-bottom: 20px; }
 
       .form-group label {
         display: block;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
-        color: #475569;
+        color: #94A3B8;
         margin-bottom: 8px;
       }
 
@@ -296,10 +268,12 @@
       .form-group textarea {
         width: 100%;
         padding: 10px 14px;
-        border: 2px solid #e2e8f0;
+        border: 1px solid rgba(51, 65, 85, 0.8);
         border-radius: 8px;
         font-size: 14px;
-        font-family: 'IBM Plex Mono', monospace;
+        font-family: 'JetBrains Mono', monospace;
+        background: rgba(15, 23, 42, 0.8);
+        color: #F1F5F9;
         transition: all 0.2s;
       }
 
@@ -308,18 +282,22 @@
       .form-group textarea:focus {
         outline: none;
         border-color: #0EA5E9;
-        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+      }
+
+      .form-group select option {
+        background: #1E293B;
+        color: #F1F5F9;
       }
 
       .form-group textarea {
-        font-family: 'IBM Plex Mono', monospace;
         min-height: 200px;
         resize: vertical;
       }
 
       .form-help {
-        font-size: 13px;
-        color: #64748b;
+        font-size: 12px;
+        color: #64748B;
         margin-top: 6px;
       }
 
@@ -327,7 +305,7 @@
         display: flex;
         gap: 12px;
         padding-top: 20px;
-        border-top: 2px solid #e2e8f0;
+        border-top: 1px solid rgba(51, 65, 85, 0.8);
       }
 
       .alert {
@@ -338,21 +316,21 @@
       }
 
       .alert-success {
-        background: #d1fae5;
-        color: #065f46;
-        border-left: 4px solid #10b981;
+        background: rgba(16, 185, 129, 0.1);
+        color: #34d399;
+        border-left: 3px solid #10B981;
       }
 
       .alert-error {
-        background: #fee2e2;
-        color: #991b1b;
-        border-left: 4px solid #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+        color: #f87171;
+        border-left: 3px solid #EF4444;
       }
 
       .alert-info {
-        background: #e0f2fe;
-        color: #075985;
-        border-left: 4px solid #0EA5E9;
+        background: rgba(14, 165, 233, 0.1);
+        color: #38bdf8;
+        border-left: 3px solid #0EA5E9;
       }
     </style>
   </head>
@@ -365,18 +343,18 @@
             <h1>Skyline MCP</h1>
           </div>
           <div class="header-actions">
-            <button class="btn-secondary btn" onclick="window.open('https://skyline.projex.cc/docs', '_blank')">📚 Docs</button>
-            <button class="btn" onclick="loadDashboard()">🔄 Refresh</button>
+            <button class="btn-secondary btn" onclick="window.open('https://skyline.projex.cc/docs', '_blank')">Docs</button>
+            <button class="btn" onclick="loadDashboard()">Refresh</button>
           </div>
         </div>
         <div class="nav-tabs">
-          <button class="nav-tab active" onclick="showPage('dashboard')">📊 Dashboard</button>
-          <button class="nav-tab" onclick="showPage('profiles')">🔑 Profiles</button>
-          <button class="nav-tab" onclick="showPage('settings')">⚙️ Settings</button>
+          <button class="nav-tab active" onclick="showPage('dashboard')">Dashboard</button>
+          <button class="nav-tab" onclick="showPage('profiles')">Profiles</button>
+          <button class="nav-tab" onclick="showPage('settings')">Settings</button>
         </div>
       </div>
 
-      <!-- Dashboard Page -->
+      <!-- Dashboard -->
       <div id="dashboard-page" class="page active">
         <div id="loading" class="card loading">
           <div class="spinner"></div>
@@ -390,31 +368,26 @@
               <div class="metric" id="totalRequests">-</div>
               <div class="metric-label">Since startup</div>
             </div>
-
             <div class="card">
               <h2>Success Rate</h2>
               <div class="metric success" id="successRate">-</div>
               <div class="metric-label">Successful executions</div>
             </div>
-
             <div class="card">
               <h2>Error Rate</h2>
               <div class="metric error" id="errorRate">-</div>
               <div class="metric-label">Failed executions</div>
             </div>
-
             <div class="card">
               <h2>Avg Duration</h2>
               <div class="metric info" id="avgDuration">-</div>
               <div class="metric-label">Milliseconds</div>
             </div>
-
             <div class="card">
-              <h2>Active Connections</h2>
+              <h2>Connections</h2>
               <div class="metric info" id="activeConnections">-</div>
-              <div class="metric-label">WebSocket connections</div>
+              <div class="metric-label">WebSocket active</div>
             </div>
-
             <div class="card">
               <h2>Uptime</h2>
               <div class="metric" id="uptime">-</div>
@@ -422,8 +395,8 @@
             </div>
           </div>
 
-          <div class="card">
-            <h2>Recent API Calls (Last 50)</h2>
+          <div class="card" style="margin-bottom: 24px;">
+            <h2>Recent API Calls</h2>
             <div class="table-container">
               <table>
                 <thead>
@@ -436,43 +409,41 @@
                   </tr>
                 </thead>
                 <tbody id="auditTable">
-                  <tr>
-                    <td colspan="5" class="loading">Loading audit log...</td>
-                  </tr>
+                  <tr><td colspan="5" class="loading">Loading audit log...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
 
           <div class="card">
-            <h2>Requests by Profile (Last 24h)</h2>
+            <h2>Requests by Profile (24h)</h2>
             <div id="profileStats"></div>
           </div>
         </div>
       </div>
 
-      <!-- Profiles Page -->
+      <!-- Profiles -->
       <div id="profiles-page" class="page">
         <div class="card">
           <h2>API Profiles</h2>
           <div class="alert alert-info">
-            Profiles contain API credentials, rate limiting, and custom configurations. They are encrypted using the key in <code>~/.skyline/skyline.env</code>.
+            Profiles contain API credentials and configurations. They are encrypted using the key in <code>~/.skyline/skyline.env</code>.
           </div>
-          <p style="color: #64748b; text-align: center; padding: 40px;">
-            Profile management UI coming soon. For now, use the command line:<br><br>
-            <code style="background: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-family: 'IBM Plex Mono', monospace;">skyline profile add &lt;name&gt;</code>
+          <p style="color: #64748B; text-align: center; padding: 40px;">
+            Use the main UI at <a href="/ui/" style="color: #0EA5E9;">/ui/</a> to manage profiles, or the CLI:<br><br>
+            <code>skyline profile add &lt;name&gt;</code>
           </p>
         </div>
       </div>
 
-      <!-- Settings Page -->
+      <!-- Settings -->
       <div id="settings-page" class="page">
         <div class="card">
           <h2>Server Configuration</h2>
           <div id="settingsAlert"></div>
-          
+
           <div class="settings-section">
-            <h3>🌐 Server</h3>
+            <h3>Server</h3>
             <div class="form-group">
               <label for="serverListen">Listen Address</label>
               <input type="text" id="serverListen" value="localhost:8191" />
@@ -481,14 +452,14 @@
           </div>
 
           <div class="settings-section">
-            <h3>⚡ Runtime</h3>
+            <h3>Runtime</h3>
             <div class="form-group">
               <label for="codeExecutionEnabled">Code Execution</label>
               <select id="codeExecutionEnabled">
-                <option value="true">Enabled (98% cost reduction)</option>
+                <option value="true">Enabled (goja embedded JS)</option>
                 <option value="false">Disabled (traditional MCP)</option>
               </select>
-              <div class="form-help">Discovery-assisted code execution via Deno</div>
+              <div class="form-help">Discovery-assisted code execution via embedded goja runtime</div>
             </div>
             <div class="form-group">
               <label for="cacheEnabled">Discovery Cache</label>
@@ -501,7 +472,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>🔍 Audit</h3>
+            <h3>Audit</h3>
             <div class="form-group">
               <label for="auditEnabled">Audit Logging</label>
               <select id="auditEnabled">
@@ -513,7 +484,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>📝 Logging</h3>
+            <h3>Logging</h3>
             <div class="form-group">
               <label for="logLevel">Log Level</label>
               <select id="logLevel">
@@ -526,48 +497,36 @@
           </div>
 
           <div class="settings-section">
-            <h3>📄 Advanced (YAML)</h3>
+            <h3>Advanced (YAML)</h3>
             <div class="form-group">
               <label for="configYaml">config.yaml</label>
               <textarea id="configYaml" spellcheck="false"></textarea>
-              <div class="form-help">Direct YAML editing for advanced configuration. Changes require server restart.</div>
+              <div class="form-help">Direct YAML editing. Changes require server restart.</div>
             </div>
           </div>
 
           <div class="settings-actions">
-            <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
-            <button class="btn-secondary btn" onclick="loadSettings()">🔄 Reset</button>
+            <button class="btn" onclick="saveSettings()">Save Settings</button>
+            <button class="btn-secondary btn" onclick="loadSettings()">Reset</button>
           </div>
         </div>
       </div>
     </div>
 
-    <script src="/ui/app.js"></script>
     <script>
-      // Page navigation
       function showPage(pageName) {
-        // Hide all pages
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-
-        // Show selected page
         document.getElementById(pageName + '-page').classList.add('active');
         event.target.classList.add('active');
-
-        // Load page data
-        if (pageName === 'dashboard') {
-          loadDashboard();
-        } else if (pageName === 'settings') {
-          loadSettings();
-        }
+        if (pageName === 'dashboard') loadDashboard();
+        else if (pageName === 'settings') loadSettings();
       }
 
-      // Dashboard functions
       async function loadDashboard() {
         try {
           const statsResponse = await fetch('/admin/stats');
           const stats = await statsResponse.json();
-
           const auditResponse = await fetch('/admin/audit?limit=50');
           const audit = await auditResponse.json();
 
@@ -575,18 +534,15 @@
           document.getElementById('totalRequests').textContent = metrics.total_requests.toLocaleString();
 
           const successRate = metrics.total_requests > 0
-            ? (metrics.success_requests / metrics.total_requests * 100).toFixed(1)
-            : 0;
+            ? (metrics.success_requests / metrics.total_requests * 100).toFixed(1) : 0;
           document.getElementById('successRate').textContent = successRate + '%';
 
           const errorRate = metrics.total_requests > 0
-            ? (metrics.failed_requests / metrics.total_requests * 100).toFixed(1)
-            : 0;
+            ? (metrics.failed_requests / metrics.total_requests * 100).toFixed(1) : 0;
           document.getElementById('errorRate').textContent = errorRate + '%';
 
           document.getElementById('avgDuration').textContent =
             metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '-';
-
           document.getElementById('activeConnections').textContent = metrics.active_connections;
 
           const uptimeHours = (metrics.uptime_seconds / 3600).toFixed(1);
@@ -598,13 +554,11 @@
           if (audit.events && audit.events.length > 0) {
             audit.events.forEach(event => {
               if (event.event_type !== 'execute') return;
-
               const row = document.createElement('tr');
               const timestamp = new Date(event.timestamp).toLocaleString();
               const statusBadge = event.success
-                ? '<span class="badge success">✓ Success</span>'
-                : '<span class="badge error">✗ Failed</span>';
-
+                ? '<span class="badge success">Success</span>'
+                : '<span class="badge error">Failed</span>';
               row.innerHTML = `
                 <td class="timestamp">${timestamp}</td>
                 <td>${event.profile}</td>
@@ -615,7 +569,7 @@
               tbody.appendChild(row);
             });
           } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94a3b8;">No API calls yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748B;">No API calls yet</td></tr>';
           }
 
           const profileStatsDiv = document.getElementById('profileStats');
@@ -625,46 +579,36 @@
             const profileTable = document.createElement('table');
             profileTable.innerHTML = '<thead><tr><th>Profile</th><th>Requests</th></tr></thead><tbody></tbody>';
             const profileTbody = profileTable.querySelector('tbody');
-
             Object.entries(metrics.profile_requests).forEach(([profile, count]) => {
               const row = document.createElement('tr');
               row.innerHTML = `<td><strong>${profile}</strong></td><td>${count.toLocaleString()}</td>`;
               profileTbody.appendChild(row);
             });
-
             profileStatsDiv.appendChild(profileTable);
           } else {
-            profileStatsDiv.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 20px;">No profile data yet</p>';
+            profileStatsDiv.innerHTML = '<p style="color: #64748B; text-align: center; padding: 20px;">No profile data yet</p>';
           }
 
           document.getElementById('loading').style.display = 'none';
           document.getElementById('content').style.display = 'block';
-
         } catch (error) {
-          console.error('Failed to load data:', error);
           document.getElementById('loading').innerHTML = `
-            <div style="color: #ef4444;">⚠️ Failed to load data</div>
-            <div style="margin-top: 12px;">${error.message}</div>
+            <div style="color: #EF4444;">Failed to load data</div>
+            <div style="margin-top: 12px; color: #64748B;">${error.message}</div>
           `;
         }
       }
 
-      // Settings functions
       async function loadSettings() {
         try {
           const response = await fetch('/admin/config');
           const config = await response.json();
-
-          // Populate form fields
           document.getElementById('serverListen').value = config.server?.listen || 'localhost:8191';
           document.getElementById('codeExecutionEnabled').value = String(config.runtime?.codeExecution?.enabled !== false);
           document.getElementById('cacheEnabled').value = String(config.runtime?.cache?.enabled !== false);
           document.getElementById('auditEnabled').value = String(config.audit?.enabled !== false);
           document.getElementById('logLevel').value = config.logging?.level || 'info';
-
-          // Show full YAML
           document.getElementById('configYaml').value = config.raw || '';
-
         } catch (error) {
           showAlert('error', 'Failed to load settings: ' + error.message);
         }
@@ -673,18 +617,13 @@
       async function saveSettings() {
         try {
           const yamlContent = document.getElementById('configYaml').value;
-
           const response = await fetch('/admin/config', {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
             body: yamlContent
           });
-
-          if (!response.ok) {
-            throw new Error('Failed to save settings');
-          }
-
-          showAlert('success', '✓ Settings saved! Restart the server for changes to take effect.');
+          if (!response.ok) throw new Error('Failed to save settings');
+          showAlert('success', 'Settings saved. Restart the server for changes to take effect.');
         } catch (error) {
           showAlert('error', 'Failed to save settings: ' + error.message);
         }
@@ -696,10 +635,7 @@
         setTimeout(() => alertDiv.innerHTML = '', 5000);
       }
 
-      // Load dashboard on page load
       loadDashboard();
-
-      // Auto-refresh dashboard every 10 seconds
       setInterval(() => {
         if (document.getElementById('dashboard-page').classList.contains('active')) {
           loadDashboard();

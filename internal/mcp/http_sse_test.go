@@ -17,7 +17,7 @@ import (
 func TestSSEInitializeFlow(t *testing.T) {
 	registry := &Registry{Tools: map[string]*Tool{}, Resources: map[string]*Resource{}}
 	logger := log.New(io.Discard, "", 0)
-	server := NewServer(registry, nil, logger, redact.NewRedactor())
+	server := NewServer(registry, nil, logger, redact.NewRedactor(), "test")
 	httpServer := NewHTTPServer(server, logger, &config.AuthConfig{Type: "bearer", Token: "dev-token"})
 
 	ts := httptest.NewServer(httpServer.handler())
@@ -77,7 +77,7 @@ func TestSSEInitializeFlow(t *testing.T) {
 func TestSSEAuthRequired(t *testing.T) {
 	registry := &Registry{Tools: map[string]*Tool{}, Resources: map[string]*Resource{}}
 	logger := log.New(io.Discard, "", 0)
-	server := NewServer(registry, nil, logger, redact.NewRedactor())
+	server := NewServer(registry, nil, logger, redact.NewRedactor(), "test")
 	httpServer := NewHTTPServer(server, logger, &config.AuthConfig{Type: "bearer", Token: "dev-token"})
 
 	ts := httptest.NewServer(httpServer.handler())

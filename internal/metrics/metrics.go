@@ -1,7 +1,11 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
+	"log"
+	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +19,10 @@ type Collector struct {
 	failedRequests    atomic.Int64
 	totalConnections  atomic.Int64
 	activeConnections atomic.Int64
+
+	// Cache counters
+	cacheHits   atomic.Int64
+	cacheMisses atomic.Int64
 
 	// Per-profile counters
 	profileRequests map[string]*atomic.Int64
@@ -95,6 +103,16 @@ func (c *Collector) RecordRequest(profile, tool string, duration time.Duration, 
 	c.durationMu.RUnlock()
 }
 
+// RecordCacheHit records a cache hit
+func (c *Collector) RecordCacheHit() {
+	c.cacheHits.Add(1)
+}
+
+// RecordCacheMiss records a cache miss
+func (c *Collector) RecordCacheMiss() {
+	c.cacheMisses.Add(1)
+}
+
 // RecordConnection records a connection event
 func (c *Collector) RecordConnection(connected bool) {
 	c.totalConnections.Add(1)
@@ -170,6 +188,15 @@ func (c *Collector) PrometheusFormat() string {
 	output += fmt.Sprintf("skyline_request_duration_milliseconds_sum %d\n", c.durationSum.Load())
 	output += fmt.Sprintf("skyline_request_duration_milliseconds_count %d\n\n", c.durationCount.Load())
 
+	// Cache
+	output += fmt.Sprintf("# HELP skyline_cache_hits_total Total number of cache hits\n")
+	output += fmt.Sprintf("# TYPE skyline_cache_hits_total counter\n")
+	output += fmt.Sprintf("skyline_cache_hits_total %d\n\n", c.cacheHits.Load())
+
+	output += fmt.Sprintf("# HELP skyline_cache_misses_total Total number of cache misses\n")
+	output += fmt.Sprintf("# TYPE skyline_cache_misses_total counter\n")
+	output += fmt.Sprintf("skyline_cache_misses_total %d\n\n", c.cacheMisses.Load())
+
 	// Uptime
 	uptime := time.Since(c.startTime).Seconds()
 	output += fmt.Sprintf("# HELP skyline_uptime_seconds Uptime in seconds\n")
@@ -187,6 +214,8 @@ type Snapshot struct {
 	ActiveConnections int64              `json:"active_connections"`
 	TotalConnections  int64              `json:"total_connections"`
 	AvgDurationMs     float64            `json:"avg_duration_ms"`
+	CacheHits         int64              `json:"cache_hits"`
+	CacheMisses       int64              `json:"cache_misses"`
 	ProfileRequests   map[string]int64   `json:"profile_requests"`
 	ToolRequests      map[string]int64   `json:"tool_requests"`
 	UptimeSeconds     float64            `json:"uptime_seconds"`
@@ -204,6 +233,10 @@ func (c *Collector) Snapshot() *Snapshot {
 		ToolRequests:      make(map[string]int64),
 		UptimeSeconds:     time.Since(c.startTime).Seconds(),
 	}
+
+	// Cache counters
+	snap.CacheHits = c.cacheHits.Load()
+	snap.CacheMisses = c.cacheMisses.Load()
 
 	// Calculate average duration
 	if c.durationCount.Load() > 0 {
@@ -225,4 +258,48 @@ func (c *Collector) Snapshot() *Snapshot {
 	c.toolMu.RUnlock()
 
 	return snap
+}
+
+// StartRemoteWrite starts a background goroutine that periodically POSTs
+// Prometheus-format metrics to a remote write endpoint (e.g. Grafana Cloud).
+func (c *Collector) StartRemoteWrite(ctx context.Context, endpoint string, interval time.Duration, username, password string, logger *log.Logger) {
+	if endpoint == "" {
+		return
+	}
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				body := c.PrometheusFormat()
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(body))
+				if err != nil {
+					logger.Printf("metrics remote write: create request: %v", err)
+					continue
+				}
+				req.Header.Set("Content-Type", "text/plain")
+				if username != "" {
+					req.SetBasicAuth(username, password)
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					logger.Printf("metrics remote write: %v", err)
+					continue
+				}
+				resp.Body.Close()
+				if resp.StatusCode >= 400 {
+					logger.Printf("metrics remote write: status %d", resp.StatusCode)
+				}
+			}
+		}
+	}()
 }

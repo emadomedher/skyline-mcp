@@ -138,7 +138,7 @@ func generateToolFunction(tool *mcp.Tool, funcName string) (string, error) {
 		inputParam = fmt.Sprintf("input: %sInput", capitalize(funcName))
 	}
 
-	b.WriteString(fmt.Sprintf("export async function %s(%s): Promise<any> {\n", funcName, inputParam))
+	b.WriteString(fmt.Sprintf("export function %s(%s): any {\n", funcName, inputParam))
 	if hasInput {
 		b.WriteString(fmt.Sprintf("  return callMCPTool('%s', input);\n", tool.Name))
 	} else {
@@ -203,73 +203,19 @@ func generateIndexFile(toolNames []string) string {
 }
 
 // generateClientFile generates the MCP client.ts
+// Host functions __callMCPTool and __searchTools are injected by the Go executor (goja).
 func generateClientFile() string {
-	return `// MCP Tool Client for Deno
-// This module provides the callMCPTool function used by generated tool wrappers
+	return `// MCP Tool Client for embedded goja runtime
+// Host functions are provided as globals by the Go executor
 
-const MCP_INTERNAL_ENDPOINT = Deno.env.get('MCP_INTERNAL_ENDPOINT') || 'http://localhost:8080/internal/call-tool';
-const MCP_SEARCH_ENDPOINT = Deno.env.get('MCP_SEARCH_ENDPOINT') || 'http://localhost:8080/internal/search-tools';
-
-export async function callMCPTool(toolName: string, args: any): Promise<any> {
-  const response = await fetch(MCP_INTERNAL_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ toolName, args })
-  });
-
-  if (!response.ok) {
-    throw new Error(` + "`Tool ${toolName} failed: ${response.statusText}`" + `);
-  }
-
-  const result = await response.json();
-  
-  if (result.error) {
-    throw new Error(result.error);
-  }
-
-  return result.data;
+export function callMCPTool(toolName: string, args: any): any {
+  return (globalThis as any).__callMCPTool(toolName, JSON.stringify(args));
 }
 
-// Discovery helpers exposed globally
-declare global {
-  function searchTools(query: string, detail?: string): Promise<any[]>;
-  const __interfaces: string[];
-  function __getToolInterface(toolName: string): string;
+export function searchTools(query: string, detail: string = 'name-and-description'): any[] {
+  return (globalThis as any).__searchTools(query, detail);
 }
 
-// searchTools function (available globally in execution context)
-(globalThis as any).searchTools = async (query: string, detail: string = 'name-and-description'): Promise<any[]> => {
-  const response = await fetch(MCP_SEARCH_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, detail })
-  });
-
-  if (!response.ok) {
-    throw new Error(` + "`searchTools failed: ${response.statusText}`" + `);
-  }
-
-  return await response.json();
-};
-
-// __interfaces array (populated by executor)
-(globalThis as any).__interfaces = JSON.parse(Deno.env.get('MCP_INTERFACES') || '[]');
-
-// __getToolInterface function
-(globalThis as any).__getToolInterface = async (toolName: string): Promise<string> => {
-  const response = await fetch(MCP_SEARCH_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: toolName, detail: 'full' })
-  });
-
-  if (!response.ok) {
-    throw new Error(` + "`getToolInterface failed: ${response.statusText}`" + `);
-  }
-
-  const results = await response.json();
-  if (results.length === 0) return '';
-  return results[0].interface || '';
-};
+export const __interfaces: string[] = (globalThis as any).__interfaces || [];
 `
 }

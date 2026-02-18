@@ -57,6 +57,7 @@ type MediaType struct {
 type GraphQLOperation struct {
 	OperationType     string
 	FieldName         string
+	ReturnTypeName    string // Base return type name (e.g., "Issue", "User")
 	ArgTypes          map[string]string
 	DefaultSelection  string
 	RequiresSelection bool

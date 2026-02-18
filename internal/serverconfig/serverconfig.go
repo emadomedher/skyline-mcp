@@ -17,6 +17,18 @@ type ServerConfig struct {
 	Profiles ProfilesSection `yaml:"profiles"`
 	Security SecuritySection `yaml:"security"`
 	Logging  LoggingSection  `yaml:"logging"`
+	Metrics  MetricsSection  `yaml:"metrics"`
+}
+
+type MetricsSection struct {
+	RemoteWrite *RemoteWriteConfig `yaml:"remoteWrite,omitempty"`
+}
+
+type RemoteWriteConfig struct {
+	Endpoint string        `yaml:"endpoint"`
+	Interval time.Duration `yaml:"interval,omitempty"`
+	Username string        `yaml:"username,omitempty"`
+	Password string        `yaml:"password,omitempty"`
 }
 
 type ServerSection struct {
@@ -89,7 +101,7 @@ func Default() *ServerConfig {
 		Runtime: RuntimeSection{
 			CodeExecution: CodeExecutionConfig{
 				Enabled:     true,
-				Engine:      "deno",
+				Engine:      "goja",
 				Timeout:     30 * time.Second,
 				MemoryLimit: "512MB",
 			},
@@ -276,8 +288,7 @@ runtime:
   # Code execution engine (98% cost reduction vs traditional MCP)
   codeExecution:
     enabled: true
-    engine: "deno"  # or "node", "bun"
-    # denoPath: "/home/user/.deno/bin/deno"  # auto-detect if not set
+    engine: "goja"  # embedded JS runtime (no external dependencies)
     timeout: 30s
     memoryLimit: "512MB"
     

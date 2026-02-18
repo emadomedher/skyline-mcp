@@ -296,6 +296,7 @@ func buildIntrospectionOperation(typeMap map[string]introspectionType, apiName, 
 		GraphQL: &canonical.GraphQLOperation{
 			OperationType:     opType,
 			FieldName:         field.Name,
+			ReturnTypeName:    baseIntrospectionTypeName(field.Type),
 			ArgTypes:          argTypes,
 			DefaultSelection:  selection,
 			RequiresSelection: requiresSelection,

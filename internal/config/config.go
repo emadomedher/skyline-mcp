@@ -22,7 +22,7 @@ type APIConfig struct {
 	TimeoutSeconds  *int                  `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 	Retries         *int                  `json:"retries,omitempty" yaml:"retries,omitempty"`
 	Jenkins         *JenkinsConfig        `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
-	Filter          *OperationFilter      `json:"filter,omitempty" yaml:"filter,omitempty"`
+	Filter          *OperationFilterEnhanced `json:"filter,omitempty" yaml:"filter,omitempty"`
 	Optimization    *GraphQLOptimization  `json:"optimization,omitempty" yaml:"optimization,omitempty"`
 }
 
@@ -149,14 +149,25 @@ func (a *AuthConfig) Validate() error {
 	return nil
 }
 
-func (f *OperationFilter) Validate(apiIndex int) error {
+func (f *OperationFilterEnhanced) Validate(apiIndex int) error {
 	if f.Mode == "" {
 		return fmt.Errorf("filter.mode is required")
 	}
 	mode := strings.ToLower(f.Mode)
-	if mode != "allowlist" && mode != "blocklist" {
-		return fmt.Errorf("filter.mode must be 'allowlist' or 'blocklist', got %q", f.Mode)
+	if mode != "allowlist" && mode != "blocklist" && mode != "type-based" {
+		return fmt.Errorf("filter.mode must be 'allowlist', 'blocklist', or 'type-based', got %q", f.Mode)
 	}
+
+	if mode == "type-based" {
+		if f.TypeBased == nil {
+			return fmt.Errorf("filter.type_based is required when mode is 'type-based'")
+		}
+		if len(f.TypeBased.IncludeTypes) == 0 && len(f.TypeBased.ExcludeTypes) == 0 {
+			return fmt.Errorf("filter.type_based: at least one of include_types or exclude_types is required")
+		}
+		return nil
+	}
+
 	if len(f.Operations) == 0 {
 		return fmt.Errorf("filter.operations cannot be empty")
 	}
@@ -243,11 +254,6 @@ type JenkinsWrite struct {
 	Method  string `json:"method" yaml:"method"`
 	Path    string `json:"path" yaml:"path"`
 	Summary string `json:"summary,omitempty" yaml:"summary,omitempty"`
-}
-
-type OperationFilter struct {
-	Mode       string             `json:"mode" yaml:"mode"`             // "allowlist" or "blocklist"
-	Operations []OperationPattern `json:"operations" yaml:"operations"` // List of patterns
 }
 
 type OperationPattern struct {

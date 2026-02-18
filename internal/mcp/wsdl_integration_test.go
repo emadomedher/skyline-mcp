@@ -90,7 +90,7 @@ func TestServerWSDLToolCall(t *testing.T) {
 		t.Fatalf("registry init failed: %v", err)
 	}
 
-	mcpServer := NewServer(registry, executor, logger, redactor)
+	mcpServer := NewServer(registry, executor, logger, redactor, "test")
 	inReader, inWriter := io.Pipe()
 	outReader, outWriter := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())

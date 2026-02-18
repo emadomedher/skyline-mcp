@@ -168,7 +168,7 @@ func TestFilterOperations_Allowlist(t *testing.T) {
 		{ID: "updatePet", Method: "PUT", Path: "/pets/{petId}"},
 	}
 
-	filter := &config.OperationFilter{
+	filter := &config.OperationFilterEnhanced{
 		Mode: "allowlist",
 		Operations: []config.OperationPattern{
 			{OperationID: "get*"},
@@ -203,7 +203,7 @@ func TestFilterOperations_Blocklist(t *testing.T) {
 		{ID: "updatePet", Method: "PUT", Path: "/pets/{petId}"},
 	}
 
-	filter := &config.OperationFilter{
+	filter := &config.OperationFilterEnhanced{
 		Mode: "blocklist",
 		Operations: []config.OperationPattern{
 			{Method: "DELETE"},
@@ -238,7 +238,7 @@ func TestFilterOperations_MethodAndPath(t *testing.T) {
 		{ID: "deleteAdmin", Method: "DELETE", Path: "/admin/users"},
 	}
 
-	filter := &config.OperationFilter{
+	filter := &config.OperationFilterEnhanced{
 		Mode: "blocklist",
 		Operations: []config.OperationPattern{
 			{Method: "DELETE"},               // Block all DELETE
@@ -280,7 +280,7 @@ func TestApplyOperationFilters(t *testing.T) {
 	configs := []config.APIConfig{
 		{
 			Name: "api1",
-			Filter: &config.OperationFilter{
+			Filter: &config.OperationFilterEnhanced{
 				Mode: "allowlist",
 				Operations: []config.OperationPattern{
 					{Method: "GET"},
@@ -348,5 +348,96 @@ func TestApplyOperationFilters_NoFilters(t *testing.T) {
 
 	if len(result[0].Operations) != 2 {
 		t.Errorf("expected 2 operations, got %d", len(result[0].Operations))
+	}
+}
+
+func TestFilterOperationsByType_IncludeOnly(t *testing.T) {
+	ops := []*canonical.Operation{
+		{ID: "query_issues", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "IssueConnection"}},
+		{ID: "query_users", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "UserConnection"}},
+		{ID: "mutation_createIssue", GraphQL: &canonical.GraphQLOperation{
+			ReturnTypeName: "Issue",
+			Composite:      &canonical.GraphQLComposite{Pattern: "Issue"},
+		}},
+		{ID: "query_auditEvents", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "AuditEventConnection"}},
+		{ID: "getHealth", Method: "GET", Path: "/healthz"}, // Non-GraphQL
+	}
+
+	filter := &config.OperationFilterEnhanced{
+		Mode: "type-based",
+		TypeBased: &config.TypeBasedFilter{
+			IncludeTypes: []string{"Issue", "IssueConnection"},
+		},
+	}
+
+	result := filterOperations(ops, filter)
+
+	// Should keep: query_issues (IssueConnection), mutation_createIssue (Issue composite), getHealth (non-GraphQL)
+	ids := make(map[string]bool)
+	for _, op := range result {
+		ids[op.ID] = true
+	}
+
+	if len(result) != 3 {
+		t.Errorf("expected 3 operations, got %d: %v", len(result), ids)
+	}
+	if !ids["query_issues"] {
+		t.Error("expected query_issues (IssueConnection)")
+	}
+	if !ids["mutation_createIssue"] {
+		t.Error("expected mutation_createIssue (Issue composite)")
+	}
+	if !ids["getHealth"] {
+		t.Error("expected getHealth (non-GraphQL passthrough)")
+	}
+}
+
+func TestFilterOperationsByType_ExcludeOnly(t *testing.T) {
+	ops := []*canonical.Operation{
+		{ID: "query_issues", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "IssueConnection"}},
+		{ID: "query_users", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "UserConnection"}},
+		{ID: "query_auditEvents", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "AuditEventConnection"}},
+	}
+
+	filter := &config.OperationFilterEnhanced{
+		Mode: "type-based",
+		TypeBased: &config.TypeBasedFilter{
+			ExcludeTypes: []string{"AuditEventConnection"},
+		},
+	}
+
+	result := filterOperations(ops, filter)
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 operations, got %d", len(result))
+	}
+	for _, op := range result {
+		if op.ID == "query_auditEvents" {
+			t.Error("expected query_auditEvents to be excluded")
+		}
+	}
+}
+
+func TestFilterOperationsByType_ExcludeTakesPrecedence(t *testing.T) {
+	ops := []*canonical.Operation{
+		{ID: "query_issues", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "Issue"}},
+		{ID: "query_users", GraphQL: &canonical.GraphQLOperation{ReturnTypeName: "User"}},
+	}
+
+	filter := &config.OperationFilterEnhanced{
+		Mode: "type-based",
+		TypeBased: &config.TypeBasedFilter{
+			IncludeTypes: []string{"Issue", "User"},
+			ExcludeTypes: []string{"User"},
+		},
+	}
+
+	result := filterOperations(ops, filter)
+
+	if len(result) != 1 {
+		t.Errorf("expected 1 operation, got %d", len(result))
+	}
+	if len(result) > 0 && result[0].ID != "query_issues" {
+		t.Errorf("expected query_issues, got %s", result[0].ID)
 	}
 }

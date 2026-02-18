@@ -1,6 +1,6 @@
 package spec
 
-const graphqlIntrospectionQuery = `query IntrospectionQuery {
+const GraphQLIntrospectionQuery = `query IntrospectionQuery {
   __schema {
     queryType { name }
     mutationType { name }

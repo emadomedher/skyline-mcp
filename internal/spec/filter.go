@@ -12,7 +12,7 @@ import (
 // This should be called AFTER parsing specs but BEFORE creating the registry.
 func ApplyOperationFilters(services []*canonical.Service, apiConfigs []config.APIConfig) []*canonical.Service {
 	// Build a map of API name -> filter
-	filters := make(map[string]*config.OperationFilter)
+	filters := make(map[string]*config.OperationFilterEnhanced)
 	for _, api := range apiConfigs {
 		if api.Filter != nil {
 			filters[api.Name] = api.Filter
@@ -41,8 +41,12 @@ func ApplyOperationFilters(services []*canonical.Service, apiConfigs []config.AP
 }
 
 // filterOperations applies filter to a list of operations
-func filterOperations(ops []*canonical.Operation, filter *config.OperationFilter) []*canonical.Operation {
+func filterOperations(ops []*canonical.Operation, filter *config.OperationFilterEnhanced) []*canonical.Operation {
 	mode := strings.ToLower(filter.Mode)
+
+	if mode == "type-based" && filter.TypeBased != nil {
+		return filterOperationsByType(ops, filter.TypeBased)
+	}
 
 	result := make([]*canonical.Operation, 0, len(ops))
 	for _, op := range ops {
@@ -58,6 +62,62 @@ func filterOperations(ops []*canonical.Operation, filter *config.OperationFilter
 	}
 
 	return result
+}
+
+// filterOperationsByType filters operations based on their GraphQL return type.
+// Non-GraphQL operations always pass through.
+// For CRUD composites, the Composite.Pattern (base type name) is matched.
+// For individual GraphQL operations, ReturnTypeName is matched.
+// Exclude takes precedence over include. Empty include = allow all except excluded.
+func filterOperationsByType(ops []*canonical.Operation, tb *config.TypeBasedFilter) []*canonical.Operation {
+	includeSet := make(map[string]bool, len(tb.IncludeTypes))
+	for _, t := range tb.IncludeTypes {
+		includeSet[t] = true
+	}
+	excludeSet := make(map[string]bool, len(tb.ExcludeTypes))
+	for _, t := range tb.ExcludeTypes {
+		excludeSet[t] = true
+	}
+
+	result := make([]*canonical.Operation, 0, len(ops))
+	for _, op := range ops {
+		if op.GraphQL == nil {
+			// Non-GraphQL operations pass through unchanged
+			result = append(result, op)
+			continue
+		}
+
+		typeName := operationTypeName(op)
+		if typeName == "" {
+			// Can't determine type — keep it
+			result = append(result, op)
+			continue
+		}
+
+		// Exclude takes precedence
+		if excludeSet[typeName] {
+			continue
+		}
+
+		// If include set is non-empty, only keep matching types
+		if len(includeSet) > 0 && !includeSet[typeName] {
+			continue
+		}
+
+		result = append(result, op)
+	}
+
+	return result
+}
+
+// operationTypeName returns the type name used for type-based filtering.
+// For composite (CRUD-grouped) operations, it returns the Composite.Pattern.
+// For individual operations, it returns ReturnTypeName.
+func operationTypeName(op *canonical.Operation) string {
+	if op.GraphQL.Composite != nil && op.GraphQL.Composite.Pattern != "" {
+		return op.GraphQL.Composite.Pattern
+	}
+	return op.GraphQL.ReturnTypeName
 }
 
 // operationMatches checks if operation matches ANY of the patterns

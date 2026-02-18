@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,8 @@ type Client struct {
 	profileName  string
 	profileToken string
 	httpClient   *http.Client
+	logger       *log.Logger
+	debug        bool
 
 	// WebSocket fields
 	wsConn        *websocket.Conn
@@ -62,6 +65,21 @@ func NewClient(baseURL, profileName, profileToken string) *Client {
 		profileToken: profileToken,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		pendingCalls: make(map[any]chan *jsonrpcResponse),
+		logger:       log.New(io.Discard, "", 0),
+	}
+}
+
+// SetLogger configures logging for the client. When debug is true, verbose
+// protocol-level messages are emitted; otherwise the logger is only used
+// for errors.
+func (c *Client) SetLogger(logger *log.Logger, debug bool) {
+	c.logger = logger
+	c.debug = debug
+}
+
+func (c *Client) debugf(format string, args ...any) {
+	if c.debug {
+		c.logger.Printf("[GATEWAY CLIENT] "+format, args...)
 	}
 }
 
@@ -101,38 +119,38 @@ func (c *Client) ConnectWebSocket(ctx context.Context) error {
 	// Start message handler goroutine
 	go c.handleWebSocketMessages()
 
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] WebSocket connected and message handler started\n")
+	c.debugf("WebSocket connected and message handler started")
 	return nil
 }
 
 // handleWebSocketMessages processes incoming WebSocket messages
 func (c *Client) handleWebSocketMessages() {
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Message handler goroutine started\n")
+	c.debugf("Message handler goroutine started")
 	for {
 		c.wsConnMu.Lock()
 		conn := c.wsConn
 		c.wsConnMu.Unlock()
 
 		if conn == nil {
-			fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Connection is nil, exiting message handler\n")
+			c.debugf("Connection is nil, exiting message handler")
 			break
 		}
 
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Waiting for WebSocket message...\n")
+		c.debugf("Waiting for WebSocket message...")
 		var msg jsonrpcResponse
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] ReadJSON error: %v\n", err)
+			c.debugf("ReadJSON error: %v", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Unexpected close error\n")
+				c.debugf("Unexpected close error")
 			}
 			c.wsConnMu.Lock()
 			c.wsConn = nil
 			c.wsConnMu.Unlock()
-			fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Connection closed, exiting message handler\n")
+			c.debugf("Connection closed, exiting message handler")
 			break
 		}
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Received message with ID=%v\n", msg.ID)
+		c.debugf("Received message with ID=%v", msg.ID)
 
 		// Check if this is a response to a pending call
 		if msg.ID != nil {
@@ -178,17 +196,17 @@ func (c *Client) SetNotificationHandler(handler func(method string, params json.
 
 // ExecuteWebSocket executes a tool via WebSocket
 func (c *Client) ExecuteWebSocket(ctx context.Context, toolName string, arguments map[string]any) (*Result, error) {
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] ExecuteWebSocket called for tool=%s\n", toolName)
+	c.debugf("ExecuteWebSocket called for tool=%s", toolName)
 	// Ensure WebSocket is connected
 	c.wsConnMu.Lock()
 	conn := c.wsConn
 	c.wsConnMu.Unlock()
 
 	if conn == nil {
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] ExecuteWebSocket: websocket not connected!\n")
+		c.debugf("ExecuteWebSocket: websocket not connected!")
 		return nil, fmt.Errorf("websocket not connected")
 	}
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] ExecuteWebSocket: WebSocket is connected\n")
+	c.debugf("ExecuteWebSocket: WebSocket is connected")
 
 	// Generate request ID
 	id := c.nextID.Add(1)
@@ -199,8 +217,8 @@ func (c *Client) ExecuteWebSocket(ctx context.Context, toolName string, argument
 		ID:      id,
 		Method:  "execute",
 		Params: map[string]any{
-			"tool_name":  toolName,
-			"arguments":  arguments,
+			"tool_name": toolName,
+			"arguments": arguments,
 		},
 	}
 
@@ -245,7 +263,7 @@ func (c *Client) ExecuteWebSocket(ctx context.Context, toolName string, argument
 
 // FetchToolsWebSocket fetches tools via WebSocket
 func (c *Client) FetchToolsWebSocket(ctx context.Context) ([]Tool, error) {
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] FetchToolsWebSocket called\n")
+	c.debugf("FetchToolsWebSocket called")
 	// Ensure WebSocket is connected
 	c.wsConnMu.Lock()
 	conn := c.wsConn
@@ -257,7 +275,7 @@ func (c *Client) FetchToolsWebSocket(ctx context.Context) ([]Tool, error) {
 
 	// Generate request ID
 	id := c.nextID.Add(1)
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Generated request ID=%d for tools/list\n", id)
+	c.debugf("Generated request ID=%d for tools/list", id)
 
 	// Create JSON-RPC request
 	req := jsonrpcRequest{
@@ -282,12 +300,12 @@ func (c *Client) FetchToolsWebSocket(ctx context.Context) ([]Tool, error) {
 		c.pendingMu.Unlock()
 		return nil, fmt.Errorf("write request: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Sent tools/list request, waiting for response...\n")
+	c.debugf("Sent tools/list request, waiting for response...")
 
 	// Wait for response
 	select {
 	case resp := <-respCh:
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] Received tools/list response\n")
+		c.debugf("Received tools/list response")
 		if resp.Error != nil {
 			return nil, fmt.Errorf("jsonrpc error %d: %s", resp.Error.Code, resp.Error.Message)
 		}
@@ -299,14 +317,14 @@ func (c *Client) FetchToolsWebSocket(ctx context.Context) ([]Tool, error) {
 		if err := json.Unmarshal(resp.Result, &result); err != nil {
 			return nil, fmt.Errorf("parse result: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] FetchToolsWebSocket returning %d tools (WebSocket should stay open)\n", len(result.Tools))
+		c.debugf("FetchToolsWebSocket returning %d tools (WebSocket should stay open)", len(result.Tools))
 		return result.Tools, nil
 
 	case <-ctx.Done():
 		c.pendingMu.Lock()
 		delete(c.pendingCalls, id)
 		c.pendingMu.Unlock()
-		fmt.Fprintf(os.Stderr, "[GATEWAY CLIENT] FetchToolsWebSocket context cancelled\n")
+		c.debugf("FetchToolsWebSocket context cancelled")
 		return nil, ctx.Err()
 	}
 }

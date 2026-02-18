@@ -45,7 +45,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, auth *config.AuthConfig
 }
 
 func (f *Fetcher) FetchGraphQLIntrospection(ctx context.Context, url string, auth *config.AuthConfig) ([]byte, error) {
-	payload := map[string]string{"query": graphqlIntrospectionQuery}
+	payload := map[string]string{"query": GraphQLIntrospectionQuery}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("build introspection payload: %w", err)

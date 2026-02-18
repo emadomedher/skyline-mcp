@@ -692,7 +692,6 @@ createApp({
     };
   },
   template: `
-    <div class="skyline"></div>
     <div class="app">
       <aside class="panel">
         <div class="hero">
@@ -707,7 +706,7 @@ createApp({
 
         <div class="profile-list">
           <div class="notice">Profiles</div>
-          <button class="profile-item new-profile-btn" @click="newProfile" style="width: 100%; text-align: left; border: 1px dashed var(--violet-400); background: transparent; color: var(--violet-400); cursor: pointer; margin-bottom: 8px;">
+          <button class="profile-item new-profile-btn" @click="newProfile" style="width: 100%; text-align: left; border: 1px dashed var(--blue); background: transparent; color: var(--blue); cursor: pointer; margin-bottom: 8px;">
             <iconify-icon icon="mdi:plus-circle-outline" style="margin-right: 8px;"></iconify-icon>
             New Profile
           </button>
@@ -881,7 +880,7 @@ createApp({
         <div class="details-panel" style="margin-top:18px;">
           <div class="step-pill" style="margin-bottom: 12px;">APIs in Profile</div>
 
-          <div v-if="form.apis.length === 0" style="text-align: center; padding: 40px 20px; color: var(--violet-300); opacity: 0.6;">
+          <div v-if="form.apis.length === 0" style="text-align: center; padding: 40px 20px; color: var(--text-dim); opacity: 0.6;">
             No APIs added yet
           </div>
 

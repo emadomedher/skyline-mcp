@@ -23,14 +23,19 @@ type Server struct {
 	registry     *Registry
 	executor     Executor    // Runtime executor for tool calls
 	codeExecutor interface{} // Code executor for /execute endpoint (optional)
+	version      string
 	logger       *log.Logger
 	redactor     *redact.Redactor
 }
 
-func NewServer(registry *Registry, executor Executor, logger *log.Logger, redactor *redact.Redactor) *Server {
+func NewServer(registry *Registry, executor Executor, logger *log.Logger, redactor *redact.Redactor, version string) *Server {
+	if version == "" {
+		version = "dev"
+	}
 	return &Server{
 		registry: registry,
 		executor: executor,
+		version:  version,
 		logger:   logger,
 		redactor: redactor,
 	}
@@ -87,7 +92,7 @@ func (s *Server) handleRequest(ctx context.Context, req *rpcRequest) *rpcRespons
 			},
 			"serverInfo": map[string]any{
 				"name":    "Skyline MCP",
-				"version": "0.1.0",
+				"version": s.version,
 			},
 		})
 	case "tools/list":

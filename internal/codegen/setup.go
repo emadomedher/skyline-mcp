@@ -13,13 +13,13 @@ import (
 // SetupCodeExecution sets up code execution for the MCP server
 // Returns the code executor if successful, or nil if code execution is not available
 func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.Executor, error) {
-	// Check if Deno is available
-	if err := executor.ValidateDeno(); err != nil {
-		logger.Printf("[CODE-EXEC] Deno not available: %v (code execution disabled)", err)
+	// Validate runtime (goja is always available since it's embedded)
+	if err := executor.ValidateRuntime(); err != nil {
+		logger.Printf("[CODE-EXEC] Runtime not available: %v (code execution disabled)", err)
 		return nil, nil // Not an error, just disabled
 	}
 
-	logger.Printf("[CODE-EXEC] Deno available, enabling code execution")
+	logger.Printf("[CODE-EXEC] goja runtime available, enabling code execution")
 
 	// Create workspace directory
 	workspaceDir := filepath.Join(os.TempDir(), "skyline-workspace")
@@ -49,7 +49,7 @@ func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.E
 	}
 
 	// Create executor
-	mcpEndpoint := "http://localhost:8191/internal/call-tool" // Will be overridden by env var in Deno
+	mcpEndpoint := "http://localhost:8191/internal/call-tool"
 	exec := executor.NewExecutor(workspaceDir, mcpEndpoint)
 
 	// Setup workspace with generated files

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,10 +14,58 @@ import (
 	"skyline-mcp/internal/audit"
 )
 
+// isAdminSession returns true if the request carries a valid admin session cookie.
+func (s *server) isAdminSession(r *http.Request) bool {
+	cookie, err := r.Cookie("skyline_admin")
+	if err != nil {
+		return false
+	}
+	return cookie.Value == s.adminToken
+}
+
+// handleAdminAuth handles GET (check) and POST (login) for admin authentication.
+func (s *server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !s.isAdminSession(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	case http.MethodPost:
+		var req struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Token != s.adminToken {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "skyline_admin",
+			Value:    s.adminToken,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			MaxAge:   86400 * 7, // 7 days
+		})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // handleMetrics returns Prometheus-compatible metrics
 func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -28,6 +77,10 @@ func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -69,6 +122,10 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	// Parse query parameters
 	query := r.URL.Query()
@@ -104,6 +161,10 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 // handleConfig manages server configuration (config.yaml)
 func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.handleGetConfig(w, r)

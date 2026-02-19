@@ -115,7 +115,7 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		existing, ok := s.findProfile(name)
-		if s.authMode == "bearer" {
+		if s.authMode == "bearer" && !s.isAdminSession(r) {
 			token := bearerToken(r.Header.Get("Authorization"))
 			if ok {
 				if token == "" || token != existing.Token {
@@ -183,6 +183,10 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) authorizeProfile(r *http.Request, prof profile) error {
+	// Admin session bypasses per-profile token auth
+	if s.isAdminSession(r) {
+		return nil
+	}
 	if s.authMode != "bearer" {
 		return nil
 	}

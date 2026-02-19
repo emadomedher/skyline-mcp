@@ -139,7 +139,7 @@ func (gs *gatewaySession) handleExecute(msg *jsonrpcMessage) {
 	if err != nil {
 		errMsg := fmt.Sprintf("load services: %v", err)
 		gs.sendError(msg.ID, -32603, errMsg)
-		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, params.ToolName, params.Arguments,
+		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, "", params.ToolName, params.Arguments,
 			time.Since(startTime), 0, false, errMsg, gs.conn.RemoteAddr().String())
 		gs.server.metrics.RecordRequest(gs.profile.Name, params.ToolName, time.Since(startTime), false)
 		return
@@ -150,7 +150,7 @@ func (gs *gatewaySession) handleExecute(msg *jsonrpcMessage) {
 	if !ok {
 		errMsg := fmt.Sprintf("unknown tool: %s", params.ToolName)
 		gs.sendError(msg.ID, -32602, errMsg)
-		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, params.ToolName, params.Arguments,
+		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, "", params.ToolName, params.Arguments,
 			time.Since(startTime), 404, false, errMsg, gs.conn.RemoteAddr().String())
 		gs.server.metrics.RecordRequest(gs.profile.Name, params.ToolName, time.Since(startTime), false)
 		return
@@ -163,14 +163,14 @@ func (gs *gatewaySession) handleExecute(msg *jsonrpcMessage) {
 	if err != nil {
 		errMsg := fmt.Sprintf("execute: %v", err)
 		gs.sendError(msg.ID, -32603, errMsg)
-		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, params.ToolName, params.Arguments,
+		gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, tool.Operation.ServiceName, params.ToolName, params.Arguments,
 			duration, 0, false, errMsg, gs.conn.RemoteAddr().String())
 		gs.server.metrics.RecordRequest(gs.profile.Name, params.ToolName, duration, false)
 		return
 	}
 
 	// Log successful execution
-	gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, params.ToolName, params.Arguments,
+	gs.server.auditLogger.LogExecute(ctx, gs.profile.Name, tool.Operation.ServiceName, params.ToolName, params.Arguments,
 		duration, result.Status, true, "", gs.conn.RemoteAddr().String())
 	gs.server.metrics.RecordRequest(gs.profile.Name, params.ToolName, duration, true)
 

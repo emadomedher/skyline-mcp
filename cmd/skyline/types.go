@@ -38,6 +38,7 @@ type server struct {
 	serverCfg   *serverconfig.ServerConfig
 	key         []byte
 	authMode    string
+	adminToken  string
 	logger      *log.Logger
 	redactor    *redact.Redactor
 	auditLogger *audit.Logger
@@ -52,7 +53,8 @@ type upsertRequest struct {
 }
 
 type detectRequest struct {
-	BaseURL string `json:"base_url"`
+	BaseURL     string `json:"base_url"`
+	BearerToken string `json:"bearer_token,omitempty"`
 }
 
 type detectResponse struct {

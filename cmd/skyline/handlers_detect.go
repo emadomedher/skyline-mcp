@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,14 +43,27 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 
 	resp := detectResponse{BaseURL: baseURL}
 
-	probes := []struct {
-		Type    string
-		Path    string
-		Method  string
-		Body    []byte
-		Headers map[string]string
-	}{
+	// Build auth header to forward during probing if a token was provided.
+	var probeAuth map[string]string
+	if tok := strings.TrimSpace(req.BearerToken); tok != "" {
+		probeAuth = map[string]string{"Authorization": "Bearer " + tok}
+	}
+
+	type probe struct {
+		Type        string
+		Path        string
+		Method      string
+		Body        []byte
+		Headers     map[string]string
+		AllowUnauth bool // treat HTTP 401 as "found" (server exists but requires auth)
+	}
+
+	probes := []probe{
 		{Type: "jira-rest", Path: "/rest/api/3/serverInfo", Method: http.MethodGet},
+		// Kubernetes-specific paths — probe these first and allow 401 so we can show
+		// the kubeconfig upload helper even when no token has been supplied yet.
+		{Type: "swagger2", Path: "/openapi/v2", Method: http.MethodGet, AllowUnauth: true},
+		{Type: "openapi", Path: "/openapi/v3", Method: http.MethodGet, AllowUnauth: true},
 		{Type: "openapi", Path: "/openapi.json", Method: http.MethodGet},
 		{Type: "openapi", Path: "/openapi.yaml", Method: http.MethodGet},
 		{Type: "openapi", Path: "/openapi/openapi.json", Method: http.MethodGet},
@@ -73,26 +87,41 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		{Type: "graphql", Path: "/api/graphql", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
 	}
 	if basePathLooksLikeGraphQL(baseURL) {
-		probes = append([]struct {
-			Type    string
-			Path    string
-			Method  string
-			Body    []byte
-			Headers map[string]string
-		}{
+		probes = append([]probe{
 			{Type: "graphql", Path: "", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
 			{Type: "graphql", Path: "/schema", Method: http.MethodGet},
 		}, probes...)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
-	for _, probe := range probes {
-		target := strings.TrimRight(baseURL, "/") + probe.Path
-		found, status, err := s.probeURL(client, probe.Method, target, probe.Body, probe.Headers)
+	// mergeHeaders returns a new map with base headers overridden/extended by extra.
+	mergeHeaders := func(base, extra map[string]string) map[string]string {
+		if len(base) == 0 && len(extra) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(base)+len(extra))
+		for k, v := range base {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional: detect probes user-supplied URLs
+		},
+	}
+	for _, p := range probes {
+		target := strings.TrimRight(baseURL, "/") + p.Path
+		headers := mergeHeaders(p.Headers, probeAuth)
+		found, status, err := s.probeURL(client, p.Method, target, p.Body, headers, p.AllowUnauth)
 		item := detectProbe{
-			Type:     probe.Type,
+			Type:     p.Type,
 			SpecURL:  target,
-			Method:   probe.Method,
+			Method:   p.Method,
 			Status:   status,
 			Found:    found,
 			Endpoint: target,
@@ -125,12 +154,17 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		if resp.Detected[i].Type == "jira-rest" {
 			continue
 		}
+		// If the probe succeeded only because we allow 401 (server exists but requires
+		// auth), skip content validation — we cannot fetch the spec without credentials.
+		if resp.Detected[i].Status == http.StatusUnauthorized {
+			continue
+		}
 		isOpenRPCDiscover := resp.Detected[i].Type == "openrpc" && resp.Detected[i].Method == http.MethodPost
 		var postBody []byte
 		if isOpenRPCDiscover {
 			postBody = []byte(rpcDiscoverPayload)
 		}
-		raw, err := s.fetchRaw(client, resp.Detected[i].Method, resp.Detected[i].SpecURL, resp.Detected[i].Method == http.MethodPost && !isOpenRPCDiscover, postBody)
+		raw, err := s.fetchRaw(client, resp.Detected[i].Method, resp.Detected[i].SpecURL, resp.Detected[i].Method == http.MethodPost && !isOpenRPCDiscover, postBody, probeAuth)
 		if err != nil {
 			resp.Detected[i].Found = false
 			resp.Detected[i].Error = err.Error()
@@ -269,7 +303,7 @@ func (s *server) fetchOperations(ctx context.Context, specURL, specType string) 
 	return result, nil
 }
 
-func (s *server) probeURL(client *http.Client, method, url string, body []byte, headers map[string]string) (bool, int, error) {
+func (s *server) probeURL(client *http.Client, method, url string, body []byte, headers map[string]string, allowUnauth ...bool) (bool, int, error) {
 	req, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return false, 0, err
@@ -283,13 +317,16 @@ func (s *server) probeURL(client *http.Client, method, url string, body []byte, 
 		return false, 0, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized && len(allowUnauth) > 0 && allowUnauth[0] {
+		return true, resp.StatusCode, nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false, resp.StatusCode, nil
 	}
 	return true, resp.StatusCode, nil
 }
 
-func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospection bool, explicitBody []byte) ([]byte, error) {
+func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospection bool, explicitBody []byte, extraHeaders ...map[string]string) ([]byte, error) {
 	var body []byte
 	if len(explicitBody) > 0 {
 		body = explicitBody
@@ -304,6 +341,11 @@ func (s *server) fetchRaw(client *http.Client, method, url string, useIntrospect
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json, text/yaml, application/yaml, application/xml, text/xml, */*")
+	for _, hdrs := range extraHeaders {
+		for k, v := range hdrs {
+			req.Header.Set(k, v)
+		}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

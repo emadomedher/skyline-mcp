@@ -20,7 +20,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "Transport Modes:\n")
 		fmt.Fprintf(os.Stderr, "  --transport <mode>          Transport mode: stdio, http (default: http)\n")
 		fmt.Fprintf(os.Stderr, "  --admin                     Enable Web UI and admin dashboard (default: true)\n")
-		fmt.Fprintf(os.Stderr, "  --bind <addr>               Network interface and port (default: localhost:19190)\n")
+		fmt.Fprintf(os.Stderr, "  --bind <addr>               Network interface and port (default: localhost:8191)\n")
 		fmt.Fprintf(os.Stderr, "  --config <path>             Server config.yaml path (default: ~/.skyline/config.yaml)\n\n")
 		fmt.Fprintf(os.Stderr, "Encryption & Profiles:\n")
 		fmt.Fprintf(os.Stderr, "  --validate [file]           Validate encrypted profiles file can be decrypted\n")

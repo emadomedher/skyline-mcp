@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ var uiFiles embed.FS
 func main() {
 	transport := flag.String("transport", "http", "Transport mode: stdio, http")
 	admin := flag.Bool("admin", true, "Enable Web UI and admin dashboard (only for http transport)")
-	bind := flag.String("bind", "localhost:19190", "Network interface and port to bind to (e.g., localhost:19190 or 0.0.0.0:19190)")
+	bind := flag.String("bind", "localhost:8191", "Network interface and port to bind to (e.g., localhost:8191 or 0.0.0.0:8191)")
 	storagePath := flag.String("storage", "./profiles.enc.yaml", "Encrypted profiles storage path")
 	configPath := flag.String("config", "", "Server config.yaml path (default: ~/.skyline/config.yaml)")
 	authMode := flag.String("auth-mode", "bearer", "Auth mode: none or bearer")
@@ -116,6 +117,8 @@ func main() {
 	keyRaw := os.Getenv(*keyEnv)
 	var key []byte
 	var err error
+	var keyGenerated bool
+	var envFileCreated bool
 
 	if keyRaw == "" {
 		// No encryption key set
@@ -203,13 +206,14 @@ func main() {
 		}
 
 		// Save key to skyline.env
-		envContent := fmt.Sprintf("SKYLINE_PROFILES_KEY=%s\nCONFIG_SERVER_KEY=%s\n", keyHex, keyHex)
+		envContent := fmt.Sprintf("export SKYLINE_PROFILES_KEY=%s\n", keyHex)
 		if err := os.WriteFile(envPath, []byte(envContent), 0o600); err != nil {
 			logger.Fatalf("save encryption key: %v", err)
 		}
 
-		// Set the env var for this session
+		// Set the env var for this process
 		os.Setenv(*keyEnv, keyHex)
+		keyGenerated = true
 
 		// Print to terminal ONLY (we confirmed we're interactive above)
 		fmt.Println("")
@@ -247,6 +251,19 @@ func main() {
 		key, err = decodeKey(keyRaw)
 		if err != nil {
 			logger.Fatalf("invalid encryption key in %s: %v", *keyEnv, err)
+		}
+
+		// Ensure env file exists (may have been deleted or key set manually)
+		home, homeErr := os.UserHomeDir()
+		if homeErr == nil {
+			envPath := filepath.Join(home, ".skyline", "skyline.env")
+			if !fileExists(envPath) {
+				_ = os.MkdirAll(filepath.Join(home, ".skyline"), 0o755)
+				envContent := fmt.Sprintf("export SKYLINE_PROFILES_KEY=%s\n", keyRaw)
+				if writeErr := os.WriteFile(envPath, []byte(envContent), 0o600); writeErr == nil {
+					envFileCreated = true
+				}
+			}
 		}
 	}
 
@@ -294,10 +311,17 @@ func main() {
 
 	// Apply configuration
 	// Override bind address if set via command line flag
+	const defaultBind = "localhost:8191"
 	listenAddr := *bind
-	if listenAddr == "localhost:19190" && serverCfg.Server.Listen != "" {
+	if listenAddr == defaultBind && serverCfg.Server.Listen != "" {
 		// Use config file value if command line is default
 		listenAddr = serverCfg.Server.Listen
+	}
+
+	// If the address has no port (e.g. "0.0.0.0"), append the default port
+	if _, _, err := net.SplitHostPort(listenAddr); err != nil {
+		_, defaultPort, _ := net.SplitHostPort(defaultBind)
+		listenAddr = listenAddr + ":" + defaultPort
 	}
 
 	// Override storage path from config if not set via flag
@@ -332,6 +356,13 @@ func main() {
 	// Set log level from config
 	setLogLevel(logger, serverCfg.Logging.Level)
 
+	// Generate ephemeral admin token for this run
+	adminTokenRaw := make([]byte, 16)
+	if _, randErr := rand.Read(adminTokenRaw); randErr != nil {
+		logger.Fatalf("generate admin token: %v", randErr)
+	}
+	adminToken := hex.EncodeToString(adminTokenRaw)
+
 	logger.Printf("Skyline MCP Server starting...")
 	logger.Printf("  Transport: %s", *transport)
 	logger.Printf("  Admin UI: %v", *admin)
@@ -349,6 +380,7 @@ func main() {
 		serverCfg:   serverCfg,
 		key:         key,
 		authMode:    mode,
+		adminToken:  adminToken,
 		logger:      logger,
 		redactor:    redact.NewRedactor(),
 		auditLogger: auditLogger,
@@ -401,11 +433,29 @@ func main() {
 
 	// If profiles file doesn't exist, create an empty encrypted one
 	if !profileExists {
-		logger.Printf("Profiles file not found, creating empty encrypted file: %s", profilesPath)
 		if err := s.save(); err != nil {
 			logger.Printf("Warning: could not create profiles file: %v", err)
-		} else {
-			logger.Printf("✓ Created empty profiles file")
+		}
+
+		// Show first-run status if key wasn't just generated (that case already showed its message)
+		if !keyGenerated {
+			absPath, _ := filepath.Abs(profilesPath)
+			fmt.Println("")
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println("🚀 First run setup")
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println("")
+			fmt.Println("✓ Encryption key found in environment (SKYLINE_PROFILES_KEY)")
+			fmt.Printf("✓ Created new encrypted profiles file: %s\n", absPath)
+			if envFileCreated {
+				fmt.Println("✓ Persisted encryption key to ~/.skyline/skyline.env")
+			}
+			fmt.Println("")
+			fmt.Println("   Your server is ready. Add API profiles via the Web UI")
+			fmt.Println("   or the REST API at /profiles.")
+			fmt.Println("")
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println("")
 		}
 	}
 
@@ -419,10 +469,7 @@ func main() {
 				http.NotFound(w, r)
 				return
 			}
-			http.Redirect(w, r, "/ui/", http.StatusFound)
-		})
-		mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/ui/", http.StatusFound)
+			http.Redirect(w, r, "/admin/", http.StatusFound)
 		})
 		uiFS, err := fs.Sub(uiFiles, "ui")
 		if err != nil {
@@ -434,11 +481,18 @@ func main() {
 		})
 		mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/admin/" || r.URL.Path == "/admin" {
-				http.ServeFile(w, r, filepath.Join("cmd/skyline/ui/admin.html"))
+				data, err := uiFiles.ReadFile("ui/admin.html")
+				if err != nil {
+					http.Error(w, "admin page not available", http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write(data)
 			}
 		})
 
 		// Admin endpoints
+		mux.HandleFunc("/admin/auth", s.handleAdminAuth)
 		mux.HandleFunc("/admin/metrics", s.handleMetrics)
 		mux.HandleFunc("/admin/audit", s.handleAudit)
 		mux.HandleFunc("/admin/stats", s.handleStats)
@@ -459,6 +513,7 @@ func main() {
 	mux.HandleFunc("/profiles", s.handleProfiles)
 	mux.HandleFunc("/profiles/", s.handleProfileOrGateway)
 	mux.HandleFunc("/detect", s.handleDetect)
+	mux.HandleFunc("/verify", s.handleVerify)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/operations", s.handleOperations)
 
@@ -473,10 +528,9 @@ func main() {
 	logger.Printf("")
 	logger.Printf("✓ Skyline MCP Server ready")
 	if *admin {
-		logger.Printf("  → Web UI: http://%s/ui/", listenAddr)
-		logger.Printf("  → Admin Dashboard: http://%s/admin/", listenAddr)
+		logger.Printf("  Admin token: %s", adminToken)
+		logger.Printf("  → http://%s", listenAddr)
 	}
-	logger.Printf("  → API: http://%s/profiles", listenAddr)
 	logger.Printf("")
 
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

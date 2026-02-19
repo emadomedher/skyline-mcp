@@ -11,6 +11,9 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <script type="module" src="/ui/app.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -332,6 +335,94 @@
         color: #38bdf8;
         border-left: 3px solid #0EA5E9;
       }
+
+      /* Login overlay */
+      .login-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.97);
+        backdrop-filter: blur(8px);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .login-card {
+        background: rgba(30, 41, 59, 0.95);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 16px;
+        padding: 40px;
+        width: 100%;
+        max-width: 420px;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+      }
+      .login-card .logo-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 8px;
+      }
+      .login-card h2 {
+        text-align: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: #F1F5F9;
+        margin-bottom: 6px;
+      }
+      .login-card .login-hint {
+        text-align: center;
+        font-size: 13px;
+        color: #64748B;
+        margin-bottom: 28px;
+      }
+      .login-card label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #94A3B8;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .login-card input {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: 'JetBrains Mono', monospace;
+        background: rgba(15, 23, 42, 0.8);
+        color: #F1F5F9;
+        margin-bottom: 16px;
+        transition: border-color 0.2s;
+      }
+      .login-card input:focus {
+        outline: none;
+        border-color: #0EA5E9;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+      }
+      .login-card .login-btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #0EA5E9, #3B82F6);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+      .login-card .login-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+      .login-error {
+        color: #f87171;
+        font-size: 13px;
+        text-align: center;
+        margin-top: 12px;
+        min-height: 20px;
+      }
     </style>
   </head>
   <body>
@@ -424,16 +515,7 @@
 
       <!-- Profiles -->
       <div id="profiles-page" class="page">
-        <div class="card">
-          <h2>API Profiles</h2>
-          <div class="alert alert-info">
-            Profiles contain API credentials and configurations. They are encrypted using the key in <code>~/.skyline/skyline.env</code>.
-          </div>
-          <p style="color: #64748B; text-align: center; padding: 40px;">
-            Use the main UI at <a href="/ui/" style="color: #0EA5E9;">/ui/</a> to manage profiles, or the CLI:<br><br>
-            <code>skyline profile add &lt;name&gt;</code>
-          </p>
-        </div>
+        <div id="app"></div>
       </div>
 
       <!-- Settings -->
@@ -513,7 +595,67 @@
       </div>
     </div>
 
+    <!-- Login overlay: shown when not authenticated -->
+    <div id="login-overlay" class="login-overlay" style="display:none;">
+      <div class="login-card">
+        <div class="logo-row">
+          <img src="/ui/skyline-logo.svg" alt="Skyline" style="height:28px;" />
+          <span style="font-size:20px; font-weight:700; background:linear-gradient(135deg,#0EA5E9,#3B82F6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">Skyline MCP</span>
+        </div>
+        <h2>Admin Access</h2>
+        <p class="login-hint">Enter the admin token shown in your server startup log</p>
+        <label for="adminTokenInput">Admin Token</label>
+        <input type="password" id="adminTokenInput" placeholder="Paste token from startup output"
+               onkeydown="if(event.key==='Enter') adminLogin()" autocomplete="off" />
+        <button class="login-btn" onclick="adminLogin()">Sign In</button>
+        <div class="login-error" id="loginError"></div>
+      </div>
+    </div>
+
     <script>
+      // ── Auth helpers ──────────────────────────────────────────────────────────
+
+      function showLoginOverlay() {
+        document.getElementById('login-overlay').style.display = 'flex';
+        setTimeout(() => document.getElementById('adminTokenInput').focus(), 50);
+      }
+
+      function hideLoginOverlay() {
+        document.getElementById('login-overlay').style.display = 'none';
+      }
+
+      async function adminLogin() {
+        const token = document.getElementById('adminTokenInput').value.trim();
+        document.getElementById('loginError').textContent = '';
+        if (!token) { document.getElementById('loginError').textContent = 'Token is required.'; return; }
+        try {
+          const res = await fetch('/admin/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          if (res.ok) {
+            hideLoginOverlay();
+            loadDashboard();
+          } else {
+            document.getElementById('loginError').textContent = 'Invalid token. Check the server startup log.';
+          }
+        } catch (e) {
+          document.getElementById('loginError').textContent = 'Connection error: ' + e.message;
+        }
+      }
+
+      // Check auth on load; show login overlay if not authenticated
+      async function checkAuth() {
+        try {
+          const res = await fetch('/admin/auth');
+          if (res.status === 401) { showLoginOverlay(); return false; }
+          return true;
+        } catch { showLoginOverlay(); return false; }
+      }
+
+      // ── Navigation ────────────────────────────────────────────────────────────
+
       function showPage(pageName) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -523,87 +665,92 @@
         else if (pageName === 'settings') loadSettings();
       }
 
+      // ── Dashboard ─────────────────────────────────────────────────────────────
+
       async function loadDashboard() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('content').style.display = 'none';
         try {
-          const statsResponse = await fetch('/admin/stats');
-          const stats = await statsResponse.json();
-          const auditResponse = await fetch('/admin/audit?limit=50');
-          const audit = await auditResponse.json();
+          const [statsRes, auditRes] = await Promise.all([
+            fetch('/admin/stats'),
+            fetch('/admin/audit?limit=50'),
+          ]);
 
-          const metrics = stats.metrics_snapshot;
-          document.getElementById('totalRequests').textContent = metrics.total_requests.toLocaleString();
+          if (statsRes.status === 401 || auditRes.status === 401) {
+            showLoginOverlay();
+            return;
+          }
+          if (!statsRes.ok) throw new Error(`Stats error ${statsRes.status}`);
+          if (!auditRes.ok) throw new Error(`Audit error ${auditRes.status}`);
 
-          const successRate = metrics.total_requests > 0
-            ? (metrics.success_requests / metrics.total_requests * 100).toFixed(1) : 0;
-          document.getElementById('successRate').textContent = successRate + '%';
+          const stats = await statsRes.json();
+          const audit = await auditRes.json();
 
-          const errorRate = metrics.total_requests > 0
-            ? (metrics.failed_requests / metrics.total_requests * 100).toFixed(1) : 0;
-          document.getElementById('errorRate').textContent = errorRate + '%';
+          const metrics = stats.metrics_snapshot || {};
+          const total = metrics.total_requests || 0;
 
+          document.getElementById('totalRequests').textContent = total.toLocaleString();
+          document.getElementById('successRate').textContent =
+            total > 0 ? ((metrics.success_requests / total) * 100).toFixed(1) + '%' : '—';
+          document.getElementById('errorRate').textContent =
+            total > 0 ? ((metrics.failed_requests / total) * 100).toFixed(1) + '%' : '—';
           document.getElementById('avgDuration').textContent =
-            metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '-';
-          document.getElementById('activeConnections').textContent = metrics.active_connections;
-
-          const uptimeHours = (metrics.uptime_seconds / 3600).toFixed(1);
-          document.getElementById('uptime').textContent = uptimeHours + 'h';
+            metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '—';
+          document.getElementById('activeConnections').textContent = metrics.active_connections ?? 0;
+          document.getElementById('uptime').textContent =
+            metrics.uptime_seconds ? (metrics.uptime_seconds / 3600).toFixed(1) + 'h' : '—';
 
           const tbody = document.getElementById('auditTable');
           tbody.innerHTML = '';
-
-          if (audit.events && audit.events.length > 0) {
-            audit.events.forEach(event => {
-              if (event.event_type !== 'execute') return;
+          const events = (audit.events || []).filter(e => e.event_type === 'execute');
+          if (events.length > 0) {
+            events.forEach(event => {
               const row = document.createElement('tr');
               const timestamp = new Date(event.timestamp).toLocaleString();
-              const statusBadge = event.success
+              const badge = event.success
                 ? '<span class="badge success">Success</span>'
                 : '<span class="badge error">Failed</span>';
-              row.innerHTML = `
-                <td class="timestamp">${timestamp}</td>
-                <td>${event.profile}</td>
-                <td><code>${event.tool_name}</code></td>
-                <td>${event.duration_ms}ms</td>
-                <td>${statusBadge}</td>
-              `;
+              row.innerHTML = `<td class="timestamp">${timestamp}</td><td>${event.profile}</td><td><code>${event.tool_name}</code></td><td>${event.duration_ms}ms</td><td>${badge}</td>`;
               tbody.appendChild(row);
             });
           } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748B;">No API calls yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748B;">No API calls yet</td></tr>';
           }
 
           const profileStatsDiv = document.getElementById('profileStats');
-          profileStatsDiv.innerHTML = '';
-
           if (metrics.profile_requests && Object.keys(metrics.profile_requests).length > 0) {
-            const profileTable = document.createElement('table');
-            profileTable.innerHTML = '<thead><tr><th>Profile</th><th>Requests</th></tr></thead><tbody></tbody>';
-            const profileTbody = profileTable.querySelector('tbody');
-            Object.entries(metrics.profile_requests).forEach(([profile, count]) => {
+            const tbl = document.createElement('table');
+            tbl.innerHTML = '<thead><tr><th>Profile</th><th>Requests</th></tr></thead><tbody></tbody>';
+            Object.entries(metrics.profile_requests).forEach(([p, c]) => {
               const row = document.createElement('tr');
-              row.innerHTML = `<td><strong>${profile}</strong></td><td>${count.toLocaleString()}</td>`;
-              profileTbody.appendChild(row);
+              row.innerHTML = `<td><strong>${p}</strong></td><td>${c.toLocaleString()}</td>`;
+              tbl.querySelector('tbody').appendChild(row);
             });
-            profileStatsDiv.appendChild(profileTable);
+            profileStatsDiv.innerHTML = '';
+            profileStatsDiv.appendChild(tbl);
           } else {
-            profileStatsDiv.innerHTML = '<p style="color: #64748B; text-align: center; padding: 20px;">No profile data yet</p>';
+            profileStatsDiv.innerHTML = '<p style="color:#64748B;text-align:center;padding:20px;">No profile data yet</p>';
           }
 
           document.getElementById('loading').style.display = 'none';
           document.getElementById('content').style.display = 'block';
         } catch (error) {
           document.getElementById('loading').innerHTML = `
-            <div style="color: #EF4444;">Failed to load data</div>
-            <div style="margin-top: 12px; color: #64748B;">${error.message}</div>
+            <div style="color:#94A3B8;">Dashboard will update when data is available.</div>
+            <div style="margin-top:8px;font-size:12px;color:#64748B;">${error.message}</div>
           `;
         }
       }
 
+      // ── Settings ──────────────────────────────────────────────────────────────
+
       async function loadSettings() {
         try {
           const response = await fetch('/admin/config');
+          if (response.status === 401) { showLoginOverlay(); return; }
+          if (!response.ok) throw new Error('Config not available');
           const config = await response.json();
-          document.getElementById('serverListen').value = config.server?.listen || 'localhost:8191';
+          document.getElementById('serverListen').value = config.server?.listen || 'localhost:19190';
           document.getElementById('codeExecutionEnabled').value = String(config.runtime?.codeExecution?.enabled !== false);
           document.getElementById('cacheEnabled').value = String(config.runtime?.cache?.enabled !== false);
           document.getElementById('auditEnabled').value = String(config.audit?.enabled !== false);
@@ -635,10 +782,12 @@
         setTimeout(() => alertDiv.innerHTML = '', 5000);
       }
 
-      loadDashboard();
+      // ── Init ──────────────────────────────────────────────────────────────────
+
+      checkAuth().then(ok => { if (ok) loadDashboard(); });
       setInterval(() => {
         if (document.getElementById('dashboard-page').classList.contains('active')) {
-          loadDashboard();
+          fetch('/admin/auth').then(r => { if (r.ok) loadDashboard(); });
         }
       }, 10000);
     </script>

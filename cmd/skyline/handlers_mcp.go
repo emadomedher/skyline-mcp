@@ -121,6 +121,17 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 	// Create StreamableHTTPServer
 	streamable := mcp.NewStreamableHTTPServer(mcpServer, s.logger, authCfg)
 
+	// Wire OAuth validator for ChatGPT MCP compatibility
+	if s.oauthStore != nil {
+		streamable.OAuthValidator = func(token string) (string, bool) {
+			at := s.oauthStore.ValidateToken(token)
+			if at == nil {
+				return "", false
+			}
+			return at.ProfileToken, true
+		}
+	}
+
 	// Track MCP session lifecycle for active connection metrics + agent monitoring
 	streamable.SetSessionHook(func(event mcp.SessionEvent) {
 		event.Profile = profileName

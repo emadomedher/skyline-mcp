@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -36,6 +37,7 @@ type ServerSection struct {
 	Timeout        time.Duration `yaml:"timeout,omitempty"`
 	MaxRequestSize string        `yaml:"maxRequestSize,omitempty"`
 	TLS            *TLSConfig    `yaml:"tls,omitempty"`
+	AdminToken     string        `yaml:"adminToken,omitempty"`
 }
 
 type TLSConfig struct {
@@ -277,6 +279,9 @@ server:
   # timeout: 30s
   # maxRequestSize: 10MB
   
+  # Admin dashboard token (auto-generated on first run if empty)
+  # adminToken: ""
+
   # TLS certificates (optional — auto-generated self-signed if not provided)
   # tls:
   #   cert: /path/to/cert.pem
@@ -330,6 +335,53 @@ logging:
 	}
 
 	return nil
+}
+
+// InjectAdminToken writes the admin token into an existing config file,
+// preserving comments and formatting. It inserts the line under the "server:" section.
+func InjectAdminToken(path, token string) error {
+	expanded, err := ExpandPath(path)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(expanded)
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+	tokenLine := fmt.Sprintf("  adminToken: \"%s\"\n", token)
+
+	// If adminToken already present, replace it
+	lines := strings.Split(content, "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "adminToken:") || strings.HasPrefix(trimmed, "# adminToken:") {
+			lines[i] = tokenLine[:len(tokenLine)-1] // strip trailing newline for join
+			found = true
+			break
+		}
+	}
+
+	if found {
+		content = strings.Join(lines, "\n")
+	} else {
+		// Insert after "server:" line
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "server:" {
+				// Insert after this line
+				before := strings.Join(lines[:i+1], "\n")
+				after := strings.Join(lines[i+1:], "\n")
+				content = before + "\n" + tokenLine + after
+				break
+			}
+		}
+	}
+
+	return os.WriteFile(expanded, []byte(content), 0o644)
 }
 
 // ExpandPath expands ~ to home directory

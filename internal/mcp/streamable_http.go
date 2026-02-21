@@ -35,11 +35,12 @@ type SessionHook func(event SessionEvent)
 // StreamableHTTPServer implements MCP Streamable HTTP transport (spec 2025-11-25)
 // Single /mcp endpoint for both POST (requests) and GET (notifications/subscriptions)
 type StreamableHTTPServer struct {
-	server      *Server
-	logger      *log.Logger
-	auth        *config.AuthConfig
-	store       *streamableSessionStore
-	sessionHook SessionHook
+	server         *Server
+	logger         *log.Logger
+	auth           *config.AuthConfig
+	store          *streamableSessionStore
+	sessionHook    SessionHook
+	OAuthValidator func(token string) (profileToken string, ok bool)
 }
 
 // streamableSession represents an active MCP session with event history for resumability
@@ -242,12 +243,9 @@ func (h *StreamableHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request)
 // handleGET implements GET /mcp for server notifications and subscriptions
 // This opens an SSE stream that the server can use to send notifications
 func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request) {
-	// Security check: bearer token authentication
-	if !authorizeRequest(r, h.auth) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !h.authorizeWithOAuthFallback(w, r) {
 		return
 	}
-	// Note: Origin validation removed - CORS handled at top level, security via bearer token
 	if !hasAccept(r.Header, "text/event-stream") {
 		http.Error(w, "missing accept: text/event-stream", http.StatusBadRequest)
 		return
@@ -327,12 +325,9 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 // handlePOST implements POST /mcp for client requests
 // Can return either JSON (quick response) or SSE stream (long-running operations)
 func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request) {
-	// Security check: bearer token authentication
-	if !authorizeRequest(r, h.auth) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !h.authorizeWithOAuthFallback(w, r) {
 		return
 	}
-	// Note: Origin validation removed - CORS handled at top level, security via bearer token
 	if !hasAccept(r.Header, "application/json") && !hasAccept(r.Header, "text/event-stream") {
 		http.Error(w, "missing accept header", http.StatusBadRequest)
 		return
@@ -464,8 +459,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 
 // handleDELETE implements DELETE /mcp for explicit session termination
 func (h *StreamableHTTPServer) handleDELETE(w http.ResponseWriter, r *http.Request) {
-	if !authorizeRequest(r, h.auth) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !h.authorizeWithOAuthFallback(w, r) {
 		return
 	}
 
@@ -603,6 +597,33 @@ func validateOriginString(origin, requestHost string) bool {
 	}
 
 	return false
+}
+
+// authorizeWithOAuthFallback checks bearer auth first, then falls back to OAuth token validation.
+// Returns true if the request is authorized.
+func (h *StreamableHTTPServer) authorizeWithOAuthFallback(w http.ResponseWriter, r *http.Request) bool {
+	if authorizeRequest(r, h.auth) {
+		return true
+	}
+	// Try OAuth bearer token
+	if h.OAuthValidator != nil {
+		if bearer := extractBearerToken(r); bearer != "" {
+			if _, ok := h.OAuthValidator(bearer); ok {
+				return true
+			}
+		}
+	}
+	w.Header().Set("WWW-Authenticate", `Bearer`)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
+	return false
+}
+
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
 }
 
 // Helper functions are reused from http_sse.go (newSessionID, authorizeRequest, validateOrigin, hasAccept, validateProtocolHeader)

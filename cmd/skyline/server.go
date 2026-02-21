@@ -23,6 +23,7 @@ import (
 	"skyline-mcp/internal/audit"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
+	"skyline-mcp/internal/oauth"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
 )
@@ -379,12 +380,21 @@ func main() {
 	// Set log level from config
 	setLogLevel(logger, serverCfg.Logging.Level)
 
-	// Generate ephemeral admin token for this run
-	adminTokenRaw := make([]byte, 16)
-	if _, randErr := rand.Read(adminTokenRaw); randErr != nil {
-		logger.Fatalf("generate admin token: %v", randErr)
+	// Use persisted admin token from config, or generate and save one
+	adminToken := serverCfg.Server.AdminToken
+	if adminToken == "" {
+		adminTokenRaw := make([]byte, 16)
+		if _, randErr := rand.Read(adminTokenRaw); randErr != nil {
+			logger.Fatalf("generate admin token: %v", randErr)
+		}
+		adminToken = hex.EncodeToString(adminTokenRaw)
+		serverCfg.Server.AdminToken = adminToken
+		if err := serverconfig.InjectAdminToken(serverConfigPath, adminToken); err != nil {
+			logger.Printf("Warning: could not persist admin token to config: %v", err)
+		} else {
+			logger.Printf("✓ Generated and saved admin token to config")
+		}
 	}
-	adminToken := hex.EncodeToString(adminTokenRaw)
 
 	logger.Printf("Skyline MCP Server starting...")
 	logger.Printf("  Transport: %s", *transport)
@@ -410,6 +420,7 @@ func main() {
 		metrics:        metricsCollector,
 		sessionTracker: mcp.NewSessionTracker(),
 		agentHub:       audit.NewGenericHub(),
+		oauthStore:     oauth.NewStore(),
 	}
 
 	// Initialize cache if enabled in config
@@ -546,6 +557,13 @@ func main() {
 	mux.HandleFunc("/oauth/exchange", s.handleOAuthExchange)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/operations", s.handleOperations)
+
+	// OAuth 2.1 endpoints (for ChatGPT MCP compatibility)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleOAuthAuthorizationServer)
+	mux.HandleFunc("/oauth/register", s.handleOAuthRegister)
+	mux.HandleFunc("/oauth/authorize", s.handleOAuthAuthorize)
+	mux.HandleFunc("/oauth/token", s.handleOAuthToken)
 
 	httpServer := &http.Server{
 		Addr:         listenAddr,

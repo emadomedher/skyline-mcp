@@ -8,6 +8,7 @@ import (
 	"skyline-mcp/internal/audit"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
+	"skyline-mcp/internal/oauth"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
 )
@@ -45,6 +46,7 @@ type server struct {
 	mcpServers     sync.Map // map[profileName+configHash] → *mcp.StreamableHTTPServer
 	sessionTracker *mcp.SessionTracker
 	agentHub       *audit.GenericHub
+	oauthStore     *oauth.Store
 }
 
 type upsertRequest struct {

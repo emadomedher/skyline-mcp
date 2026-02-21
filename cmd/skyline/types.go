@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"sync"
 
-	"github.com/gorilla/websocket"
-
 	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
@@ -31,19 +29,22 @@ type profile struct {
 }
 
 type server struct {
-	mu          sync.RWMutex
-	store       profileStore
-	path        string
-	configPath  string
-	serverCfg   *serverconfig.ServerConfig
-	key         []byte
-	authMode    string
-	adminToken  string
-	logger      *log.Logger
-	redactor    *redact.Redactor
-	auditLogger *audit.Logger
-	metrics     *metrics.Collector
-	cache       *profileCache
+	mu             sync.RWMutex
+	store          profileStore
+	path           string
+	configPath     string
+	serverCfg      *serverconfig.ServerConfig
+	key            []byte
+	authMode       string
+	adminToken     string
+	logger         *log.Logger
+	redactor       *redact.Redactor
+	auditLogger    *audit.Logger
+	metrics        *metrics.Collector
+	cache          *profileCache
+	mcpServers     sync.Map // map[profileName+configHash] → *mcp.StreamableHTTPServer
+	sessionTracker *mcp.SessionTracker
+	agentHub       *audit.GenericHub
 }
 
 type upsertRequest struct {
@@ -87,6 +88,7 @@ type testResponse struct {
 type operationsRequest struct {
 	SpecURL  string `json:"spec_url"`
 	SpecType string `json:"spec_type,omitempty"`
+	Name     string `json:"name,omitempty"`
 }
 
 type operationsResponse struct {
@@ -113,28 +115,3 @@ type executeRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-// gatewaySession represents a WebSocket session for gateway communication
-type gatewaySession struct {
-	server        *server
-	conn          *websocket.Conn
-	profile       profile
-	logger        *log.Logger
-	subscriptions map[string]context.CancelFunc
-	mu            sync.Mutex
-}
-
-// jsonrpcMessage represents a JSON-RPC 2.0 message
-type jsonrpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      any             `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  any             `json:"result,omitempty"`
-	Error   *jsonrpcError   `json:"error,omitempty"`
-}
-
-type jsonrpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}

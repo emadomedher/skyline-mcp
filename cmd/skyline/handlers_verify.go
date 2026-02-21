@@ -17,16 +17,17 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Service string `json:"service"`
-		Token   string `json:"token"`
-		BaseURL string `json:"base_url"`
-		Email   string `json:"email"`
+		Service     string `json:"service"`
+		Token       string `json:"token"`
+		BaseURL     string `json:"base_url"`
+		Email       string `json:"email"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.Token == "" {
+	if req.Token == "" && req.AccessToken == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "token is required"})
 		return
 	}
@@ -45,6 +46,8 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		s.verifyGitLab(w, r, client, req.BaseURL, req.Token)
 	case "jira":
 		s.verifyJira(w, r, client, req.BaseURL, req.Email, req.Token)
+	case "gmail":
+		s.verifyGmail(w, r, client, req.AccessToken)
 	default:
 		http.Error(w, "unsupported service", http.StatusBadRequest)
 	}
@@ -141,4 +144,39 @@ func (s *server) verifyJira(w http.ResponseWriter, r *http.Request, client *http
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "could not reach Jira instance"})
+}
+
+func (s *server) verifyGmail(w http.ResponseWriter, r *http.Request, client *http.Client, accessToken string) {
+	if accessToken == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "access_token is required"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		"https://gmail.googleapis.com/gmail/v1/users/me/profile", nil)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "internal error"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "could not reach Gmail API"})
+		return
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var profile struct {
+			EmailAddress string `json:"emailAddress"`
+		}
+		json.NewDecoder(resp.Body).Decode(&profile)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": profile.EmailAddress})
+	case http.StatusUnauthorized, http.StatusForbidden:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "auth_error"})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Gmail API returned unexpected status"})
+	}
 }

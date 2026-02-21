@@ -39,9 +39,8 @@ type ServerSection struct {
 }
 
 type TLSConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Cert    string `yaml:"cert"`
-	Key     string `yaml:"key"`
+	Cert string `yaml:"cert,omitempty"`
+	Key  string `yaml:"key,omitempty"`
 }
 
 type RuntimeSection struct {
@@ -278,9 +277,8 @@ server:
   # timeout: 30s
   # maxRequestSize: 10MB
   
-  # TLS (optional, for production)
+  # TLS certificates (optional — auto-generated self-signed if not provided)
   # tls:
-  #   enabled: false
   #   cert: /path/to/cert.pem
   #   key: /path/to/key.pem
 

@@ -30,7 +30,7 @@ func (s *server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) handleProfileOrGateway(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleProfileRoute(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if strings.HasSuffix(path, "/tools") {
 		s.handleProfileTools(w, r)
@@ -40,8 +40,8 @@ func (s *server) handleProfileOrGateway(w http.ResponseWriter, r *http.Request) 
 		s.handleProfileExecute(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/gateway") {
-		s.handleGatewayWebSocket(w, r)
+	if strings.HasSuffix(path, "/mcp") {
+		s.handleProfileMCP(w, r)
 		return
 	}
 	s.handleProfile(w, r)
@@ -284,22 +284,33 @@ func (s *server) handleProfileExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startTime := time.Now()
+	clientAddr := r.RemoteAddr
+
+	// Measure request size
+	reqBytes, _ := json.Marshal(req.Arguments)
+	reqSize := int64(len(reqBytes))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
 	cached, _, err := s.getOrBuildCache(ctx, prof)
 	if err != nil {
+		errMsg := fmt.Sprintf("load services: %v", err)
+		s.auditLogger.LogExecute(ctx, name, "", req.ToolName, req.Arguments,
+			time.Since(startTime), 0, false, errMsg, clientAddr, reqSize, 0)
 		s.metrics.RecordRequest(name, req.ToolName, time.Since(startTime), false)
-		http.Error(w, fmt.Sprintf("load services: %v", err), http.StatusInternalServerError)
+		http.Error(w, errMsg, http.StatusInternalServerError)
 		return
 	}
 
 	// Look up the tool by name
 	tool, ok := cached.registry.Tools[req.ToolName]
 	if !ok {
+		errMsg := fmt.Sprintf("unknown tool: %s", req.ToolName)
+		s.auditLogger.LogExecute(ctx, name, "", req.ToolName, req.Arguments,
+			time.Since(startTime), 404, false, errMsg, clientAddr, reqSize, 0)
 		s.metrics.RecordRequest(name, req.ToolName, time.Since(startTime), false)
-		http.Error(w, fmt.Sprintf("unknown tool: %s", req.ToolName), http.StatusNotFound)
+		http.Error(w, errMsg, http.StatusNotFound)
 		return
 	}
 
@@ -307,11 +318,20 @@ func (s *server) handleProfileExecute(w http.ResponseWriter, r *http.Request) {
 	result, err := cached.executor.Execute(ctx, tool.Operation, req.Arguments)
 	duration := time.Since(startTime)
 	if err != nil {
+		errMsg := fmt.Sprintf("execute: %v", err)
+		s.auditLogger.LogExecute(ctx, name, tool.Operation.ServiceName, req.ToolName, req.Arguments,
+			duration, 0, false, errMsg, clientAddr, reqSize, 0)
 		s.metrics.RecordRequest(name, req.ToolName, duration, false)
-		http.Error(w, fmt.Sprintf("execute: %v", err), http.StatusInternalServerError)
+		http.Error(w, errMsg, http.StatusInternalServerError)
 		return
 	}
 
+	// Measure response size
+	resBytes, _ := json.Marshal(result)
+	resSize := int64(len(resBytes))
+
+	s.auditLogger.LogExecute(ctx, name, tool.Operation.ServiceName, req.ToolName, req.Arguments,
+		duration, result.Status, true, "", clientAddr, reqSize, resSize)
 	s.metrics.RecordRequest(name, req.ToolName, duration, true)
 	writeJSON(w, http.StatusOK, result)
 }

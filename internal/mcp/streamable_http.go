@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,13 +16,30 @@ import (
 	"skyline-mcp/internal/config"
 )
 
+type contextKey string
+
+// SessionIDKey is the context key used to propagate the MCP session ID.
+const SessionIDKey contextKey = "mcp-session-id"
+
+// SessionEvent describes an MCP session lifecycle event.
+type SessionEvent struct {
+	Type       string      `json:"type"`                  // "connected" | "disconnected"
+	SessionID  string      `json:"session_id"`
+	Profile    string      `json:"profile,omitempty"`     // filled by caller
+	ClientInfo *ClientInfo `json:"client_info,omitempty"` // from initialize params
+}
+
+// SessionHook is called when MCP sessions are created or destroyed.
+type SessionHook func(event SessionEvent)
+
 // StreamableHTTPServer implements MCP Streamable HTTP transport (spec 2025-11-25)
 // Single /mcp endpoint for both POST (requests) and GET (notifications/subscriptions)
 type StreamableHTTPServer struct {
-	server *Server
-	logger *log.Logger
-	auth   *config.AuthConfig
-	store  *streamableSessionStore
+	server      *Server
+	logger      *log.Logger
+	auth        *config.AuthConfig
+	store       *streamableSessionStore
+	sessionHook SessionHook
 }
 
 // streamableSession represents an active MCP session with event history for resumability
@@ -80,26 +98,31 @@ func (s *streamableSessionStore) get(id string) *streamableSession {
 	return sess
 }
 
-func (s *streamableSessionStore) remove(id string) {
+func (s *streamableSessionStore) remove(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		close(sess.ch)
 		delete(s.sessions, id)
+		return true
 	}
+	return false
 }
 
-func (s *streamableSessionStore) cleanup(maxAge time.Duration) {
+func (s *streamableSessionStore) cleanup(maxAge time.Duration) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var removedIDs []string
 	now := time.Now()
 	for id, sess := range s.sessions {
 		if now.Sub(sess.lastUsed) > maxAge {
 			close(sess.ch)
 			delete(s.sessions, id)
+			removedIDs = append(removedIDs, id)
 		}
 	}
+	return removedIDs
 }
 
 func (sess *streamableSession) addEvent(event *sseEvent) {
@@ -155,12 +178,22 @@ func NewStreamableHTTPServer(server *Server, logger *log.Logger, auth *config.Au
 	return s
 }
 
+// SetSessionHook sets a callback that fires when sessions are created or destroyed.
+func (h *StreamableHTTPServer) SetSessionHook(hook SessionHook) {
+	h.sessionHook = hook
+}
+
 func (h *StreamableHTTPServer) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		h.store.cleanup(1 * time.Hour) // Remove sessions inactive for 1 hour
+		removedIDs := h.store.cleanup(1 * time.Hour) // Remove sessions inactive for 1 hour
+		if len(removedIDs) > 0 && h.sessionHook != nil {
+			for _, id := range removedIDs {
+				h.sessionHook(SessionEvent{Type: "disconnected", SessionID: id})
+			}
+		}
 	}
 }
 
@@ -172,6 +205,12 @@ func (h *StreamableHTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/internal/search-tools", h.server.HandleSearchTools)
 	mux.HandleFunc("/agent-prompt", h.server.HandleAgentPrompt)
 	return mux
+}
+
+// ServeHTTP implements http.Handler, delegating to the MCP endpoint handler.
+// This allows StreamableHTTPServer to be mounted at any path (e.g. /profiles/{name}/mcp).
+func (h *StreamableHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.handleMCP(w, r)
 }
 
 func (h *StreamableHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -357,8 +396,24 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 		sessionID := newSessionID()
 		sess := h.store.create(sessionID)
 
-		h.logger.Printf("[streamable] created session %s", sessionID)
+		// Parse clientInfo from initialize params
+		var initParams struct {
+			ClientInfo *ClientInfo `json:"clientInfo"`
+		}
+		if req.Params != nil {
+			_ = json.Unmarshal(req.Params, &initParams)
+		}
 
+		h.logger.Printf("[streamable] created session %s (client=%v)", sessionID, initParams.ClientInfo)
+		if h.sessionHook != nil {
+			h.sessionHook(SessionEvent{
+				Type:       "connected",
+				SessionID:  sessionID,
+				ClientInfo: initParams.ClientInfo,
+			})
+		}
+
+		ctx = context.WithValue(ctx, SessionIDKey, sessionID)
 		resp := h.server.handleRequest(ctx, &req)
 		if resp == nil {
 			w.WriteHeader(http.StatusAccepted)
@@ -375,6 +430,11 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 		// Start sending initial notifications on the session channel
 		go h.sendInitialNotifications(sess)
 		return
+	}
+
+	// Inject session ID into context for tool call tracking
+	if sessionID := r.Header.Get("Mcp-Session-Id"); sessionID != "" {
+		ctx = context.WithValue(ctx, SessionIDKey, sessionID)
 	}
 
 	// For other requests, handle normally
@@ -415,8 +475,12 @@ func (h *StreamableHTTPServer) handleDELETE(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.store.remove(sessionID)
-	h.logger.Printf("[streamable] session %s terminated by client", sessionID)
+	if h.store.remove(sessionID) {
+		h.logger.Printf("[streamable] session %s terminated by client", sessionID)
+		if h.sessionHook != nil {
+			h.sessionHook(SessionEvent{Type: "disconnected", SessionID: sessionID})
+		}
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

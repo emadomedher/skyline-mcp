@@ -21,6 +21,7 @@ import (
 	"golang.org/x/term"
 
 	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
@@ -324,6 +325,28 @@ func main() {
 		listenAddr = listenAddr + ":" + defaultPort
 	}
 
+	// TLS setup — always enabled, auto-generates self-signed cert if needed
+	var tlsCertPath, tlsKeyPath string
+	if serverCfg.Server.TLS != nil {
+		tlsCertPath = serverCfg.Server.TLS.Cert
+		tlsKeyPath = serverCfg.Server.TLS.Key
+	}
+	tlsHost, _, _ := net.SplitHostPort(listenAddr)
+	if tlsHost == "" {
+		tlsHost = "localhost"
+	}
+	tlsCertPath, tlsKeyPath, err = ensureTLSCert(tlsCertPath, tlsKeyPath, []string{tlsHost, "localhost", "127.0.0.1", "::1"}, logger)
+	if err != nil {
+		logger.Fatalf("tls setup: %v", err)
+	}
+
+	// Create TCP listener with same-port HTTP→HTTPS redirect
+	tcpLn, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		logger.Fatalf("listen: %v", err)
+	}
+	ln := &tlsRedirectListener{Listener: tcpLn, httpsHost: listenAddr}
+
 	// Override storage path from config if not set via flag
 	profilesPath := *storagePath
 	if profilesPath == "./profiles.enc.yaml" && serverCfg.Profiles.Storage != "" {
@@ -375,16 +398,18 @@ func main() {
 	logger.Printf("  Log Level: %s", serverCfg.Logging.Level)
 
 	s := &server{
-		path:        profilesPath,
-		configPath:  serverConfigPath,
-		serverCfg:   serverCfg,
-		key:         key,
-		authMode:    mode,
-		adminToken:  adminToken,
-		logger:      logger,
-		redactor:    redact.NewRedactor(),
-		auditLogger: auditLogger,
-		metrics:     metricsCollector,
+		path:           profilesPath,
+		configPath:     serverConfigPath,
+		serverCfg:      serverCfg,
+		key:            key,
+		authMode:       mode,
+		adminToken:     adminToken,
+		logger:         logger,
+		redactor:       redact.NewRedactor(),
+		auditLogger:    auditLogger,
+		metrics:        metricsCollector,
+		sessionTracker: mcp.NewSessionTracker(),
+		agentHub:       audit.NewGenericHub(),
 	}
 
 	// Initialize cache if enabled in config
@@ -497,6 +522,8 @@ func main() {
 		mux.HandleFunc("/admin/audit", s.handleAudit)
 		mux.HandleFunc("/admin/stats", s.handleStats)
 		mux.HandleFunc("/admin/config", s.handleConfig)
+		mux.HandleFunc("/admin/sessions", s.handleSessions)
+		mux.HandleFunc("/admin/events", s.handleEventStream)
 	} else {
 		// Simple health check if no admin
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -511,9 +538,12 @@ func main() {
 	// API endpoints (always available)
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/profiles", s.handleProfiles)
-	mux.HandleFunc("/profiles/", s.handleProfileOrGateway)
+	mux.HandleFunc("/profiles/", s.handleProfileRoute)
 	mux.HandleFunc("/detect", s.handleDetect)
 	mux.HandleFunc("/verify", s.handleVerify)
+	mux.HandleFunc("/oauth/start", s.handleOAuthStart)
+	mux.HandleFunc("/oauth/callback", s.handleOAuthCallback)
+	mux.HandleFunc("/oauth/exchange", s.handleOAuthExchange)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/operations", s.handleOperations)
 
@@ -526,14 +556,14 @@ func main() {
 	}
 
 	logger.Printf("")
-	logger.Printf("✓ Skyline MCP Server ready")
+	logger.Printf("✓ Skyline MCP Server ready (HTTPS)")
 	if *admin {
 		logger.Printf("  Admin token: %s", adminToken)
-		logger.Printf("  → http://%s", listenAddr)
+		logger.Printf("  → https://%s", listenAddr)
 	}
 	logger.Printf("")
 
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := httpServer.ServeTLS(ln, tlsCertPath, tlsKeyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatalf("server error: %v", err)
 	}
 }

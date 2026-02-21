@@ -226,6 +226,56 @@
         color: #64748B;
       }
 
+      /* Live feed terminal */
+      .live-feed {
+        background: #0B1120;
+        border: 1px solid rgba(51, 65, 85, 0.6);
+        border-radius: 8px;
+        padding: 12px;
+        height: 360px;
+        overflow-y: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .live-feed::-webkit-scrollbar { width: 6px; }
+      .live-feed::-webkit-scrollbar-track { background: transparent; }
+      .live-feed::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+      .feed-line {
+        padding: 2px 0;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.2);
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .feed-line .ts { color: #64748B; }
+      .feed-line .profile { color: #A78BFA; }
+      .feed-line .tool { color: #38BDF8; }
+      .feed-line .duration { color: #94A3B8; }
+      .feed-line .tokens { color: #FBBF24; font-size: 11px; }
+      .feed-line .status-ok { color: #34D399; }
+      .feed-line .status-err { color: #F87171; }
+
+      .feed-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #10B981;
+        margin-right: 6px;
+        vertical-align: middle;
+        animation: pulse-dot 2s ease-in-out infinite;
+      }
+      .feed-dot.disconnected {
+        background: #EF4444;
+        animation: none;
+      }
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
       .loading {
         text-align: center;
         padding: 40px;
@@ -334,6 +384,158 @@
         background: rgba(14, 165, 233, 0.1);
         color: #38bdf8;
         border-left: 3px solid #0EA5E9;
+      }
+
+      /* Active Agents */
+      .agents-section { margin-bottom: 24px; }
+      .agents-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .agents-header h2 {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #64748B;
+        letter-spacing: 0.5px;
+        margin: 0;
+      }
+      .agents-count {
+        font-size: 12px;
+        color: #64748B;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .agents-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+      }
+      .agent-card {
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 10px;
+        padding: 16px;
+        backdrop-filter: blur(12px);
+        transition: all 0.3s ease;
+        animation: agentSlideIn 0.3s ease-out;
+      }
+      .agent-card.removing {
+        animation: agentFadeOut 0.4s ease-out forwards;
+      }
+      @keyframes agentSlideIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes agentFadeOut {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.95); }
+      }
+      .agent-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .agent-client-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #F1F5F9;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .agent-client-name .feed-dot {
+        width: 6px;
+        height: 6px;
+        margin-right: 0;
+      }
+      .agent-version {
+        font-size: 11px;
+        font-weight: 500;
+        color: #64748B;
+        background: rgba(51, 65, 85, 0.5);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .agent-profile-badge {
+        font-size: 11px;
+        font-weight: 600;
+        color: #A78BFA;
+        background: rgba(167, 139, 250, 0.1);
+        padding: 2px 8px;
+        border-radius: 4px;
+      }
+      .agent-activity {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        padding: 8px 10px;
+        background: rgba(11, 17, 32, 0.6);
+        border-radius: 6px;
+        margin-bottom: 10px;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow: hidden;
+      }
+      .agent-activity.idle { color: #475569; }
+      .agent-activity.active {
+        color: #38BDF8;
+        border-left: 2px solid #0EA5E9;
+      }
+      .agent-activity .tool-name {
+        animation: toolFlicker 0.15s ease-in-out;
+      }
+      @keyframes toolFlicker {
+        0% { opacity: 0.4; }
+        100% { opacity: 1; }
+      }
+      .agent-activity .activity-icon {
+        flex-shrink: 0;
+      }
+      .agent-stats {
+        display: flex;
+        gap: 16px;
+        font-size: 11px;
+        color: #64748B;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .agent-stats .stat-value { color: #94A3B8; font-weight: 500; }
+      .agent-stats .stat-error { color: #F87171; }
+      .agents-empty {
+        text-align: center;
+        padding: 24px;
+        color: #475569;
+        font-size: 13px;
+        background: rgba(30, 41, 59, 0.3);
+        border: 1px dashed rgba(51, 65, 85, 0.5);
+        border-radius: 10px;
+      }
+      .agents-empty .empty-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #334155;
+        margin-right: 6px;
+        vertical-align: middle;
+        animation: emptyPulse 3s ease-in-out infinite;
+      }
+      @keyframes emptyPulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.7; }
+      }
+      .tool-flash-success { animation: flashSuccess 0.5s ease-out; }
+      .tool-flash-error { animation: flashError 0.5s ease-out; }
+      @keyframes flashSuccess {
+        0% { background: rgba(16, 185, 129, 0.2); }
+        100% { background: transparent; }
+      }
+      @keyframes flashError {
+        0% { background: rgba(239, 68, 68, 0.2); }
+        100% { background: transparent; }
       }
 
       /* Login overlay */
@@ -452,7 +654,48 @@
           <div>Loading metrics...</div>
         </div>
 
+        <!-- Empty state: shown when no profiles with APIs exist -->
+        <div id="dashboard-empty" class="card" style="display:none; text-align:center; padding:60px 40px; max-width:600px; margin:60px auto;">
+          <div style="margin-bottom:20px;">
+            <iconify-icon icon="mdi:chart-timeline-variant-shimmer" width="48" style="color:#334155;"></iconify-icon>
+          </div>
+          <h2 style="font-size:20px; font-weight:700; color:#F1F5F9; margin-bottom:12px; text-transform:none; letter-spacing:0;">Dashboard</h2>
+          <p style="color:#94A3B8; line-height:1.7; margin-bottom:8px;">
+            Create a profile with at least one API spec to activate the dashboard.
+          </p>
+          <p style="color:#64748B; font-size:13px; line-height:1.7; margin-bottom:28px;">
+            Once configured, you'll see real-time metrics, token estimation, live event streams, top tools, API breakdowns, and request history &mdash; all updating live as your agents interact with APIs through Skyline.
+          </p>
+          <button class="btn" onclick="showPage('profiles')">Go to Profiles</button>
+        </div>
+
         <div id="content" style="display: none;">
+          <!-- Summary banner -->
+          <div style="display:flex; gap:20px; align-items:center; margin-bottom:24px; padding:14px 20px; background:rgba(30,41,59,0.4); border:1px solid rgba(51,65,85,0.6); border-radius:10px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="summaryDot" class="feed-dot disconnected" style="animation:none;"></span>
+              <span id="summaryStatus" style="font-size:13px; color:#64748B;">No active connections</span>
+            </div>
+            <span style="color:#334155;">&middot;</span>
+            <span id="summaryProfiles" style="font-size:14px; font-weight:600; color:#CBD5E1;">0 Profiles</span>
+            <span style="color:#334155;">&middot;</span>
+            <span id="summaryTools" style="font-size:14px; color:#94A3B8;">0 Tools</span>
+          </div>
+
+          <!-- Active Agents -->
+          <div class="agents-section">
+            <div class="agents-header">
+              <h2>Active Agents</h2>
+              <span class="agents-count" id="agentsCount">0 connected</span>
+            </div>
+            <div id="agentsGrid" class="agents-grid">
+              <div class="agents-empty">
+                <span class="empty-dot"></span>
+                No agents connected
+              </div>
+            </div>
+          </div>
+
           <div class="grid">
             <div class="card">
               <h2>Total Requests</h2>
@@ -477,13 +720,57 @@
             <div class="card">
               <h2>Connections</h2>
               <div class="metric info" id="activeConnections">-</div>
-              <div class="metric-label">WebSocket active</div>
+              <div class="metric-label">Active MCP sessions</div>
             </div>
             <div class="card">
               <h2>Uptime</h2>
               <div class="metric" id="uptime">-</div>
               <div class="metric-label">Hours</div>
             </div>
+            <div class="card">
+              <h2>Est. Tokens In</h2>
+              <div class="metric info" id="estTokensIn">-</div>
+              <div class="metric-label">Request tokens (~bytes/4)</div>
+            </div>
+            <div class="card">
+              <h2>Est. Tokens Out</h2>
+              <div class="metric info" id="estTokensOut">-</div>
+              <div class="metric-label">Response tokens (~bytes/4)</div>
+            </div>
+          </div>
+
+          <!-- Top Tools & APIs -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
+            <div class="card">
+              <h2>Top Tools (24h)</h2>
+              <div id="topToolsTable">
+                <p style="color:#64748B; text-align:center; padding:20px; font-size:13px;">Tool usage will appear here as agents make API calls</p>
+              </div>
+            </div>
+            <div class="card">
+              <h2>Top APIs (24h)</h2>
+              <div id="topApisTable">
+                <p style="color:#64748B; text-align:center; padding:20px; font-size:13px;">API usage will appear here as agents make API calls</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Event Feed -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h2 style="margin-bottom: 0;">
+                <span id="feedIndicator" class="feed-dot disconnected"></span>
+                Live Event Feed
+              </h2>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <label style="font-size:12px; color:#64748B; display:flex; align-items:center; gap:4px;">
+                  <input type="checkbox" id="feedAutoscroll" checked /> Auto-scroll
+                </label>
+                <button class="btn-secondary btn" style="padding:6px 12px; font-size:12px;" onclick="clearFeed()">Clear</button>
+                <button class="btn-secondary btn" style="padding:6px 12px; font-size:12px;" id="feedToggle" onclick="toggleFeed()">Pause</button>
+              </div>
+            </div>
+            <div id="liveFeed" class="live-feed"></div>
           </div>
 
           <div class="card" style="margin-bottom: 24px;">
@@ -496,11 +783,12 @@
                     <th>Profile</th>
                     <th>Tool</th>
                     <th>Duration</th>
+                    <th>Tokens (in/out)</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody id="auditTable">
-                  <tr><td colspan="5" class="loading">Loading audit log...</td></tr>
+                  <tr><td colspan="6" class="loading">Loading audit log...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -637,6 +925,7 @@
           if (res.ok) {
             hideLoginOverlay();
             loadDashboard();
+            connectEventStream();
           } else {
             document.getElementById('loginError').textContent = 'Invalid token. Check the server startup log.';
           }
@@ -660,21 +949,70 @@
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
         document.getElementById(pageName + '-page').classList.add('active');
-        event.target.classList.add('active');
+        const tabMap = { dashboard: 0, profiles: 1, settings: 2 };
+        const tabs = document.querySelectorAll('.nav-tab');
+        if (tabs[tabMap[pageName]]) tabs[tabMap[pageName]].classList.add('active');
         if (pageName === 'dashboard') loadDashboard();
         else if (pageName === 'settings') loadSettings();
       }
 
       // ── Dashboard ─────────────────────────────────────────────────────────────
 
-      async function loadDashboard() {
-        document.getElementById('loading').style.display = 'block';
-        document.getElementById('content').style.display = 'none';
+      let dashboardActivated = false;
+
+      async function loadDashboard(isAutoRefresh = false) {
+        const loadingEl = document.getElementById('loading');
+        const emptyEl = document.getElementById('dashboard-empty');
+        const contentEl = document.getElementById('content');
+
+        // Only show loading spinner on first load, not background refreshes
+        if (!isAutoRefresh) {
+          loadingEl.style.display = 'block';
+          emptyEl.style.display = 'none';
+          contentEl.style.display = 'none';
+        }
+
         try {
-          const [statsRes, auditRes] = await Promise.all([
+          // Check if profiles with tools exist
+          const profilesRes = await fetch('/profiles');
+          if (profilesRes.status === 401) { showLoginOverlay(); return; }
+          const profilesData = await profilesRes.json();
+          const profileNames = profilesData.profiles || [];
+
+          if (profileNames.length === 0) {
+            loadingEl.style.display = 'none';
+            emptyEl.style.display = 'block';
+            dashboardActivated = false;
+            return;
+          }
+
+          // Fetch tools per profile + stats + audit in parallel
+          const toolsPromises = profileNames.map(name =>
+            fetch(`/profiles/${encodeURIComponent(name)}/tools`)
+              .then(r => r.ok ? r.json() : { tools: [] })
+              .then(d => ({ name, count: (d.tools || []).length }))
+              .catch(() => ({ name, count: 0 }))
+          );
+
+          const results = await Promise.all([
             fetch('/admin/stats'),
             fetch('/admin/audit?limit=50'),
+            ...toolsPromises,
           ]);
+
+          const statsRes = results[0];
+          const auditRes = results[1];
+          const toolsCounts = results.slice(2);
+          const totalTools = toolsCounts.reduce((sum, t) => sum + t.count, 0);
+
+          if (totalTools === 0) {
+            loadingEl.style.display = 'none';
+            emptyEl.style.display = 'block';
+            dashboardActivated = false;
+            return;
+          }
+
+          dashboardActivated = true;
 
           if (statsRes.status === 401 || auditRes.status === 401) {
             showLoginOverlay();
@@ -687,19 +1025,51 @@
           const audit = await auditRes.json();
 
           const metrics = stats.metrics_snapshot || {};
+          const auditStats = stats.audit_stats || {};
           const total = metrics.total_requests || 0;
 
+          // Summary banner
+          const connections = metrics.active_connections || 0;
+          document.getElementById('summaryProfiles').textContent =
+            `${profileNames.length} Profile${profileNames.length !== 1 ? 's' : ''}`;
+          document.getElementById('summaryTools').textContent =
+            `${totalTools} Tool${totalTools !== 1 ? 's' : ''}`;
+          if (connections > 0) {
+            document.getElementById('summaryDot').className = 'feed-dot';
+            document.getElementById('summaryStatus').textContent =
+              `${connections} active connection${connections !== 1 ? 's' : ''}`;
+            document.getElementById('summaryStatus').style.color = '#34D399';
+          } else {
+            document.getElementById('summaryDot').className = 'feed-dot disconnected';
+            document.getElementById('summaryDot').style.animation = 'none';
+            document.getElementById('summaryStatus').textContent = 'No active connections';
+            document.getElementById('summaryStatus').style.color = '#64748B';
+          }
+
+          // Metrics grid
           document.getElementById('totalRequests').textContent = total.toLocaleString();
           document.getElementById('successRate').textContent =
-            total > 0 ? ((metrics.success_requests / total) * 100).toFixed(1) + '%' : '—';
+            total > 0 ? ((metrics.success_requests / total) * 100).toFixed(1) + '%' : '0%';
           document.getElementById('errorRate').textContent =
-            total > 0 ? ((metrics.failed_requests / total) * 100).toFixed(1) + '%' : '—';
+            total > 0 ? ((metrics.failed_requests / total) * 100).toFixed(1) + '%' : '0%';
           document.getElementById('avgDuration').textContent =
-            metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '—';
-          document.getElementById('activeConnections').textContent = metrics.active_connections ?? 0;
+            metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '0ms';
+          document.getElementById('activeConnections').textContent = connections;
           document.getElementById('uptime').textContent =
-            metrics.uptime_seconds ? (metrics.uptime_seconds / 3600).toFixed(1) + 'h' : '—';
+            metrics.uptime_seconds ? (metrics.uptime_seconds / 3600).toFixed(1) + 'h' : '0h';
 
+          document.getElementById('estTokensIn').textContent =
+            auditStats.est_request_tokens ? auditStats.est_request_tokens.toLocaleString() : '0';
+          document.getElementById('estTokensOut').textContent =
+            auditStats.est_response_tokens ? auditStats.est_response_tokens.toLocaleString() : '0';
+
+          // Top Tools & APIs
+          renderTopTable('topToolsTable', auditStats.top_tools || [],
+            'Tool usage will appear here as agents make API calls');
+          renderTopTable('topApisTable', auditStats.top_apis || [],
+            'API usage will appear here as agents make API calls');
+
+          // Recent API Calls table
           const tbody = document.getElementById('auditTable');
           tbody.innerHTML = '';
           const events = (audit.events || []).filter(e => e.event_type === 'execute');
@@ -710,13 +1080,16 @@
               const badge = event.success
                 ? '<span class="badge success">Success</span>'
                 : '<span class="badge error">Failed</span>';
-              row.innerHTML = `<td class="timestamp">${timestamp}</td><td>${event.profile}</td><td><code>${event.tool_name}</code></td><td>${event.duration_ms}ms</td><td>${badge}</td>`;
+              const reqTok = event.request_size ? Math.round(event.request_size / 4) : '-';
+              const resTok = event.response_size ? Math.round(event.response_size / 4) : '-';
+              row.innerHTML = `<td class="timestamp">${timestamp}</td><td>${event.profile}</td><td><code>${event.tool_name}</code></td><td>${event.duration_ms}ms</td><td><code>${reqTok} / ${resTok}</code></td><td>${badge}</td>`;
               tbody.appendChild(row);
             });
           } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748B;">No API calls yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748B;">Tool call history will appear here as agents execute API operations</td></tr>';
           }
 
+          // Requests by Profile
           const profileStatsDiv = document.getElementById('profileStats');
           if (metrics.profile_requests && Object.keys(metrics.profile_requests).length > 0) {
             const tbl = document.createElement('table');
@@ -729,17 +1102,37 @@
             profileStatsDiv.innerHTML = '';
             profileStatsDiv.appendChild(tbl);
           } else {
-            profileStatsDiv.innerHTML = '<p style="color:#64748B;text-align:center;padding:20px;">No profile data yet</p>';
+            profileStatsDiv.innerHTML = '<p style="color:#64748B; text-align:center; padding:20px; font-size:13px;">Per-profile request breakdown will appear here as agents make API calls</p>';
           }
 
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('content').style.display = 'block';
+          loadingEl.style.display = 'none';
+          contentEl.style.display = 'block';
+
+          // Load active sessions for agent monitoring
+          loadSessions();
         } catch (error) {
           document.getElementById('loading').innerHTML = `
             <div style="color:#94A3B8;">Dashboard will update when data is available.</div>
             <div style="margin-top:8px;font-size:12px;color:#64748B;">${error.message}</div>
           `;
         }
+      }
+
+      function renderTopTable(containerId, items, emptyMsg) {
+        const container = document.getElementById(containerId);
+        if (!items || items.length === 0) {
+          container.innerHTML = `<p style="color:#64748B; text-align:center; padding:20px; font-size:13px;">${emptyMsg}</p>`;
+          return;
+        }
+        const tbl = document.createElement('table');
+        tbl.innerHTML = '<thead><tr><th>Name</th><th>Calls</th><th>Errors</th><th>Avg</th></tr></thead><tbody></tbody>';
+        items.forEach(item => {
+          const row = document.createElement('tr');
+          row.innerHTML = `<td><code>${item.name}</code></td><td>${item.calls}</td><td>${item.errors || 0}</td><td>${item.avg_ms || 0}ms</td>`;
+          tbl.querySelector('tbody').appendChild(row);
+        });
+        container.innerHTML = '';
+        container.appendChild(tbl);
       }
 
       // ── Settings ──────────────────────────────────────────────────────────────
@@ -782,12 +1175,285 @@
         setTimeout(() => alertDiv.innerHTML = '', 5000);
       }
 
+      // ── Live Event Feed ───────────────────────────────────────────────────────
+
+      let eventSource = null;
+      let feedPaused = false;
+      const MAX_FEED_LINES = 500;
+
+      function connectEventStream() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource('/admin/events');
+        const indicator = document.getElementById('feedIndicator');
+
+        eventSource.addEventListener('connected', () => {
+          indicator.className = 'feed-dot';
+          appendFeedLine({ _system: true, message: 'Connected to live event stream' });
+        });
+
+        eventSource.addEventListener('audit', (e) => {
+          if (feedPaused) return;
+          try {
+            appendFeedLine(JSON.parse(e.data));
+          } catch (err) {
+            console.warn('Failed to parse event:', err);
+          }
+        });
+
+        eventSource.addEventListener('agent', (e) => {
+          try { handleAgentEvent(e); } catch (err) { console.warn('Agent event error:', err); }
+        });
+
+        eventSource.onerror = () => { indicator.className = 'feed-dot disconnected'; };
+        eventSource.onopen = () => { indicator.className = 'feed-dot'; };
+      }
+
+      function appendFeedLine(event) {
+        const feed = document.getElementById('liveFeed');
+        if (!feed) return;
+        const line = document.createElement('div');
+        line.className = 'feed-line';
+
+        if (event._system) {
+          line.innerHTML = `<span class="ts">${fmtTime(new Date())}</span>` +
+            `<span style="color:#64748B;font-style:italic;">${event.message}</span>`;
+        } else {
+          const ts = fmtTime(new Date(event.timestamp));
+          const statusClass = event.success ? 'status-ok' : 'status-err';
+          const statusText = event.success ? 'OK' : 'ERR';
+          const dur = event.duration_ms ? `${event.duration_ms}ms` : '';
+          const reqTok = event.request_size ? Math.round(event.request_size / 4) : 0;
+          const resTok = event.response_size ? Math.round(event.response_size / 4) : 0;
+          const tokenStr = (reqTok || resTok) ? `~${reqTok}/${resTok} tok` : '';
+
+          line.innerHTML =
+            `<span class="ts">${ts}</span>` +
+            `<span class="${statusClass}">[${statusText}]</span>` +
+            `<span class="profile">${event.profile || ''}</span>` +
+            `<span class="tool">${event.tool_name || event.event_type || ''}</span>` +
+            `<span class="duration">${dur}</span>` +
+            (tokenStr ? `<span class="tokens">${tokenStr}</span>` : '') +
+            (event.error_msg ? `<span class="status-err">${event.error_msg.slice(0, 80)}</span>` : '');
+        }
+
+        feed.appendChild(line);
+        while (feed.children.length > MAX_FEED_LINES) feed.removeChild(feed.firstChild);
+        if (document.getElementById('feedAutoscroll').checked) feed.scrollTop = feed.scrollHeight;
+      }
+
+      function fmtTime(d) {
+        return d.toLocaleTimeString('en-US', { hour12: false }) + '.' +
+          String(d.getMilliseconds()).padStart(3, '0');
+      }
+
+      function toggleFeed() {
+        feedPaused = !feedPaused;
+        document.getElementById('feedToggle').textContent = feedPaused ? 'Resume' : 'Pause';
+      }
+
+      function clearFeed() {
+        const feed = document.getElementById('liveFeed');
+        if (feed) feed.innerHTML = '';
+      }
+
+      // ── Active Agents ────────────────────────────────────────────────────────
+
+      const agentSessions = new Map(); // sessionID → { id, profile, client_info, connected_at, current_tool, request_count, error_count, bytes_in, bytes_out }
+
+      async function loadSessions() {
+        try {
+          const res = await fetch('/admin/sessions');
+          if (!res.ok) return;
+          const data = await res.json();
+          agentSessions.clear();
+          (data.sessions || []).forEach(s => {
+            agentSessions.set(s.id, {
+              id: s.id,
+              profile: s.profile,
+              client_info: s.client_info,
+              connected_at: new Date(s.connected_at),
+              current_tool: s.current_tool || '',
+              request_count: s.request_count || 0,
+              error_count: s.error_count || 0,
+              bytes_in: s.bytes_in || 0,
+              bytes_out: s.bytes_out || 0,
+            });
+          });
+          renderAgents();
+        } catch (e) {
+          console.warn('Failed to load sessions:', e);
+        }
+      }
+
+      function handleAgentEvent(event) {
+        const d = JSON.parse(event.data);
+        switch (d.type) {
+          case 'session_connected': {
+            agentSessions.set(d.session_id, {
+              id: d.session_id,
+              profile: d.profile || '',
+              client_info: d.client_info || null,
+              connected_at: new Date(d.timestamp),
+              current_tool: '',
+              request_count: 0,
+              error_count: 0,
+              bytes_in: 0,
+              bytes_out: 0,
+            });
+            renderAgents();
+            break;
+          }
+          case 'session_disconnected': {
+            const card = document.getElementById('agent-' + d.session_id);
+            if (card) {
+              card.classList.add('removing');
+              setTimeout(() => {
+                agentSessions.delete(d.session_id);
+                renderAgents();
+              }, 400);
+            } else {
+              agentSessions.delete(d.session_id);
+              renderAgents();
+            }
+            break;
+          }
+          case 'tool_start': {
+            const sess = agentSessions.get(d.session_id);
+            if (sess) {
+              sess.current_tool = d.tool_name || '';
+              updateAgentActivity(d.session_id, sess);
+            }
+            break;
+          }
+          case 'tool_end': {
+            const sess = agentSessions.get(d.session_id);
+            if (sess) {
+              sess.request_count = (sess.request_count || 0) + 1;
+              if (!d.success) sess.error_count = (sess.error_count || 0) + 1;
+              sess.bytes_out = (sess.bytes_out || 0) + (d.response_size || 0);
+              // Flash success/error on the activity line
+              const actEl = document.querySelector(`#agent-${d.session_id} .agent-activity`);
+              if (actEl) {
+                actEl.classList.add(d.success ? 'tool-flash-success' : 'tool-flash-error');
+                setTimeout(() => actEl.classList.remove('tool-flash-success', 'tool-flash-error'), 500);
+              }
+              sess.current_tool = '';
+              updateAgentActivity(d.session_id, sess);
+              updateAgentStats(d.session_id, sess);
+            }
+            break;
+          }
+        }
+      }
+
+      function renderAgents() {
+        const grid = document.getElementById('agentsGrid');
+        const countEl = document.getElementById('agentsCount');
+        if (!grid) return;
+        const count = agentSessions.size;
+        countEl.textContent = `${count} connected`;
+
+        if (count === 0) {
+          grid.innerHTML = '<div class="agents-empty"><span class="empty-dot"></span> No agents connected</div>';
+          return;
+        }
+
+        grid.innerHTML = '';
+        for (const [id, sess] of agentSessions) {
+          const card = document.createElement('div');
+          card.className = 'agent-card';
+          card.id = 'agent-' + id;
+
+          const clientName = sess.client_info?.name || 'Unknown Client';
+          const clientVersion = sess.client_info?.version || '';
+          const profile = sess.profile || '-';
+          const isActive = !!sess.current_tool;
+
+          card.innerHTML = `
+            <div class="agent-card-header">
+              <div class="agent-client-name">
+                <span class="feed-dot"></span>
+                ${esc(clientName)}
+                ${clientVersion ? `<span class="agent-version">${esc(clientVersion)}</span>` : ''}
+              </div>
+              <span class="agent-profile-badge">${esc(profile)}</span>
+            </div>
+            <div class="agent-activity ${isActive ? 'active' : 'idle'}">
+              <span class="activity-icon">${isActive ? '>' : '-'}</span>
+              <span class="tool-name">${isActive ? esc(sess.current_tool) : 'Idle'}</span>
+            </div>
+            <div class="agent-stats">
+              <span>reqs: <span class="stat-value agent-stat-reqs">${sess.request_count}</span></span>
+              <span>errs: <span class="stat-value stat-error agent-stat-errs">${sess.error_count}</span></span>
+              <span>out: <span class="stat-value agent-stat-bytes">${fmtBytes(sess.bytes_out)}</span></span>
+              <span class="agent-uptime" data-connected="${sess.connected_at.toISOString()}">${fmtUptime(sess.connected_at)}</span>
+            </div>
+          `;
+          grid.appendChild(card);
+        }
+      }
+
+      function updateAgentActivity(sessionId, sess) {
+        const actEl = document.querySelector(`#agent-${sessionId} .agent-activity`);
+        if (!actEl) return;
+        const isActive = !!sess.current_tool;
+        actEl.className = 'agent-activity ' + (isActive ? 'active' : 'idle');
+        actEl.innerHTML = `
+          <span class="activity-icon">${isActive ? '>' : '-'}</span>
+          <span class="tool-name">${isActive ? esc(sess.current_tool) : 'Idle'}</span>
+        `;
+      }
+
+      function updateAgentStats(sessionId, sess) {
+        const card = document.getElementById('agent-' + sessionId);
+        if (!card) return;
+        const reqs = card.querySelector('.agent-stat-reqs');
+        const errs = card.querySelector('.agent-stat-errs');
+        const bytes = card.querySelector('.agent-stat-bytes');
+        if (reqs) reqs.textContent = sess.request_count;
+        if (errs) errs.textContent = sess.error_count;
+        if (bytes) bytes.textContent = fmtBytes(sess.bytes_out);
+      }
+
+      function fmtUptime(connectedAt) {
+        const sec = Math.floor((Date.now() - connectedAt.getTime()) / 1000);
+        if (sec < 60) return sec + 's';
+        if (sec < 3600) return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+        return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
+      }
+
+      function fmtBytes(bytes) {
+        if (!bytes || bytes === 0) return '0B';
+        if (bytes < 1024) return bytes + 'B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + 'KB';
+        return (bytes / 1048576).toFixed(1) + 'MB';
+      }
+
+      function esc(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      // Update uptime timers every second
+      setInterval(() => {
+        document.querySelectorAll('.agent-uptime').forEach(el => {
+          const connected = new Date(el.dataset.connected);
+          if (!isNaN(connected)) el.textContent = fmtUptime(connected);
+        });
+      }, 1000);
+
       // ── Init ──────────────────────────────────────────────────────────────────
 
-      checkAuth().then(ok => { if (ok) loadDashboard(); });
+      checkAuth().then(ok => {
+        if (ok) {
+          loadDashboard();
+          connectEventStream();
+        }
+      });
       setInterval(() => {
         if (document.getElementById('dashboard-page').classList.contains('active')) {
-          fetch('/admin/auth').then(r => { if (r.ok) loadDashboard(); });
+          fetch('/admin/auth').then(r => { if (r.ok) loadDashboard(true); });
         }
       }, 10000);
     </script>

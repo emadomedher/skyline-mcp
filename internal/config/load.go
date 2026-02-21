@@ -63,6 +63,30 @@ func (c *Config) ExpandEnv() error {
 					return fmt.Errorf("apis[%d].auth.value: %w", i, err)
 				}
 			}
+			if c.APIs[i].Auth.ClientID != "" {
+				c.APIs[i].Auth.ClientID, err = ExpandEnvStrict(c.APIs[i].Auth.ClientID)
+				if err != nil {
+					return fmt.Errorf("apis[%d].auth.client_id: %w", i, err)
+				}
+			}
+			if c.APIs[i].Auth.ClientSecret != "" {
+				c.APIs[i].Auth.ClientSecret, err = ExpandEnvStrict(c.APIs[i].Auth.ClientSecret)
+				if err != nil {
+					return fmt.Errorf("apis[%d].auth.client_secret: %w", i, err)
+				}
+			}
+			if c.APIs[i].Auth.RefreshToken != "" {
+				c.APIs[i].Auth.RefreshToken, err = ExpandEnvStrict(c.APIs[i].Auth.RefreshToken)
+				if err != nil {
+					return fmt.Errorf("apis[%d].auth.refresh_token: %w", i, err)
+				}
+			}
+			if c.APIs[i].Auth.TokenURL != "" {
+				c.APIs[i].Auth.TokenURL, err = ExpandEnvStrict(c.APIs[i].Auth.TokenURL)
+				if err != nil {
+					return fmt.Errorf("apis[%d].auth.token_url: %w", i, err)
+				}
+			}
 		}
 	}
 	return nil

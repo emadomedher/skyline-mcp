@@ -48,6 +48,7 @@ func (s *server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 			Name:     "skyline_admin",
 			Value:    s.adminToken,
 			Path:     "/",
+			Secure:   true,
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   86400 * 7, // 7 days
@@ -157,6 +158,96 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 			"until": time.Now(),
 		},
 	})
+}
+
+// handleSessions returns current active MCP sessions.
+func (s *server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sessions := s.sessionTracker.Snapshot()
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+// handleEventStream serves a Server-Sent Events stream of live audit + agent events.
+func (s *server) handleEventStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.isAdminSession(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// Use ResponseController to override the server's WriteTimeout for this
+	// long-lived connection.
+	rc := http.NewResponseController(w)
+
+	// Subscribe to the audit event hub
+	auditHub := s.auditLogger.EventHub()
+	auditSubID, auditCh := auditHub.Subscribe()
+	defer auditHub.Unsubscribe(auditSubID)
+
+	// Subscribe to the agent event hub
+	agentSubID, agentCh := s.agentHub.Subscribe()
+	defer s.agentHub.Unsubscribe(agentSubID)
+
+	// Send connected event
+	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
+	flusher.Flush()
+
+	keepalive := time.NewTicker(30 * time.Second)
+	defer keepalive.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-auditCh:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
+			fmt.Fprintf(w, "event: audit\ndata: %s\n\n", data)
+			flusher.Flush()
+		case event, ok := <-agentCh:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
+			fmt.Fprintf(w, "event: agent\ndata: %s\n\n", data)
+			flusher.Flush()
+		case <-keepalive.C:
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
+			fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 // handleConfig manages server configuration (config.yaml)

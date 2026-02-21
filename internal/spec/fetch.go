@@ -132,5 +132,8 @@ func applyAuth(req *http.Request, auth *config.AuthConfig) {
 		req.Header.Set("Authorization", "Basic "+cred)
 	case "api-key":
 		req.Header.Set(auth.Header, auth.Value)
+	case "oauth2":
+		// OAuth2 spec fetching: discovery documents (e.g. Gmail) are public.
+		// Token refresh is handled by the executor for actual API calls.
 	}
 }

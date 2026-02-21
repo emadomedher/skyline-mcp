@@ -6,7 +6,6 @@ require (
 	github.com/dop251/goja v0.0.0-20260216154549-8b74ce4618c5
 	github.com/evanw/esbuild v0.27.3
 	github.com/getkin/kin-openapi v0.121.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/jhump/protoreflect v1.18.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/vektah/gqlparser/v2 v2.5.31

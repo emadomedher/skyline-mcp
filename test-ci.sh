@@ -216,15 +216,15 @@ fi
 # ============================================================================
 # TEST 8: HTTP Mode - Server Start
 # ============================================================================
-test_start "HTTP Mode - Server Startup"
+test_start "HTTP Mode - Server Startup (HTTPS)"
 
-# Start HTTP server in background
+# Start HTTP server in background (uses auto-generated self-signed TLS cert)
 $SKYLINE_BIN --transport http --bind localhost:18191 --admin=false \
     --config /tmp/skyline-test-config.yaml > /tmp/skyline-test-http.log 2>&1 &
 TEST_SERVER_PID=$!
 
-# Wait for server to start
-sleep 3
+# Wait for server to start (TLS cert generation + spec loading)
+sleep 5
 
 if kill -0 $TEST_SERVER_PID 2>/dev/null; then
     test_pass "HTTP server started successfully (PID: $TEST_SERVER_PID)"
@@ -236,26 +236,26 @@ fi
 # ============================================================================
 # TEST 9: HTTP Mode - MCP Endpoint
 # ============================================================================
-test_start "HTTP Mode - MCP Protocol"
+test_start "HTTP Mode - MCP Protocol (HTTPS)"
 
-HTTP_INIT=$(curl -s -X POST http://localhost:18191/mcp/v1 \
+HTTP_INIT=$(curl -sk -X POST https://localhost:18191/mcp/v1 \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' || echo "ERROR")
 
 if echo "$HTTP_INIT" | jq -e '.result.protocolVersion' > /dev/null 2>&1; then
-    test_pass "HTTP initialize successful"
+    test_pass "HTTPS initialize successful"
 else
-    test_fail "HTTP initialize failed" "$HTTP_INIT"
+    test_fail "HTTPS initialize failed" "$HTTP_INIT"
 fi
 
-HTTP_TOOLS=$(curl -s -X POST http://localhost:18191/mcp/v1 \
+HTTP_TOOLS=$(curl -sk -X POST https://localhost:18191/mcp/v1 \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 
 if echo "$HTTP_TOOLS" | jq -e '.result.tools' > /dev/null 2>&1; then
-    test_pass "HTTP tools/list successful"
+    test_pass "HTTPS tools/list successful"
 else
-    test_fail "HTTP tools/list failed"
+    test_fail "HTTPS tools/list failed"
 fi
 
 # Kill HTTP server

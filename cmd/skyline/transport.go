@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -134,6 +135,23 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 		w.Write([]byte("Skyline MCP Server\n\nMCP Endpoint: POST /mcp/v1\n"))
 	})
 
+	// TLS setup — auto-generate self-signed cert if needed
+	tlsHost, _, _ := net.SplitHostPort(listenAddr)
+	if tlsHost == "" {
+		tlsHost = "localhost"
+	}
+	tlsCertPath, tlsKeyPath, err := ensureTLSCert("", "", []string{tlsHost, "localhost", "127.0.0.1", "::1"}, logger)
+	if err != nil {
+		return fmt.Errorf("tls setup: %w", err)
+	}
+
+	// Create TCP listener with same-port HTTP→HTTPS redirect
+	tcpLn, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	ln := &tlsRedirectListener{Listener: tcpLn, httpsHost: listenAddr}
+
 	// HTTP server config
 	httpServer := &http.Server{
 		Addr:         listenAddr,
@@ -144,15 +162,15 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 	}
 
 	logger.Printf("")
-	logger.Printf("✅ Server initialized successfully")
-	logger.Printf("📡 MCP Endpoint: http://%s/mcp/v1", listenAddr)
-	logger.Printf("🏥 Health Check: http://%s/healthz", listenAddr)
+	logger.Printf("✅ Server initialized successfully (HTTPS)")
+	logger.Printf("📡 MCP Endpoint: https://%s/mcp/v1", listenAddr)
+	logger.Printf("🏥 Health Check: https://%s/healthz", listenAddr)
 	logger.Printf("")
 	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	logger.Printf("")
 
-	// Start server
-	return httpServer.ListenAndServe()
+	// Start server with TLS
+	return httpServer.ServeTLS(ln, tlsCertPath, tlsKeyPath)
 }
 
 // runSTDIO runs the MCP server in STDIO mode for Claude Desktop integration

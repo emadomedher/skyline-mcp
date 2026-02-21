@@ -37,6 +37,7 @@ type Logger struct {
 	flushTicker *time.Ticker
 	buffer      []Event
 	bufferMu    sync.Mutex
+	hub         *Hub
 }
 
 // NewLogger creates a new audit logger
@@ -85,6 +86,7 @@ func NewLogger(dbPath string) (*Logger, error) {
 		db:        db,
 		batchSize: 100,
 		buffer:    make([]Event, 0, 100),
+		hub:       NewHub(),
 	}
 
 	// Start background flusher (every 5 seconds)
@@ -95,45 +97,21 @@ func NewLogger(dbPath string) (*Logger, error) {
 }
 
 // LogExecute logs a tool execution event
-func (l *Logger) LogExecute(ctx context.Context, profile, apiName, toolName string, args map[string]interface{}, duration time.Duration, statusCode int, success bool, errMsg, clientAddr string) {
+func (l *Logger) LogExecute(ctx context.Context, profile, apiName, toolName string, args map[string]interface{}, duration time.Duration, statusCode int, success bool, errMsg, clientAddr string, requestSize, responseSize int64) {
 	event := Event{
-		Timestamp:  time.Now(),
-		Profile:    profile,
-		EventType:  "execute",
-		APIName:    apiName,
-		ToolName:   toolName,
-		Arguments:  args,
-		DurationMs: duration.Milliseconds(),
-		StatusCode: statusCode,
-		Success:    success,
-		ErrorMsg:   errMsg,
-		ClientAddr: clientAddr,
-	}
-
-	l.bufferEvent(event)
-}
-
-// LogConnect logs a WebSocket connection event
-func (l *Logger) LogConnect(profile, clientAddr string) {
-	event := Event{
-		Timestamp:  time.Now(),
-		Profile:    profile,
-		EventType:  "connect",
-		Success:    true,
-		ClientAddr: clientAddr,
-	}
-
-	l.bufferEvent(event)
-}
-
-// LogDisconnect logs a WebSocket disconnection event
-func (l *Logger) LogDisconnect(profile, clientAddr string) {
-	event := Event{
-		Timestamp:  time.Now(),
-		Profile:    profile,
-		EventType:  "disconnect",
-		Success:    true,
-		ClientAddr: clientAddr,
+		Timestamp:    time.Now(),
+		Profile:      profile,
+		EventType:    "execute",
+		APIName:      apiName,
+		ToolName:     toolName,
+		Arguments:    args,
+		DurationMs:   duration.Milliseconds(),
+		StatusCode:   statusCode,
+		Success:      success,
+		ErrorMsg:     errMsg,
+		ClientAddr:   clientAddr,
+		RequestSize:  requestSize,
+		ResponseSize: responseSize,
 	}
 
 	l.bufferEvent(event)
@@ -153,8 +131,17 @@ func (l *Logger) LogError(profile, eventType, errMsg, clientAddr string) {
 	l.bufferEvent(event)
 }
 
+// EventHub returns the live event hub for real-time subscribers.
+func (l *Logger) EventHub() *Hub {
+	return l.hub
+}
+
 // bufferEvent adds an event to the buffer for batch insertion
+// and broadcasts it to live subscribers.
 func (l *Logger) bufferEvent(event Event) {
+	// Broadcast to live subscribers first (non-blocking)
+	l.hub.Publish(event)
+
 	l.bufferMu.Lock()
 	defer l.bufferMu.Unlock()
 
@@ -379,7 +366,9 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 			SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_requests,
 			AVG(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as avg_duration_ms,
 			MAX(duration_ms) as max_duration_ms,
-			MIN(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as min_duration_ms
+			MIN(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as min_duration_ms,
+			COALESCE(SUM(request_size), 0) as total_request_bytes,
+			COALESCE(SUM(response_size), 0) as total_response_bytes
 		FROM audit_events ` + baseWhere
 
 	var stats Stats
@@ -392,6 +381,8 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 		&avgDuration,
 		&stats.MaxDurationMs,
 		&minDuration,
+		&stats.TotalRequestBytes,
+		&stats.TotalResponseBytes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query stats: %w", err)
@@ -406,6 +397,8 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	if stats.TotalRequests > 0 {
 		stats.ErrorRate = float64(stats.FailedRequests) / float64(stats.TotalRequests) * 100
 	}
+	stats.EstRequestTokens = stats.TotalRequestBytes / 4
+	stats.EstResponseTokens = stats.TotalResponseBytes / 4
 
 	// Top APIs by call count
 	topAPIsQuery := `
@@ -514,6 +507,10 @@ type Stats struct {
 	AvgDurationMs      int64      `json:"avg_duration_ms"`
 	MaxDurationMs      int64      `json:"max_duration_ms"`
 	MinDurationMs      int64      `json:"min_duration_ms"`
+	TotalRequestBytes  int64      `json:"total_request_bytes"`
+	TotalResponseBytes int64      `json:"total_response_bytes"`
+	EstRequestTokens   int64      `json:"est_request_tokens"`
+	EstResponseTokens  int64      `json:"est_response_tokens"`
 	TopAPIs            []APIStats `json:"top_apis"`
 	TopTools           []APIStats `json:"top_tools"`
 	RecentEvents       []Event    `json:"recent_events"`

@@ -44,6 +44,7 @@ const serviceIcons = {
   gitlab:     "simple-icons:gitlab",
   jira:       "simple-icons:jira",
   slack:      "simple-icons:slack",
+  gmail:      "simple-icons:gmail",
 };
 
 const serviceLabels = {
@@ -51,6 +52,7 @@ const serviceLabels = {
   gitlab:     "GitLab",
   jira:       "Jira",
   slack:      "Slack",
+  gmail:      "Gmail",
 };
 
 /**
@@ -63,6 +65,7 @@ function inferKnownService(baseUrl, specUrl, specType) {
   if (/\/openapi\/v[23]|kubernetes\.default\.svc|:\d{4,5}\/api(s)?\//.test(combined)) return "kubernetes";
   if (/gitlab\.com|\/api\/v4\//.test(combined)) return "gitlab";
   if (/slack\.com|api\.slack\.com/.test(combined)) return "slack";
+  if (/gmail\.googleapis\.com/.test(combined)) return "gmail";
   return "";
 }
 
@@ -128,11 +131,11 @@ const apiClient = {
     }
     return res.json();
   },
-  async fetchOperations(specUrl, specType) {
+  async fetchOperations(specUrl, specType, name) {
     const res = await fetch("/operations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec_url: specUrl, spec_type: specType }),
+      body: JSON.stringify({ spec_url: specUrl, spec_type: specType, name: name || "" }),
     });
     if (!res.ok) {
       const msg = await res.text();
@@ -158,6 +161,8 @@ function blankApi() {
     apiKeyHeader: "X-API-Key",
     apiKeyValue: "",
     detectedOnce: false,
+    // Response truncation (per-API)
+    maxResponseBytes: "",
     // Filter configuration
     filterMode: "",
     filterOperations: [],
@@ -165,9 +170,17 @@ function blankApi() {
     selectedOperations: new Set(),
     showFilterConfig: false,
     filterLoading: false,
+    collapsedGroups: new Set(),
     // Known-service credential helpers
     knownService: "",
     kubeconfigStatus: null,
+    showSecret: false,
+    // OAuth 2.0 (Gmail)
+    oauthClientId: "",
+    oauthClientSecret: "",
+    oauthRefreshToken: "",
+    oauthEmail: "",
+    oauthConnected: false,
   };
 }
 
@@ -175,6 +188,7 @@ createApp({
   setup() {
     const profiles = ref([]);
     const activeProfile = ref("");
+    const originalProfileName = ref(""); // Track loaded name for rename detection
     const profileMetadata = ref({}); // Store API count and types for each profile
     const form = reactive({
       profileName: "",
@@ -203,7 +217,7 @@ createApp({
     const addedToast = ref(false);
     const addFlow = reactive({
       open: false,
-      step: "pick", // 'pick' | 'kubernetes' | 'gitlab' | 'jira' | 'slack' | 'custom'
+      step: "pick", // 'pick' | 'kubernetes' | 'gitlab' | 'jira' | 'slack' | 'gmail' | 'custom'
       kubeParsed: null,
       kubeStatus: null,
       kubeTutorial: false,
@@ -217,32 +231,48 @@ createApp({
       detectResults: [],
       busy: false,
       error: "",
+      // Gmail OAuth fields
+      gmailClientId: "",
+      gmailClientSecret: "",
+      gmailScopes: "https://www.googleapis.com/auth/gmail.modify",
+      gmailTutorial: false,
+      oauthRedirectUri: "",
     });
     const showToken = ref(false);
+    const oauthRedirectHint = window.location.origin;
     const showNewProfileModal = ref(false);
     const newProfileName = ref("");
     const newProfileError = ref("");
     const selectedApiId = ref("");
     const profileTab = ref("overview");
-    const apiTab = ref("stats");
     const expandedProfiles = ref({});
     const profileStats = ref(null);
+    const profileMetrics = ref(null);
     const statsLoading = ref(false);
     let isLoadingProfile = false;
 
+    // View-filter state (outside form.apis to avoid triggering auto-save)
+    const filterViewState = reactive({});
+    function getFilterView(api) {
+      if (!filterViewState[api.id]) {
+        filterViewState[api.id] = { searchQuery: "", activeMethodFilters: new Set() };
+      }
+      return filterViewState[api.id];
+    }
+
     // MCP client connect section
     const connectPanel = ref("");
-    const gatewayUrl = computed(() => {
+    const mcpUrl = computed(() => {
       if (!form.profileName) return "";
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      return `${proto}//${window.location.host}/profiles/${encodeURIComponent(form.profileName)}/gateway`;
+      const proto = window.location.protocol === "https:" ? "https:" : "http:";
+      return `${proto}//${window.location.host}/profiles/${encodeURIComponent(form.profileName)}/mcp`;
     });
     const claudeDesktopSnippet = computed(() => {
       if (!form.profileName || !form.profileToken) return "";
       return JSON.stringify({
         mcpServers: {
           [`skyline-${form.profileName}`]: {
-            url: gatewayUrl.value,
+            url: mcpUrl.value,
             headers: { Authorization: `Bearer ${form.profileToken}` },
           },
         },
@@ -250,15 +280,14 @@ createApp({
     });
     const claudeCodeCmd = computed(() => {
       if (!form.profileName || !form.profileToken) return "";
-      return `claude mcp add skyline-${form.profileName} --transport ws ${gatewayUrl.value} --header "Authorization: Bearer ${form.profileToken}"`;
+      return `claude mcp add skyline-${form.profileName} --transport http ${mcpUrl.value} --header "Authorization: Bearer ${form.profileToken}"`;
     });
     const claudeCodeSettings = computed(() => {
       if (!form.profileName || !form.profileToken) return "";
       return JSON.stringify({
         mcpServers: {
           [`skyline-${form.profileName}`]: {
-            type: "ws",
-            url: gatewayUrl.value,
+            url: mcpUrl.value,
             headers: { Authorization: `Bearer ${form.profileToken}` },
           },
         },
@@ -269,7 +298,7 @@ createApp({
       return JSON.stringify({
         mcpServers: {
           [`skyline-${form.profileName}`]: {
-            url: gatewayUrl.value,
+            url: mcpUrl.value,
             headers: { Authorization: `Bearer ${form.profileToken}` },
           },
         },
@@ -278,7 +307,7 @@ createApp({
     const codexSnippet = computed(() => {
       if (!form.profileName || !form.profileToken) return "";
       const key = `skyline-${form.profileName}`;
-      return `[mcp_servers.${key}]\nurl = "${gatewayUrl.value}"\nhttp_headers = { Authorization = "Bearer ${form.profileToken}" }`;
+      return `[mcp_servers.${key}]\nurl = "${mcpUrl.value}"\nhttp_headers = { Authorization = "Bearer ${form.profileToken}" }`;
     });
     async function copySnippet(text) {
       try {
@@ -414,10 +443,11 @@ createApp({
         isBusy.value = true;
         isLoadingProfile = true;
         // Load profile without authentication (for UI management)
-        // Profile tokens are only needed by MCP servers for gateway access
+        // Profile tokens are needed by MCP clients for authentication
         const data = await apiClient.loadProfile(name);
         form.profileName = data.name || name;
         form.profileToken = data.token || "";
+        originalProfileName.value = name;
         activeProfile.value = name;
         const cfg = data.config || {};
         form.apis = (cfg.apis || []).map((api) => ({
@@ -434,7 +464,14 @@ createApp({
           basicPass: api.auth?.password || "",
           apiKeyHeader: api.auth?.header || "X-API-Key",
           apiKeyValue: api.auth?.value || "",
+          oauthClientId: api.auth?.client_id || "",
+          oauthClientSecret: api.auth?.client_secret || "",
+          oauthRefreshToken: api.auth?.refresh_token || "",
+          oauthEmail: "",
+          oauthConnected: !!(api.auth?.refresh_token),
           detectedOnce: true,
+          // Response truncation
+          maxResponseBytes: api.max_response_bytes != null ? String(api.max_response_bytes) : "",
           // Load filter configuration
           filterMode: api.filter?.mode || "",
           filterOperations: api.filter?.operations || [],
@@ -446,6 +483,7 @@ createApp({
           ),
           showFilterConfig: false,
           filterLoading: false,
+          collapsedGroups: new Set(),
           knownService: inferKnownService(api.base_url_override || "", api.spec_url || "", inferType(api.spec_url || "")),
           kubeconfigStatus: null,
         }));
@@ -607,15 +645,21 @@ createApp({
     async function loadProfileStats(name) {
       statsLoading.value = true;
       profileStats.value = null;
+      profileMetrics.value = null;
       try {
         const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
         const res = await fetch(`/admin/stats?profile=${encodeURIComponent(name)}&since=${encodeURIComponent(since)}`);
         if (res.ok) {
           const data = await res.json();
-          profileStats.value = data.audit_stats || null;
+          profileStats.value = data.audit_stats || {};
+          profileMetrics.value = data.metrics_snapshot || {};
+        } else {
+          profileStats.value = {};
+          profileMetrics.value = {};
         }
       } catch {
-        // stats not critical
+        profileStats.value = {};
+        profileMetrics.value = {};
       } finally {
         statsLoading.value = false;
       }
@@ -631,7 +675,6 @@ createApp({
 
     function selectApi(apiId) {
       selectedApiId.value = apiId;
-      apiTab.value = "stats";
     }
 
     function backToProfile() {
@@ -691,6 +734,16 @@ createApp({
               entry.auth.header = api.apiKeyHeader;
               entry.auth.value = api.apiKeyValue;
             }
+            if (api.authType === "oauth2") {
+              entry.auth.client_id = api.oauthClientId;
+              entry.auth.client_secret = api.oauthClientSecret;
+              entry.auth.refresh_token = api.oauthRefreshToken;
+            }
+          }
+          // Include per-API max response bytes if set
+          const mrb = parseInt(api.maxResponseBytes, 10);
+          if (!isNaN(mrb) && mrb >= 0) {
+            entry.max_response_bytes = mrb;
           }
           // Include filter configuration if set
           if (api.filterMode && api.filterOperations.length > 0) {
@@ -704,8 +757,17 @@ createApp({
 
       try {
         isBusy.value = true;
+        const isRename = originalProfileName.value && form.profileName !== originalProfileName.value;
         await apiClient.saveProfile(form.profileName, form.profileToken, { apis });
+
+        // If name changed, delete the old profile
+        if (isRename) {
+          await apiClient.deleteProfile(originalProfileName.value);
+          delete profileMetadata.value[originalProfileName.value];
+        }
+
         await refreshProfiles();
+        originalProfileName.value = form.profileName;
         activeProfile.value = form.profileName;
 
         // Update profile metadata after saving
@@ -722,7 +784,7 @@ createApp({
           apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService })),
         };
 
-        if (!silent) setStatus("ok", "Profile saved.");
+        if (!silent) setStatus("ok", isRename ? "Profile renamed and saved." : "Profile saved.");
       } catch (err) {
         setStatus("error", err.message);
       } finally {
@@ -785,6 +847,7 @@ createApp({
         form.profileName = "";
         form.profileToken = "";
         form.apis = [];
+        originalProfileName.value = "";
         activeProfile.value = "";
         setStatus("ok", "Profile deleted.");
       } catch (err) {
@@ -803,13 +866,13 @@ createApp({
     }
 
     async function fetchOperations(api) {
-      if (!api.specUrl) {
-        setStatus("error", "Spec URL is required to fetch operations.");
+      if (!api.specUrl && !api.name) {
+        setStatus("error", "Spec URL or API name is required to fetch operations.");
         return;
       }
       try {
         api.filterLoading = true;
-        const result = await apiClient.fetchOperations(api.specUrl, api.type);
+        const result = await apiClient.fetchOperations(api.specUrl, api.type, api.name);
         if (result.error) {
           setStatus("error", result.error);
           return;
@@ -837,6 +900,16 @@ createApp({
             api.selectedOperations.add(op.id);
           });
         }
+
+        // Start with all groups collapsed
+        api.collapsedGroups = new Set(
+          groupOperations(api.availableOperations).map(g => g.name)
+        );
+
+        // Reset view filters
+        const fv = getFilterView(api);
+        fv.searchQuery = "";
+        fv.activeMethodFilters = new Set();
 
         const modeHint = api.filterMode ? "" : " All operations currently allowed. Choose filter mode to restrict.";
         setStatus("ok", `Loaded ${api.availableOperations.length} operations.${modeHint}`);
@@ -900,7 +973,155 @@ createApp({
       api.filterMode = "";
       api.filterOperations = [];
       api.selectedOperations.clear();
+      api.collapsedGroups = new Set();
       setStatus("ok", "Filter cleared.");
+    }
+
+    // Group operations by resource path prefix for easier navigation.
+    // e.g. /rest/api/2/issue/{id} and /rest/api/2/issue → group "issue"
+    function groupOperations(operations) {
+      const groups = new Map();
+      for (const op of operations) {
+        const key = extractResourceGroup(op.path, op.id);
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key).push(op);
+      }
+      // Sort groups alphabetically, return as array of { name, operations }
+      return Array.from(groups.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, ops]) => ({ name, operations: ops }));
+    }
+
+    function extractResourceGroup(path, operationId) {
+      // Dot-notation operationIds (Google Discovery: "users.messages.list")
+      // encode resource hierarchy better than paths for these APIs.
+      if (operationId && operationId.includes(".")) {
+        const idParts = operationId.split(".");
+        // 3+: "users.messages.list" → "Messages"
+        if (idParts.length >= 3) {
+          const r = idParts[idParts.length - 2];
+          return r.charAt(0).toUpperCase() + r.slice(1);
+        }
+        // 2: "conversations.list" → "Conversations"
+        if (idParts.length === 2) {
+          const r = idParts[0];
+          return r.charAt(0).toUpperCase() + r.slice(1);
+        }
+      }
+      if (!path || path === "/") {
+        // Fall back to operation ID prefix (e.g., "getIssue" → "issue")
+        const match = operationId?.match(/^(?:get|list|create|update|delete|search|find|add|remove|set|bulk)(.+?)(?:By.*)?$/i);
+        if (match) return match[1].replace(/([a-z])([A-Z])/g, "$1 $2").trim();
+        return "Other";
+      }
+      // Strip common API version prefixes
+      let p = path.replace(/^\/(?:rest\/)?(?:api\/)?(?:v?\d+\/)?/, "/");
+      // Split and find the first meaningful segment
+      const parts = p.split("/").filter(Boolean);
+      if (parts.length === 0) return "Root";
+      // Skip path parameters ({…}) and generic prefixes to find the resource name
+      let resource = parts.find(seg => !seg.startsWith("{") && !/^(?:api|rest|v\d+)$/i.test(seg));
+      if (!resource) return "Other";
+      return resource.charAt(0).toUpperCase() + resource.slice(1);
+    }
+
+    function toggleGroup(api, groupName) {
+      if (!api.collapsedGroups) api.collapsedGroups = new Set();
+      if (api.collapsedGroups.has(groupName)) {
+        api.collapsedGroups.delete(groupName);
+      } else {
+        api.collapsedGroups.add(groupName);
+      }
+    }
+
+    function toggleGroupSelection(api, groupOps) {
+      const allSelected = groupOps.every(op => api.selectedOperations.has(op.id));
+      if (allSelected) {
+        groupOps.forEach(op => api.selectedOperations.delete(op.id));
+      } else {
+        groupOps.forEach(op => api.selectedOperations.add(op.id));
+      }
+      if (api.filterMode && api.selectedOperations.size > 0) {
+        applyFilterAuto(api);
+      }
+    }
+
+    // ── View-filter functions (method pills, search, bulk actions) ─────────────
+
+    function allMethodsForApi(api) {
+      const methods = new Set();
+      for (const op of api.availableOperations) {
+        methods.add(op.method.toUpperCase());
+      }
+      const order = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      return Array.from(methods).sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+      });
+    }
+
+    function isMethodActive(api, method) {
+      const fv = getFilterView(api);
+      if (fv.activeMethodFilters.size === 0) return true;
+      return fv.activeMethodFilters.has(method);
+    }
+
+    function toggleMethodFilter(api, method) {
+      const fv = getFilterView(api);
+      const allMethods = allMethodsForApi(api);
+      if (fv.activeMethodFilters.size === 0) {
+        // All currently active — deactivate clicked one
+        allMethods.forEach(m => { if (m !== method) fv.activeMethodFilters.add(m); });
+      } else if (fv.activeMethodFilters.has(method)) {
+        if (fv.activeMethodFilters.size > 1) {
+          fv.activeMethodFilters.delete(method);
+        }
+      } else {
+        fv.activeMethodFilters.add(method);
+        if (fv.activeMethodFilters.size === allMethods.length) {
+          fv.activeMethodFilters.clear();
+        }
+      }
+    }
+
+    function filteredOperations(api) {
+      const fv = getFilterView(api);
+      let ops = api.availableOperations;
+      if (fv.activeMethodFilters.size > 0) {
+        ops = ops.filter(op => fv.activeMethodFilters.has(op.method.toUpperCase()));
+      }
+      const q = (fv.searchQuery || "").trim().toLowerCase();
+      if (q) {
+        ops = ops.filter(op =>
+          (op.id && op.id.toLowerCase().includes(q)) ||
+          (op.path && op.path.toLowerCase().includes(q)) ||
+          (op.summary && op.summary.toLowerCase().includes(q))
+        );
+      }
+      return ops;
+    }
+
+    function filteredGroups(api) {
+      return groupOperations(filteredOperations(api));
+    }
+
+    function selectVisible(api) {
+      filteredOperations(api).forEach(op => api.selectedOperations.add(op.id));
+      if (api.filterMode) applyFilterAuto(api);
+    }
+
+    function deselectVisible(api) {
+      filteredOperations(api).forEach(op => api.selectedOperations.delete(op.id));
+      if (api.filterMode) applyFilterAuto(api);
+    }
+
+    function clearSearch(api) {
+      getFilterView(api).searchQuery = "";
     }
 
     function toggleTokenVisibility() {
@@ -1173,6 +1394,104 @@ createApp({
       addApiToProfile(api);
     }
 
+    async function addGmail() {
+      if (!addFlow.gmailClientId.trim()) { addFlow.error = "Client ID is required."; return; }
+      if (!addFlow.gmailClientSecret.trim()) { addFlow.error = "Client Secret is required."; return; }
+      addFlow.busy = true;
+      addFlow.error = "";
+      try {
+        // Step 1: Get the OAuth URL from the backend
+        const startRes = await fetch("/oauth/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: addFlow.gmailClientId.trim(),
+            scopes: addFlow.gmailScopes,
+          }),
+        });
+        const startData = await startRes.json();
+        if (!startData.auth_url) { addFlow.error = "Failed to generate OAuth URL."; return; }
+        addFlow.oauthRedirectUri = startData.redirect_uri;
+
+        // Step 2: Open the OAuth popup
+        const popup = window.open(startData.auth_url, "skyline-oauth",
+          "width=600,height=700,left=200,top=100");
+        if (!popup) {
+          addFlow.error = "Popup blocked — please allow popups for this site and try again.";
+          return;
+        }
+
+        // Step 3: Listen for the callback message
+        const code = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            window.removeEventListener("message", handler);
+            reject(new Error("OAuth timed out — close the popup and try again."));
+          }, 300000);
+          function handler(event) {
+            if (event.origin !== window.location.origin) return;
+            if (event.data?.type !== "skyline-oauth-callback") return;
+            clearTimeout(timeout);
+            window.removeEventListener("message", handler);
+            if (event.data.success && event.data.code) {
+              resolve(event.data.code);
+            } else {
+              reject(new Error(event.data.error || "OAuth authorization failed."));
+            }
+          }
+          window.addEventListener("message", handler);
+        });
+
+        // Step 4: Exchange the code for tokens
+        const exchangeRes = await fetch("/oauth/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: code,
+            client_id: addFlow.gmailClientId.trim(),
+            client_secret: addFlow.gmailClientSecret.trim(),
+            redirect_uri: addFlow.oauthRedirectUri,
+          }),
+        });
+        const exchangeData = await exchangeRes.json();
+        if (!exchangeData.ok) {
+          addFlow.error = `Token exchange failed: ${exchangeData.error}`;
+          return;
+        }
+
+        // Step 5: Verify the connection
+        const verifyRes = await fetch("/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ service: "gmail", access_token: exchangeData.access_token }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyData.ok) {
+          addFlow.error = `Gmail verification failed: ${verifyData.error}`;
+          return;
+        }
+
+        // Step 6: Create the API entry
+        const api = blankApi();
+        api.name = addFlow.apiName.trim() || "Gmail";
+        api.baseUrl = "https://gmail.googleapis.com";
+        api.specUrl = "https://gmail.googleapis.com/$discovery/rest?version=v1";
+        api.type = "google-discovery";
+        api.knownService = "gmail";
+        api.authType = "oauth2";
+        api.oauthClientId = addFlow.gmailClientId.trim();
+        api.oauthClientSecret = addFlow.gmailClientSecret.trim();
+        api.oauthRefreshToken = exchangeData.refresh_token;
+        api.oauthEmail = verifyData.email || "";
+        api.oauthConnected = true;
+        api.detectedOnce = true;
+        addApiToProfile(api);
+      } catch (err) {
+        addFlow.error = err.message;
+      } finally {
+        addFlow.busy = false;
+      }
+    }
+
     async function runAddFlowDetect() {
       if (!addFlow.customUrl.trim()) { addFlow.error = "URL is required."; return; }
       try {
@@ -1244,6 +1563,18 @@ createApp({
       toggleOperationSelection,
       onFilterModeChange,
       clearFilter,
+      groupOperations,
+      toggleGroup,
+      toggleGroupSelection,
+      getFilterView,
+      allMethodsForApi,
+      isMethodActive,
+      toggleMethodFilter,
+      filteredOperations,
+      filteredGroups,
+      selectVisible,
+      deselectVisible,
+      clearSearch,
       showToken,
       toggleTokenVisibility,
       serviceIcons,
@@ -1261,15 +1592,17 @@ createApp({
       addGitLab,
       addJira,
       addSlack,
+      addGmail,
+      oauthRedirectHint,
       runAddFlowDetect,
       addFromDetectResult,
       // Profile tree / tabs
       selectedApiId,
       selectedApi,
       profileTab,
-      apiTab,
       expandedProfiles,
       profileStats,
+      profileMetrics,
       statsLoading,
       selectProfile,
       selectApi,
@@ -1370,21 +1703,7 @@ createApp({
               {{ selectedApi.name || selectedApi.specUrl }}
             </div>
           </div>
-          <div class="tab-bar">
-            <button :class="['tab-btn', { active: apiTab === 'stats' }]" @click="apiTab = 'stats'">Stats</button>
-            <button :class="['tab-btn', { active: apiTab === 'config' }]" @click="apiTab = 'config'">Config</button>
-          </div>
-
-          <div v-if="apiTab === 'stats'" class="tab-content">
-            <div class="welcome-screen" style="min-height:200px;">
-              <div class="welcome-content">
-                <iconify-icon icon="mdi:chart-bar" style="font-size:40px; color:var(--text-dim);"></iconify-icon>
-                <p style="color:var(--text-dim); margin-top:12px;">Per-API stats coming soon.</p>
-              </div>
-            </div>
-          </div>
-
-          <div v-else-if="apiTab === 'config'" class="tab-content">
+          <div class="tab-content">
             <div class="api-card">
               <div class="api-header">
                 <div class="api-type">
@@ -1401,10 +1720,11 @@ createApp({
                 </div>
               </div>
 
-              <div class="form-grid">
+              <!-- Known services: show connection info as read-only -->
+              <div v-if="selectedApi.knownService" class="form-grid">
                 <div>
                   <label>Base URL</label>
-                  <input v-model="selectedApi.baseUrl" placeholder="http://localhost:9999" @blur="detectOnBlur(selectedApi)" />
+                  <input :value="selectedApi.baseUrl" readonly class="input-readonly" />
                 </div>
                 <div>
                   <label>API name</label>
@@ -1412,57 +1732,46 @@ createApp({
                 </div>
               </div>
 
-              <div class="form-grid">
-                <div>
-                  <label>Detected spec URL</label>
-                  <input v-model="selectedApi.specUrl" placeholder="autofilled after detect" />
-                </div>
-                <div>
-                  <label>Auth type</label>
-                  <select v-model="selectedApi.authType">
-                    <option value="none">None</option>
-                    <option value="bearer">Bearer</option>
-                    <option value="basic">Basic</option>
-                    <option value="api-key">API Key</option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-if="selectedApi.detectedOptions.length > 1" class="form-grid">
-                <div>
-                  <label>Detected types</label>
-                  <select @change="selectDetectedOption(selectedApi, selectedApi.detectedOptions[$event.target.selectedIndex])">
-                    <option v-for="opt in selectedApi.detectedOptions" :key="opt.spec_url">
-                      {{ typeLabels[opt.type] || opt.type }} — {{ opt.spec_url }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-if="selectedApi.authType === 'bearer'" class="form-grid">
-                <div><label>Bearer token</label><input v-model="selectedApi.bearerToken" type="password" /></div>
-              </div>
-              <div v-if="selectedApi.authType === 'basic'" class="form-grid">
-                <div><label>Username</label><input v-model="selectedApi.basicUser" /></div>
-                <div><label>Password</label><input v-model="selectedApi.basicPass" type="password" /></div>
-              </div>
-              <div v-if="selectedApi.authType === 'api-key'" class="form-grid">
-                <div><label>Header</label><input v-model="selectedApi.apiKeyHeader" /></div>
-                <div><label>Value</label><input v-model="selectedApi.apiKeyValue" type="password" /></div>
-              </div>
-
-              <!-- Known-service credential helpers -->
+              <!-- Known-service credential helpers (shown instead of generic auth) -->
               <div v-if="selectedApi.knownService === 'gitlab'" class="credential-helper gitlab-helper">
                 <div class="helper-header"><iconify-icon icon="simple-icons:gitlab"></iconify-icon>GitLab Authentication</div>
                 <p class="helper-desc">Personal Access Token (requires <code>api</code> scope).</p>
-                <input type="password" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" :value="selectedApi.bearerToken"
-                  @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" />
+                <div style="position:relative;">
+                  <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" :value="selectedApi.bearerToken"
+                    @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                  <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                    <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                  </button>
+                </div>
               </div>
               <div v-if="selectedApi.knownService === 'jira'" class="credential-helper jira-helper">
                 <div class="helper-header"><iconify-icon icon="simple-icons:jira"></iconify-icon>Jira Authentication</div>
-                <p class="helper-desc">Personal Access Token.</p>
-                <input type="password" placeholder="Your Jira PAT" :value="selectedApi.bearerToken"
-                  @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" />
+                <template v-if="selectedApi.authType === 'basic'">
+                  <p class="helper-desc">Email &amp; API Token (Jira Cloud).</p>
+                  <div class="form-grid">
+                    <div><label>Email</label><input v-model="selectedApi.basicUser" placeholder="you@company.com" /></div>
+                    <div>
+                      <label>API Token</label>
+                      <div style="position:relative;">
+                        <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="Your Jira API token" :value="selectedApi.basicPass"
+                          @input="selectedApi.basicPass=$event.target.value" style="width:100%; padding-right:40px;" />
+                        <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                          <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
+                  <p class="helper-desc">Personal Access Token.</p>
+                  <div style="position:relative;">
+                    <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="Your Jira PAT" :value="selectedApi.bearerToken"
+                      @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                    <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                      <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                    </button>
+                  </div>
+                </template>
               </div>
               <div v-if="selectedApi.knownService === 'slack'" class="credential-helper slack-helper">
                 <div class="helper-header"><iconify-icon icon="simple-icons:slack"></iconify-icon>Slack Authentication</div>
@@ -1471,8 +1780,114 @@ createApp({
                   <span v-else-if="slackTokenType(selectedApi.bearerToken) === 'user'">User token detected</span>
                   <span v-else>Enter an <code>xoxb-</code> Bot Token or <code>xoxp-</code> User Token</span>
                 </p>
-                <input type="password" placeholder="xoxb-... or xoxp-..." :value="selectedApi.bearerToken"
-                  @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" />
+                <div style="position:relative;">
+                  <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="xoxb-... or xoxp-..." :value="selectedApi.bearerToken"
+                    @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                  <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                    <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="selectedApi.knownService === 'gmail'" class="credential-helper gmail-helper">
+                <div class="helper-header"><iconify-icon icon="simple-icons:gmail"></iconify-icon>Gmail Authentication (OAuth 2.0)</div>
+                <div v-if="selectedApi.oauthConnected" style="display:flex; align-items:center; gap:6px; margin:8px 0;">
+                  <iconify-icon icon="mdi:check-circle" style="color:var(--green); font-size:16px;"></iconify-icon>
+                  <span>Connected<span v-if="selectedApi.oauthEmail"> as {{ selectedApi.oauthEmail }}</span></span>
+                </div>
+                <div v-else style="display:flex; align-items:center; gap:6px; margin:8px 0;">
+                  <iconify-icon icon="mdi:alert-circle" style="color:var(--red); font-size:16px;"></iconify-icon>
+                  <span>Not connected — re-add this API to authorize</span>
+                </div>
+                <p class="helper-desc" style="margin-top:4px;">OAuth credentials are encrypted in the profile. Tokens refresh automatically.</p>
+              </div>
+
+              <!-- Generic APIs: full editable connection fields -->
+              <template v-if="!selectedApi.knownService">
+                <div class="form-grid">
+                  <div>
+                    <label>Base URL</label>
+                    <input v-model="selectedApi.baseUrl" placeholder="http://localhost:9999" @blur="detectOnBlur(selectedApi)" />
+                  </div>
+                  <div>
+                    <label>API name</label>
+                    <input v-model="selectedApi.name" placeholder="domain - API type" />
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label>Spec URL</label>
+                    <input v-model="selectedApi.specUrl" placeholder="autofilled after detect" />
+                  </div>
+                  <div>
+                    <label>Auth type</label>
+                    <select v-model="selectedApi.authType">
+                      <option value="none">None</option>
+                      <option value="bearer">Bearer</option>
+                      <option value="basic">Basic</option>
+                      <option value="api-key">API Key</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-if="selectedApi.detectedOptions.length > 1" class="form-grid">
+                  <div>
+                    <label>Detected types</label>
+                    <select @change="selectDetectedOption(selectedApi, selectedApi.detectedOptions[$event.target.selectedIndex])">
+                      <option v-for="opt in selectedApi.detectedOptions" :key="opt.spec_url">
+                        {{ typeLabels[opt.type] || opt.type }} — {{ opt.spec_url }}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-if="selectedApi.authType === 'bearer'" class="form-grid">
+                  <div>
+                    <label>Bearer token</label>
+                    <div style="position:relative;">
+                      <input v-model="selectedApi.bearerToken" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="selectedApi.authType === 'basic'" class="form-grid">
+                  <div><label>Username</label><input v-model="selectedApi.basicUser" /></div>
+                  <div>
+                    <label>Password</label>
+                    <div style="position:relative;">
+                      <input v-model="selectedApi.basicPass" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="selectedApi.authType === 'api-key'" class="form-grid">
+                  <div><label>Header</label><input v-model="selectedApi.apiKeyHeader" /></div>
+                  <div>
+                    <label>Value</label>
+                    <div style="position:relative;">
+                      <input v-model="selectedApi.apiKeyValue" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
+                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Response Truncation -->
+              <div class="form-grid" style="margin-top:12px;">
+                <div>
+                  <label>Max Response Size</label>
+                  <input v-model="selectedApi.maxResponseBytes" type="number" min="0" step="1024" placeholder="Default (51200 = 50KB)" />
+                  <div class="muted" style="font-size:11px; margin-top:4px;">
+                    Bytes. 0 = no limit. Empty = inherit global default (50KB).
+                  </div>
+                </div>
               </div>
 
               <!-- Filter Configuration -->
@@ -1509,29 +1924,73 @@ createApp({
                     <div style="margin-top:12px;">Loading operations...</div>
                   </div>
                   <div v-else-if="selectedApi.availableOperations.length > 0">
-                    <div class="operations-header">
-                      <div class="operations-counter">
-                        <iconify-icon icon="mdi:format-list-checks"></iconify-icon>
-                        Select Operations
-                        <span class="counter-badge">{{ selectedApi.selectedOperations.size }} / {{ selectedApi.availableOperations.length }}</span>
+                    <!-- Filter Toolbar: method pills + search + bulk actions -->
+                    <div class="filter-toolbar">
+                      <div class="method-pills">
+                        <button
+                          v-for="method in allMethodsForApi(selectedApi)"
+                          :key="method"
+                          class="method-pill"
+                          :class="[method.toLowerCase(), { inactive: !isMethodActive(selectedApi, method) }]"
+                          @click="toggleMethodFilter(selectedApi, method)"
+                        >{{ method }}</button>
+                      </div>
+                      <div class="filter-search-wrapper">
+                        <iconify-icon icon="mdi:magnify" class="filter-search-icon"></iconify-icon>
+                        <input
+                          type="text"
+                          class="filter-search-input"
+                          placeholder="Search by name, path, or description..."
+                          :value="getFilterView(selectedApi).searchQuery"
+                          @input="getFilterView(selectedApi).searchQuery = $event.target.value"
+                        />
+                        <button v-if="getFilterView(selectedApi).searchQuery" class="filter-search-clear" @click="clearSearch(selectedApi)">
+                          <iconify-icon icon="mdi:close-circle"></iconify-icon>
+                        </button>
+                      </div>
+                      <div class="filter-bulk-actions">
+                        <span class="filter-visible-count">
+                          {{ filteredOperations(selectedApi).length }} of {{ selectedApi.availableOperations.length }} visible
+                          · {{ selectedApi.selectedOperations.size }} selected
+                        </span>
+                        <button class="ghost small" @click="selectVisible(selectedApi)">
+                          <iconify-icon icon="mdi:checkbox-multiple-marked"></iconify-icon> Select visible
+                        </button>
+                        <button class="ghost small" @click="deselectVisible(selectedApi)">
+                          <iconify-icon icon="mdi:checkbox-multiple-blank-outline"></iconify-icon> Deselect visible
+                        </button>
                       </div>
                     </div>
+
                     <div class="operations-list">
-                      <div
-                        v-for="op in selectedApi.availableOperations"
-                        :key="op.id"
-                        class="operation-item"
-                        :class="{ selected: selectedApi.selectedOperations.has(op.id) }"
-                        @click="toggleOperationSelection(selectedApi, op.id)"
-                      >
-                        <input type="checkbox" class="operation-checkbox" :checked="selectedApi.selectedOperations.has(op.id)" @click.stop="toggleOperationSelection(selectedApi, op.id)" />
-                        <div class="operation-content">
-                          <div class="operation-header">
-                            <span class="method-badge" :class="op.method.toLowerCase()">{{ op.method }}</span>
-                            <span class="operation-id">{{ op.id }}</span>
+                      <div v-for="group in filteredGroups(selectedApi)" :key="group.name" class="op-group">
+                        <div class="op-group-header" @click="toggleGroup(selectedApi, group.name)">
+                          <input type="checkbox" class="operation-checkbox"
+                            :checked="group.operations.every(op => selectedApi.selectedOperations.has(op.id))"
+                            :indeterminate.prop="group.operations.some(op => selectedApi.selectedOperations.has(op.id)) && !group.operations.every(op => selectedApi.selectedOperations.has(op.id))"
+                            @click.stop="toggleGroupSelection(selectedApi, group.operations)" />
+                          <iconify-icon :icon="selectedApi.collapsedGroups?.has(group.name) ? 'mdi:chevron-right' : 'mdi:chevron-down'" class="op-group-chevron"></iconify-icon>
+                          <span class="op-group-name">{{ group.name }}</span>
+                          <span class="op-group-count">{{ group.operations.filter(op => selectedApi.selectedOperations.has(op.id)).length }}/{{ group.operations.length }}</span>
+                        </div>
+                        <div v-if="!selectedApi.collapsedGroups?.has(group.name)" class="op-group-body">
+                          <div
+                            v-for="op in group.operations"
+                            :key="op.id"
+                            class="operation-item"
+                            :class="{ selected: selectedApi.selectedOperations.has(op.id) }"
+                            @click="toggleOperationSelection(selectedApi, op.id)"
+                          >
+                            <input type="checkbox" class="operation-checkbox" :checked="selectedApi.selectedOperations.has(op.id)" @click.stop="toggleOperationSelection(selectedApi, op.id)" />
+                            <div class="operation-content">
+                              <div class="operation-header">
+                                <span class="method-badge" :class="op.method.toLowerCase()">{{ op.method }}</span>
+                                <span class="operation-id">{{ op.id }}</span>
+                              </div>
+                              <div class="operation-path">{{ op.path }}</div>
+                              <div v-if="op.summary" class="operation-summary">{{ op.summary }}</div>
+                            </div>
                           </div>
-                          <div class="operation-path">{{ op.path }}</div>
-                          <div v-if="op.summary" class="operation-summary">{{ op.summary }}</div>
                         </div>
                       </div>
                     </div>
@@ -1574,62 +2033,108 @@ createApp({
             <button :class="['tab-btn', { active: profileTab === 'settings' }]" @click="profileTab = 'settings'">Settings</button>
           </div>
 
-          <!-- Overview tab: stats -->
+          <!-- Overview tab: always-visible dashboard -->
           <div v-if="profileTab === 'overview'" class="tab-content">
             <div v-if="statsLoading" class="loading-state" style="padding:40px; text-align:center;">
               <iconify-icon icon="mdi:loading" style="font-size:32px; color:var(--text-dim);"></iconify-icon>
               <div style="margin-top:12px; color:var(--text-dim);">Loading stats...</div>
             </div>
-            <div v-else-if="!profileStats || profileStats.total_requests === 0" class="welcome-screen" style="min-height:200px;">
-              <div class="welcome-content">
-                <iconify-icon icon="mdi:chart-bar" style="font-size:40px; color:var(--text-dim);"></iconify-icon>
-                <p style="color:var(--text-dim); margin-top:12px;">No activity in the last 24 hours.</p>
-                <p style="color:var(--text-dim); font-size:12px;">Connect a client to start seeing usage data here.</p>
-              </div>
-            </div>
             <div v-else>
-              <div class="stats-grid">
-                <div class="stat-card">
-                  <div class="stat-value">{{ profileStats.total_requests }}</div>
-                  <div class="stat-label">Total Calls (24h)</div>
+              <!-- Connection & profile summary -->
+              <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; display:flex; align-items:center; gap:12px;">
+                  <div :style="{ width:'10px', height:'10px', borderRadius:'50%', background: (profileMetrics && profileMetrics.active_connections > 0) ? 'var(--green)' : 'var(--text-dim)', boxShadow: (profileMetrics && profileMetrics.active_connections > 0) ? '0 0 8px var(--green)' : 'none' }"></div>
+                  <div>
+                    <div style="font-weight:600; font-size:14px;">{{ (profileMetrics && profileMetrics.active_connections > 0) ? 'Agent Connected' : 'No Agent Connected' }}</div>
+                    <div class="muted" style="font-size:12px;">{{ (profileMetrics && profileMetrics.active_connections) || 0 }} active {{ (profileMetrics && profileMetrics.active_connections === 1) ? 'connection' : 'connections' }}</div>
+                  </div>
                 </div>
-                <div class="stat-card" :class="{ 'stat-error': profileStats.error_rate > 10 }">
-                  <div class="stat-value">{{ profileStats.error_rate.toFixed(1) }}%</div>
-                  <div class="stat-label">Error Rate</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ profileStats.avg_duration_ms }}ms</div>
-                  <div class="stat-label">Avg Duration</div>
+                <div style="display:flex; gap:12px;">
+                  <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; text-align:center; min-width:90px;">
+                    <div style="font-size:22px; font-weight:700;">{{ form.apis.length }}</div>
+                    <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">APIs</div>
+                  </div>
+                  <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; text-align:center; min-width:90px;">
+                    <div style="font-size:22px; font-weight:700;">{{ (profileMetrics && profileMetrics.total_connections) || 0 }}</div>
+                    <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Sessions</div>
+                  </div>
                 </div>
               </div>
 
-              <div v-if="profileStats.top_apis && profileStats.top_apis.length > 0" class="stats-section">
+              <!-- Metrics grid — always visible, zeros when empty -->
+              <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="stat-card">
+                  <div class="stat-value">{{ (profileStats && profileStats.total_requests) || 0 }}</div>
+                  <div class="stat-label">Tool Calls (24h)</div>
+                </div>
+                <div class="stat-card" :class="{ 'stat-error': profileStats && profileStats.error_rate > 10 }">
+                  <div class="stat-value">{{ profileStats && profileStats.total_requests > 0 ? profileStats.error_rate.toFixed(1) + '%' : '0%' }}</div>
+                  <div class="stat-label">Error Rate</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value">{{ profileStats && profileStats.avg_duration_ms > 0 ? profileStats.avg_duration_ms + 'ms' : '--' }}</div>
+                  <div class="stat-label">Avg Latency</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value">{{ (profileStats && profileStats.successful_requests) || 0 }}</div>
+                  <div class="stat-label">Successful</div>
+                </div>
+              </div>
+
+              <!-- Token usage -->
+              <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="stat-card">
+                  <div class="stat-value" style="font-size:22px;">{{ (profileStats && profileStats.est_request_tokens) ? profileStats.est_request_tokens.toLocaleString() : '0' }}</div>
+                  <div class="stat-label">Est. Tokens In</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" style="font-size:22px;">{{ (profileStats && profileStats.est_response_tokens) ? profileStats.est_response_tokens.toLocaleString() : '0' }}</div>
+                  <div class="stat-label">Est. Tokens Out</div>
+                </div>
+              </div>
+
+              <!-- Top APIs -->
+              <div class="stats-section">
                 <div class="stats-section-title">Top APIs</div>
-                <div class="stats-table">
+                <div v-if="profileStats && profileStats.top_apis && profileStats.top_apis.length > 0" class="stats-table">
                   <div class="stats-row header"><span>API</span><span>Calls</span><span>Errors</span><span>Avg ms</span></div>
                   <div v-for="a in profileStats.top_apis" :key="a.name" class="stats-row">
                     <span>{{ a.name }}</span><span>{{ a.calls }}</span><span>{{ a.errors }}</span><span>{{ a.avg_ms }}</span>
                   </div>
                 </div>
+                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
+                  API usage will appear here when agents start making calls
+                </div>
               </div>
 
-              <div v-if="profileStats.top_tools && profileStats.top_tools.length > 0" class="stats-section">
+              <!-- Top Tools -->
+              <div class="stats-section">
                 <div class="stats-section-title">Top Tools</div>
-                <div class="stats-table">
+                <div v-if="profileStats && profileStats.top_tools && profileStats.top_tools.length > 0" class="stats-table">
                   <div class="stats-row header"><span>Tool</span><span>Calls</span><span>Errors</span><span>Avg ms</span></div>
                   <div v-for="t in profileStats.top_tools" :key="t.name" class="stats-row">
                     <span>{{ t.name }}</span><span>{{ t.calls }}</span><span>{{ t.errors }}</span><span>{{ t.avg_ms }}</span>
                   </div>
                 </div>
+                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
+                  Tool call breakdown will appear here after first usage
+                </div>
               </div>
 
-              <div v-if="profileStats.recent_events && profileStats.recent_events.length > 0" class="stats-section">
+              <!-- Recent Activity -->
+              <div class="stats-section">
                 <div class="stats-section-title">Recent Activity</div>
-                <div v-for="e in profileStats.recent_events.slice(0, 10)" :key="e.id" class="event-row">
-                  <span class="event-dot" :class="{ ok: e.success, err: !e.success }"></span>
-                  <span class="event-tool">{{ e.tool_name || e.event_type }}</span>
-                  <span class="event-api muted">{{ e.api_name }}</span>
-                  <span class="event-dur muted">{{ e.duration_ms }}ms</span>
+                <div v-if="profileStats && profileStats.recent_events && profileStats.recent_events.length > 0">
+                  <div v-for="e in profileStats.recent_events.slice(0, 10)" :key="e.id" class="event-row">
+                    <span class="event-dot" :class="{ ok: e.success, err: !e.success }"></span>
+                    <span class="event-tool">{{ e.tool_name || e.event_type }}</span>
+                    <span class="event-api muted">{{ e.api_name }}</span>
+                    <span v-if="e.request_size || e.response_size" class="muted" style="font-size:11px; color:#FBBF24;">~{{ Math.round((e.request_size || 0) / 4) }}/{{ Math.round((e.response_size || 0) / 4) }} tok</span>
+                    <span class="event-dur muted">{{ e.duration_ms }}ms</span>
+                  </div>
+                </div>
+                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
+                  Activity log will stream here as agents call tools
                 </div>
               </div>
             </div>
@@ -1824,6 +2329,10 @@ createApp({
                   <iconify-icon icon="simple-icons:slack" style="font-size:28px; color:#E01E5A;"></iconify-icon>
                   <span>Slack</span>
                 </button>
+                <button class="service-pick-btn" @click="pickService('gmail')">
+                  <iconify-icon icon="simple-icons:gmail" style="font-size:28px; color:#EA4335;"></iconify-icon>
+                  <span>Gmail</span>
+                </button>
                 <button class="service-pick-btn service-pick-custom" @click="pickService('custom')">
                   <iconify-icon icon="mdi:cloud-search-outline" style="font-size:28px;"></iconify-icon>
                   <span>Custom API</span>
@@ -1981,6 +2490,53 @@ kubectl create token skyline --duration=8760h</pre>
               <button class="primary" :disabled="addFlow.busy" @click="addSlack">
                 <iconify-icon icon="mdi:check"></iconify-icon>
                 {{ addFlow.busy ? 'Verifying…' : 'Add to Profile' }}
+              </button>
+            </div>
+          </template>
+
+          <!-- Step: gmail -->
+          <template v-else-if="addFlow.step === 'gmail'">
+            <div class="modal-header">
+              <iconify-icon icon="simple-icons:gmail" style="font-size:22px; color:#EA4335;"></iconify-icon>
+              <span>Add Gmail API</span>
+            </div>
+            <div class="modal-body">
+              <div style="margin-bottom:12px;">
+                <label>Client ID <span style="color:var(--text-dim); font-size:11px;">(from Google Cloud Console)</span></label>
+                <input v-model="addFlow.gmailClientId" placeholder="123456789.apps.googleusercontent.com" />
+              </div>
+              <div style="margin-bottom:12px;">
+                <label>Client Secret</label>
+                <input v-model="addFlow.gmailClientSecret" type="password" placeholder="GOCSPX-..." />
+              </div>
+              <div style="margin-bottom:16px;">
+                <label>API Name</label>
+                <input v-model="addFlow.apiName" placeholder="Gmail" />
+              </div>
+
+              <!-- Tutorial toggle -->
+              <div class="kube-tutorial-toggle" @click="addFlow.gmailTutorial = !addFlow.gmailTutorial">
+                <iconify-icon :icon="addFlow.gmailTutorial ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
+                <span>How to create Google OAuth credentials</span>
+              </div>
+              <div v-if="addFlow.gmailTutorial" class="kube-tutorial">
+                <p>1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--blue);">Google Cloud Console &rarr; APIs &amp; Credentials</a></p>
+                <p>2. Create a new project (or select an existing one)</p>
+                <p>3. Enable the <strong>Gmail API</strong> in APIs &amp; Services &rarr; Library</p>
+                <p>4. Configure the <strong>OAuth consent screen</strong> (External, add your email as test user)</p>
+                <p>5. Go to <strong>Credentials</strong> &rarr; Create Credentials &rarr; <strong>OAuth client ID</strong></p>
+                <p>6. Application type: <strong>Web application</strong></p>
+                <p>7. Add Authorized redirect URI: <code style="background:var(--bg-alt); padding:2px 6px; border-radius:3px;">{{ oauthRedirectHint }}/oauth/callback</code></p>
+                <p>8. Copy the Client ID and Client Secret into the fields above</p>
+              </div>
+
+              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
+            </div>
+            <div class="modal-footer">
+              <button class="ghost" @click="pickService('pick')">Back</button>
+              <button class="primary" :disabled="addFlow.busy" @click="addGmail">
+                <iconify-icon icon="mdi:check"></iconify-icon>
+                {{ addFlow.busy ? 'Connecting…' : 'Connect Gmail Account' }}
               </button>
             </div>
           </template>

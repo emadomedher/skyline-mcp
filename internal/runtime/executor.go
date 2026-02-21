@@ -38,6 +38,7 @@ type Executor struct {
 	crumbs    map[string]*crumbState
 	grpcMu    sync.Mutex
 	grpcConns map[string]*grpc.ClientConn
+	oauth2Mgr *OAuth2TokenManager
 }
 
 type serviceConfig struct {
@@ -78,6 +79,7 @@ func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *log.
 		services:  serviceMap,
 		crumbs:    map[string]*crumbState{},
 		grpcConns: map[string]*grpc.ClientConn{},
+		oauth2Mgr: NewOAuth2TokenManager(),
 	}, nil
 }
 
@@ -95,6 +97,11 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	}
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("base URL is missing for service %s", op.ServiceName)
+	}
+
+	// Dispatch REST composite operations — route to the sub-operation for the given action.
+	if op.RESTComposite != nil {
+		return e.executeRESTComposite(ctx, op, args)
 	}
 
 	// Dispatch gRPC protocol to separate handler.
@@ -126,6 +133,10 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	for _, param := range op.Parameters {
 		value, ok := args[param.Name]
 		if !ok {
+			continue
+		}
+		// Skip auth-related parameters — these are handled by applyAuth from the profile config.
+		if isAuthParam(param.In, param.Name) {
 			continue
 		}
 		switch param.In {
@@ -215,7 +226,9 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 				req.Header.Set(field, crumb)
 			}
 		}
-		applyAuth(req, cfg.Auth)
+		if err := e.applyAuth(req, op.ServiceName, cfg.Auth); err != nil {
+			return nil, fmt.Errorf("apply auth: %w", err)
+		}
 
 		e.logger.Printf("[EXECUTOR] Making HTTP request: %s %s (attempt %d/%d)", method, e.redactor.Redact(parsedURL.String()), attempt+1, attempts)
 		resp, err := e.client.Do(req)
@@ -372,6 +385,52 @@ func buildGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, err
 	return json.Marshal(payload)
 }
 
+// executeRESTComposite routes a composite REST tool call to the appropriate sub-operation
+// based on the "action" parameter, then delegates to the standard Execute flow.
+func (e *Executor) executeRESTComposite(ctx context.Context, op *canonical.Operation, args map[string]any) (*Result, error) {
+	comp := op.RESTComposite
+	if comp == nil {
+		return nil, fmt.Errorf("REST composite operation missing metadata")
+	}
+
+	actionVal, ok := args["action"]
+	if !ok {
+		// List available actions in the error message
+		actions := make([]string, 0, len(comp.Actions))
+		for name := range comp.Actions {
+			actions = append(actions, name)
+		}
+		sort.Strings(actions)
+		return nil, fmt.Errorf("'action' parameter is required; available actions: %s", strings.Join(actions, ", "))
+	}
+
+	action, ok := actionVal.(string)
+	if !ok {
+		return nil, fmt.Errorf("'action' must be a string")
+	}
+
+	subOp, ok := comp.Actions[action]
+	if !ok {
+		actions := make([]string, 0, len(comp.Actions))
+		for name := range comp.Actions {
+			actions = append(actions, name)
+		}
+		sort.Strings(actions)
+		return nil, fmt.Errorf("unknown action %q; available actions: %s", action, strings.Join(actions, ", "))
+	}
+
+	// Forward all args except "action" to the sub-operation
+	subArgs := make(map[string]any, len(args))
+	for k, v := range args {
+		if k != "action" {
+			subArgs[k] = v
+		}
+	}
+
+	e.logger.Printf("[EXECUTOR] REST composite %s: routing action=%q to %s %s", op.ToolName, action, subOp.Method, subOp.Path)
+	return e.Execute(ctx, subOp, subArgs)
+}
+
 // buildCompositeGraphQLBody orchestrates multiple GraphQL mutations for CRUD composite operations
 func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]byte, error) {
 	comp := op.GraphQL.Composite
@@ -478,9 +537,29 @@ func normalizeSelection(selection string) string {
 	return "{ " + trimmed + " }"
 }
 
-func applyAuth(req *http.Request, auth *config.AuthConfig) {
+// isAuthParam returns true for parameters that carry authentication credentials.
+// These are handled by applyAuth from the profile config and should not be
+// passed through from MCP client arguments.
+func isAuthParam(in, name string) bool {
+	n := strings.ToLower(name)
+	switch in {
+	case "header":
+		switch n {
+		case "authorization", "x-api-key", "api-key", "apikey", "private-token":
+			return true
+		}
+	case "query":
+		switch n {
+		case "token", "api_key", "apikey", "access_token", "oauth_token", "private_token":
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Executor) applyAuth(req *http.Request, apiName string, auth *config.AuthConfig) error {
 	if auth == nil {
-		return
+		return nil
 	}
 	switch auth.Type {
 	case "bearer":
@@ -490,7 +569,14 @@ func applyAuth(req *http.Request, auth *config.AuthConfig) {
 		req.Header.Set("Authorization", "Basic "+cred)
 	case "api-key":
 		req.Header.Set(auth.Header, auth.Value)
+	case "oauth2":
+		token, err := e.oauth2Mgr.GetAccessToken(apiName, auth)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	return nil
 }
 
 func addQueryParam(values url.Values, name string, value any) {
@@ -884,6 +970,64 @@ func toStringMap(value any) (map[string]string, error) {
 	}
 }
 
+// TruncateResult limits the serialized size of a Result to maxBytes.
+// If the body is a JSON array exceeding the limit, it truncates to the first N items
+// with a "_truncated" marker. Otherwise it caps the serialized JSON string.
+func TruncateResult(result *Result, maxBytes int) *Result {
+	if result == nil || maxBytes <= 0 {
+		return result
+	}
+	encoded, err := json.Marshal(result.Body)
+	if err != nil || len(encoded) <= maxBytes {
+		return result
+	}
+
+	// If body is a slice/array, truncate items
+	if arr, ok := result.Body.([]any); ok {
+		total := len(arr)
+		// Binary search for how many items fit
+		lo, hi := 0, total
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			subset := arr[:mid]
+			wrapped := map[string]any{
+				"items":      subset,
+				"_truncated": true,
+				"_total":     total,
+			}
+			trial, _ := json.Marshal(wrapped)
+			if len(trial) <= maxBytes {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		if lo == 0 {
+			lo = 1 // keep at least 1 item
+		}
+		return &Result{
+			Status:      result.Status,
+			ContentType: result.ContentType,
+			Body: map[string]any{
+				"items":      arr[:lo],
+				"_truncated": true,
+				"_total":     total,
+			},
+		}
+	}
+
+	// For non-array bodies, cap the serialized string
+	truncated := string(encoded[:maxBytes])
+	return &Result{
+		Status:      result.Status,
+		ContentType: result.ContentType,
+		Body: map[string]any{
+			"data":                truncated,
+			"_truncated_at_bytes": maxBytes,
+		},
+	}
+}
+
 type crumbState struct {
 	field     string
 	crumb     string
@@ -915,7 +1059,9 @@ func (e *Executor) getCrumb(ctx context.Context, serviceName string, cfg service
 		return "", "", false, fmt.Errorf("crumb request failed")
 	}
 	req.Header.Set("Accept", "application/json")
-	applyAuth(req, cfg.Auth)
+	if err := e.applyAuth(req, serviceName, cfg.Auth); err != nil {
+		return "", "", false, fmt.Errorf("crumb auth: %w", err)
+	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {

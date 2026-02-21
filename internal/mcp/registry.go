@@ -17,6 +17,7 @@ type Tool struct {
 	Description  string
 	InputSchema  map[string]any
 	OutputSchema map[string]any
+	Annotations  map[string]any
 	Operation    *canonical.Operation
 	Validator    *jsonschema.Schema
 }
@@ -51,6 +52,7 @@ func NewRegistry(services []*canonical.Service) (*Registry, error) {
 				Description:  buildDescription(op),
 				InputSchema:  op.InputSchema,
 				OutputSchema: outputSchema(op.ResponseSchema),
+				Annotations:  buildAnnotations(op),
 				Operation:    op,
 				Validator:    validator,
 			}
@@ -66,42 +68,6 @@ func NewRegistry(services []*canonical.Service) (*Registry, error) {
 		}
 	}
 	return registry, nil
-}
-
-// NewRegistryFromGatewayTools creates a registry from gateway tool definitions
-// Used in gateway mode where we don't have full canonical.Service objects
-func NewRegistryFromGatewayTools(gatewayTools []GatewayTool) *Registry {
-	registry := &Registry{
-		Tools:     make(map[string]*Tool),
-		Resources: make(map[string]*Resource),
-	}
-
-	for _, gt := range gatewayTools {
-		// Create a minimal operation with just the tool name
-		// This allows the gatewayExecutor to identify which tool to call
-		minimalOp := &canonical.Operation{
-			ToolName: gt.Name,
-		}
-
-		registry.Tools[gt.Name] = &Tool{
-			Name:         gt.Name,
-			Description:  gt.Description,
-			InputSchema:  gt.InputSchema,
-			OutputSchema: gt.OutputSchema,
-			Operation:    minimalOp,
-			Validator:    nil, // Schema validation happens on the gateway side
-		}
-	}
-
-	return registry
-}
-
-// GatewayTool represents a tool definition from the gateway
-type GatewayTool struct {
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	InputSchema  map[string]any `json:"input_schema"`
-	OutputSchema map[string]any `json:"output_schema"`
 }
 
 func outputSchema(bodySchema map[string]any) map[string]any {
@@ -150,16 +116,150 @@ func (r *Registry) SortedResources() []*Resource {
 	return resources
 }
 
+// buildAnnotations derives MCP tool annotations from the operation's protocol metadata.
+// BuildResourceTemplates generates RFC 6570 URI templates from parameterized operation paths.
+// Groups by service + resource base path to avoid creating hundreds of templates.
+func (r *Registry) BuildResourceTemplates() []map[string]any {
+	seen := make(map[string]bool)
+	var templates []map[string]any
+
+	for _, tool := range r.SortedTools() {
+		op := tool.Operation
+		if op.Path == "" || op.RESTComposite != nil {
+			continue
+		}
+		// Only create templates for paths with parameters
+		if !strings.Contains(op.Path, "{") {
+			continue
+		}
+		service := op.ServiceName
+		if service == "" {
+			service = "api"
+		}
+
+		// Build URI template: service://path with {params}
+		uriTemplate := strings.ToLower(service) + "://" + strings.TrimPrefix(op.Path, "/")
+		if seen[uriTemplate] {
+			continue
+		}
+		seen[uriTemplate] = true
+
+		// Human-readable name from the path
+		name := service + " " + op.Path
+
+		templates = append(templates, map[string]any{
+			"uriTemplate": uriTemplate,
+			"name":        name,
+			"description": op.Summary,
+			"mimeType":    "application/json",
+		})
+	}
+	return templates
+}
+
+// buildAnnotations derives MCP tool annotations from the operation's protocol metadata.
+func buildAnnotations(op *canonical.Operation) map[string]any {
+	readOnly := false
+	destructive := false
+	idempotent := false
+
+	if op.RESTComposite != nil {
+		// Composite tools: merge annotations from all sub-actions (most permissive wins)
+		for _, subOp := range op.RESTComposite.Actions {
+			sub := methodAnnotations(subOp.Method)
+			if !sub.readOnly {
+				readOnly = false
+			}
+			if sub.destructive {
+				destructive = true
+			}
+			// Composite is not idempotent if any sub-action isn't
+		}
+	} else if op.GraphQL != nil {
+		readOnly = op.GraphQL.OperationType == "query"
+	} else if op.Protocol == "grpc" || op.SoapNamespace != "" || op.JSONRPC != nil {
+		// gRPC, SOAP, JSON-RPC: can't infer safely, use conservative defaults
+		readOnly = false
+		destructive = false
+	} else {
+		a := methodAnnotations(op.Method)
+		readOnly = a.readOnly
+		destructive = a.destructive
+		idempotent = a.idempotent
+	}
+
+	return map[string]any{
+		"readOnlyHint":     readOnly,
+		"destructiveHint":  destructive,
+		"idempotentHint":   idempotent,
+		"openWorldHint":    true,
+	}
+}
+
+type methodHints struct {
+	readOnly, destructive, idempotent bool
+}
+
+func methodAnnotations(method string) methodHints {
+	switch strings.ToUpper(method) {
+	case "GET", "HEAD", "OPTIONS":
+		return methodHints{readOnly: true, idempotent: true}
+	case "PUT":
+		return methodHints{idempotent: true}
+	case "DELETE":
+		return methodHints{destructive: true}
+	default: // POST, PATCH, etc.
+		return methodHints{}
+	}
+}
+
+// cleanSummary normalizes auto-generated descriptions from API specs.
+func cleanSummary(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// Strip verbose preambles
+	prefixes := []string{
+		"This endpoint ", "This resource represents ", "This method ",
+		"This operation ", "This API ", "This service ",
+		"Returns a ", "Returns the ", "Returns an ",
+		"Retrieve a ", "Retrieve the ", "Retrieve an ",
+		"Get a ", "Get the ", "Get an ",
+	}
+	lower := strings.ToLower(s)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+			s = s[len(prefix):]
+			// Capitalize first letter
+			if len(s) > 0 {
+				s = strings.ToUpper(s[:1]) + s[1:]
+			}
+			break
+		}
+	}
+	// Collapse multiple spaces/newlines
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
 func buildDescription(op *canonical.Operation) string {
-	base := strings.TrimSpace(op.Summary)
+	base := cleanSummary(op.Summary)
 	if base == "" {
 		base = op.ID
 	}
 	params := parameterDescriptions(op)
 	if len(params) == 0 {
+		if len(base) > 300 {
+			return base[:297] + "..."
+		}
 		return base
 	}
-	return base + " Parameters: " + strings.Join(params, "; ")
+	desc := base + " Parameters: " + strings.Join(params, "; ")
+	if len(desc) > 300 {
+		return desc[:297] + "..."
+	}
+	return desc
 }
 
 func parameterDescriptions(op *canonical.Operation) []string {

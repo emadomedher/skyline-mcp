@@ -110,8 +110,6 @@ func (s *server) buildRegistryCache(ctx context.Context, prof profile) (*registr
 		return nil, false, fmt.Errorf("load services: %w", err)
 	}
 
-	services = spec.ApplyOperationFilters(services, cfg.APIs)
-
 	registry, err := mcp.NewRegistry(services)
 	if err != nil {
 		return nil, false, fmt.Errorf("build registry: %w", err)

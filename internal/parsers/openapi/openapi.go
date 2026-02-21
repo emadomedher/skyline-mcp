@@ -32,18 +32,18 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 		openapi3.DisableSchemaDefaultsValidation(),
 	}
 
+	// Validate but don't fail hard — many real-world specs (GitLab, etc.) have
+	// minor validation issues (e.g. arrays without items) but are perfectly usable.
 	if err := doc.Validate(ctx, opts...); err != nil {
 		sanitized, serr := sanitizeExamples(raw)
-		if serr != nil {
-			return nil, err
+		if serr == nil {
+			if doc2, lerr := loader.LoadFromData(sanitized); lerr == nil {
+				if doc2.Validate(ctx, opts...) == nil {
+					doc = doc2
+				}
+			}
 		}
-		doc, serr = loader.LoadFromData(sanitized)
-		if serr != nil {
-			return nil, err
-		}
-		if serr := doc.Validate(ctx, opts...); serr != nil {
-			return nil, err
-		}
+		// Proceed with the loaded doc even if validation failed.
 	}
 
 	baseURL := strings.TrimRight(baseURLOverride, "/")
@@ -280,16 +280,20 @@ func mergeParameters(pathParams, opParams openapi3.Parameters) openapi3.Paramete
 }
 
 func isAuthHeader(in, name string) bool {
-	if in != "header" {
-		return false
-	}
 	n := strings.ToLower(name)
-	switch n {
-	case "authorization", "x-api-key", "api-key", "apikey":
-		return true
-	default:
-		return false
+	switch in {
+	case "header":
+		switch n {
+		case "authorization", "x-api-key", "api-key", "apikey", "private-token":
+			return true
+		}
+	case "query":
+		switch n {
+		case "token", "api_key", "apikey", "access_token", "oauth_token":
+			return true
+		}
 	}
+	return false
 }
 
 func schemaToMap(ref *openapi3.SchemaRef) map[string]any {

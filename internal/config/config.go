@@ -10,6 +10,7 @@ type Config struct {
 	TimeoutSeconds     int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 	Retries            int         `json:"retries,omitempty" yaml:"retries,omitempty"`
 	EnableCodeExecution *bool      `json:"enable_code_execution,omitempty" yaml:"enable_code_execution,omitempty"`
+	MaxResponseBytes   int         `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
 }
 
 type APIConfig struct {
@@ -22,8 +23,10 @@ type APIConfig struct {
 	TimeoutSeconds  *int                  `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 	Retries         *int                  `json:"retries,omitempty" yaml:"retries,omitempty"`
 	Jenkins         *JenkinsConfig        `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
-	Filter          *OperationFilterEnhanced `json:"filter,omitempty" yaml:"filter,omitempty"`
-	Optimization    *GraphQLOptimization  `json:"optimization,omitempty" yaml:"optimization,omitempty"`
+	Filter                   *OperationFilterEnhanced `json:"filter,omitempty" yaml:"filter,omitempty"`
+	Optimization             *GraphQLOptimization     `json:"optimization,omitempty" yaml:"optimization,omitempty"`
+	DisableProviderOverrides bool                     `json:"disable_provider_overrides,omitempty" yaml:"disable_provider_overrides,omitempty"`
+	MaxResponseBytes         *int                     `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
 }
 
 type AuthConfig struct {
@@ -33,11 +36,19 @@ type AuthConfig struct {
 	Password string `json:"password,omitempty" yaml:"password,omitempty"` // basic
 	Header   string `json:"header,omitempty" yaml:"header,omitempty"`     // api-key header name
 	Value    string `json:"value,omitempty" yaml:"value,omitempty"`       // api-key value
+	// OAuth 2.0
+	ClientID     string `json:"client_id,omitempty" yaml:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty" yaml:"client_secret,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty" yaml:"refresh_token,omitempty"`
+	TokenURL     string `json:"token_url,omitempty" yaml:"token_url,omitempty"`
 }
 
 func (c *Config) ApplyDefaults() {
 	if c.TimeoutSeconds == 0 {
 		c.TimeoutSeconds = 10
+	}
+	if c.MaxResponseBytes == 0 {
+		c.MaxResponseBytes = 51200 // 50KB default
 	}
 	// Default: enable code execution (98% cost reduction)
 	if c.EnableCodeExecution == nil {
@@ -60,6 +71,11 @@ func (c *Config) ApplyDefaults() {
 				EnableCRUDGrouping: true,
 			}
 		}
+		// Inherit global max_response_bytes if not set per-API
+		if c.APIs[i].MaxResponseBytes == nil {
+			val := c.MaxResponseBytes
+			c.APIs[i].MaxResponseBytes = &val
+		}
 	}
 }
 
@@ -81,7 +97,7 @@ func (c *Config) Validate() error {
 		if api.Name == "" {
 			return fmt.Errorf("apis[%d]: name is required", i)
 		}
-		if api.SpecURL == "" && api.SpecFile == "" && api.SpecType != "grpc" {
+		if api.SpecURL == "" && api.SpecFile == "" && api.SpecType == "" {
 			return fmt.Errorf("apis[%d]: either spec_url or spec_file is required", i)
 		}
 		if api.SpecType == "grpc" && api.BaseURLOverride == "" {
@@ -142,6 +158,13 @@ func (a *AuthConfig) Validate() error {
 	case "api-key":
 		if a.Header == "" || a.Value == "" {
 			return fmt.Errorf("auth.header and auth.value are required for api-key")
+		}
+	case "oauth2":
+		if a.ClientID == "" || a.ClientSecret == "" {
+			return fmt.Errorf("auth.client_id and auth.client_secret are required for oauth2")
+		}
+		if a.RefreshToken == "" {
+			return fmt.Errorf("auth.refresh_token is required for oauth2")
 		}
 	default:
 		return fmt.Errorf("unsupported auth.type %q", a.Type)
@@ -239,6 +262,13 @@ func (c *Config) Secrets() []string {
 		case "api-key":
 			if api.Auth.Value != "" {
 				secrets = append(secrets, api.Auth.Value)
+			}
+		case "oauth2":
+			if api.Auth.ClientSecret != "" {
+				secrets = append(secrets, api.Auth.ClientSecret)
+			}
+			if api.Auth.RefreshToken != "" {
+				secrets = append(secrets, api.Auth.RefreshToken)
 			}
 		}
 	}

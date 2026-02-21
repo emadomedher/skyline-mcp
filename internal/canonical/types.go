@@ -31,6 +31,7 @@ type Operation struct {
 	JSONRPC           *JSONRPCOperation
 	Protocol          string // "http" (default) or "grpc"
 	GRPCMeta          *GRPCOperationMeta
+	RESTComposite     *RESTComposite // REST CRUD composite metadata
 }
 
 // Parameter describes an operation input parameter.
@@ -79,6 +80,13 @@ type GraphQLOpRef struct {
 	Name      string // Operation name (e.g., "createIssue")
 	Type      string // "query" or "mutation"
 	InputType string // Input type for the operation (e.g., "CreateIssueInput!")
+}
+
+// RESTComposite holds metadata for REST CRUD composite operations.
+// The Actions map stores original operations keyed by action name (e.g., "create", "get", "update", "delete").
+type RESTComposite struct {
+	ResourceName string                // Human-readable resource name (e.g., "issue", "conversations")
+	Actions      map[string]*Operation // Action name → original operation
 }
 
 type JSONRPCOperation struct {

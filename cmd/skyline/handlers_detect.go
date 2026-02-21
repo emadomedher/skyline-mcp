@@ -227,6 +227,12 @@ func (s *server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	specURL := strings.TrimSpace(req.SpecURL)
+
+	// Resolve well-known spec URLs (Slack, GitLab, Jira, etc.)
+	if req.Name != "" {
+		specURL = spec.ResolveWellKnownSpecURL(req.Name, specURL)
+	}
+
 	if specURL == "" {
 		http.Error(w, "spec_url is required", http.StatusBadRequest)
 		return

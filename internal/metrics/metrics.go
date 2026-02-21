@@ -163,12 +163,12 @@ func (c *Collector) PrometheusFormat() string {
 	output += "\n"
 
 	// Active connections
-	output += fmt.Sprintf("# HELP skyline_connections_active Number of active WebSocket connections\n")
+	output += fmt.Sprintf("# HELP skyline_connections_active Number of active MCP connections\n")
 	output += fmt.Sprintf("# TYPE skyline_connections_active gauge\n")
 	output += fmt.Sprintf("skyline_connections_active %d\n\n", c.activeConnections.Load())
 
 	// Total connections
-	output += fmt.Sprintf("# HELP skyline_connections_total Total number of WebSocket connections\n")
+	output += fmt.Sprintf("# HELP skyline_connections_total Total number of MCP connections\n")
 	output += fmt.Sprintf("# TYPE skyline_connections_total counter\n")
 	output += fmt.Sprintf("skyline_connections_total %d\n\n", c.totalConnections.Load())
 

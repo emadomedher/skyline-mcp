@@ -38,6 +38,15 @@ jobs:
             arch: arm64
             goos: darwin
             goarch: arm64
+          # Windows
+          - os: windows
+            arch: amd64
+            goos: windows
+            goarch: amd64
+          - os: windows
+            arch: arm64
+            goos: windows
+            goarch: arm64
 
     steps:
       - name: Checkout code
@@ -70,14 +79,16 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-${{ matrix.os }}-${{ matrix.arch }} ./cmd/skyline
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" -o skyline-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./cmd/skyline
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: skyline-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            skyline-${{ matrix.os }}-${{ matrix.arch }}
+            skyline-${{ matrix.os }}-${{ matrix.arch }}*
 
   create-release:
     needs: build-and-release
@@ -141,3 +152,4 @@ jobs:
             **Platforms:**
             - Linux (x86_64, ARM64)
             - macOS (Intel, Apple Silicon)
+            - Windows (x86_64, ARM64)

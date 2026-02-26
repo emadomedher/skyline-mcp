@@ -25,6 +25,7 @@ OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$OS" in
   linux) OS="linux" ;;
   darwin) OS="darwin" ;;
+  mingw*|msys*|cygwin*) OS="windows" ;;
   *) echo "❌ Unsupported OS: $OS"; exit 1 ;;
 esac
 
@@ -39,76 +40,6 @@ esac
 echo "🚀 Installing Skyline MCP..."
 echo "   Platform: ${OS}-${ARCH}"
 echo ""
-
-# Check for Deno (required for code execution - 98% cost reduction)
-if command -v deno &> /dev/null; then
-  DENO_VERSION=$(deno --version | head -n1 | awk '{print $2}')
-  echo -e "${GREEN}✓ Deno found:${NC} v${DENO_VERSION}"
-  echo "  Code execution enabled (98% cost reduction)"
-else
-  echo -e "${YELLOW}⚠️  Deno not found${NC}"
-  echo ""
-  echo "Skyline uses code execution by default for 98% cost reduction."
-  echo "Without Deno, it will fall back to traditional MCP (slower, more expensive)."
-  echo ""
-  echo -e "${BLUE}Would you like to install Deno now? (recommended)${NC}"
-  
-  if [ -t 0 ]; then
-    # Interactive terminal
-    read -p "Install Deno? (Y/n): " -n 1 -r
-    echo ""
-  else
-    # Non-interactive (curl pipe) - default to yes
-    echo "Non-interactive mode detected. Installing Deno..."
-    REPLY="y"
-  fi
-  
-  if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-    echo ""
-    echo -e "${BLUE}📥 Installing Deno...${NC}"
-    
-    if curl -fsSL https://deno.land/install.sh | sh; then
-      # Add Deno to PATH for this session
-      export DENO_INSTALL="$HOME/.deno"
-      export PATH="$DENO_INSTALL/bin:$PATH"
-      
-      DENO_VERSION=$(deno --version 2>/dev/null | head -n1 | awk '{print $2}')
-      echo -e "${GREEN}✓ Deno installed:${NC} v${DENO_VERSION}"
-      echo "  Code execution enabled (98% cost reduction)"
-      
-      # Add to shell profile if not already there
-      SHELL_RC=""
-      if [ -f "$HOME/.bashrc" ]; then
-        SHELL_RC="$HOME/.bashrc"
-      elif [ -f "$HOME/.zshrc" ]; then
-        SHELL_RC="$HOME/.zshrc"
-      fi
-      
-      if [ -n "$SHELL_RC" ]; then
-        if ! grep -q 'DENO_INSTALL' "$SHELL_RC"; then
-          echo "" >> "$SHELL_RC"
-          echo '# Deno' >> "$SHELL_RC"
-          echo 'export DENO_INSTALL="$HOME/.deno"' >> "$SHELL_RC"
-          echo 'export PATH="$DENO_INSTALL/bin:$PATH"' >> "$SHELL_RC"
-          echo -e "${GREEN}✓ Added Deno to ${SHELL_RC}${NC}"
-        fi
-      fi
-    else
-      echo -e "${RED}❌ Deno installation failed${NC}"
-      echo "You can install it manually later:"
-      echo "  curl -fsSL https://deno.land/install.sh | sh"
-      echo ""
-      echo "Skyline will use traditional MCP mode (no code execution)."
-    fi
-  else
-    echo ""
-    echo -e "${YELLOW}⏭️  Skipping Deno installation${NC}"
-    echo "Skyline will use traditional MCP mode (slower, higher costs)."
-    echo ""
-    echo "To install Deno later and enable code execution:"
-    echo "  curl -fsSL https://deno.land/install.sh | sh"
-  fi
-fi
 
 echo ""
 
@@ -179,19 +110,22 @@ else
   echo "   Mode: Pre-built binary"
   echo ""
   
-  BINARY="skyline-${OS}-${ARCH}"
+  EXT=""
+  if [ "$OS" = "windows" ]; then EXT=".exe"; fi
+  BINARY="skyline-${OS}-${ARCH}${EXT}"
   URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${BINARY}"
-  
+
   echo "📥 Downloading from GitHub releases..."
-  
+
   # Download skyline binary
+  LOCAL_NAME="skyline${EXT}"
   if command -v curl &> /dev/null; then
-    if ! curl -fsSL "$URL" -o skyline; then
+    if ! curl -fsSL "$URL" -o "$LOCAL_NAME"; then
       echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
       exit 1
     fi
   elif command -v wget &> /dev/null; then
-    if ! wget -q "$URL" -O skyline; then
+    if ! wget -q "$URL" -O "$LOCAL_NAME"; then
       echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
       exit 1
     fi
@@ -199,18 +133,28 @@ else
     echo "❌ curl or wget required"
     exit 1
   fi
-  
-  chmod +x skyline
-  
+
+  chmod +x "$LOCAL_NAME"
+
   # Move to install location
-  if [ -w /usr/local/bin ]; then
-    mv skyline /usr/local/bin/skyline
+  if [ "$OS" = "windows" ]; then
+    # Windows (Git Bash / MSYS2) — install to user's local bin
+    INSTALL_DIR="$HOME/.local/bin"
+    mkdir -p "$INSTALL_DIR"
+    mv "$LOCAL_NAME" "$INSTALL_DIR/skyline.exe"
+    echo ""
+    echo "✅ Installed to $INSTALL_DIR/skyline.exe"
+    if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+      echo "⚠️  Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+  elif [ -w /usr/local/bin ]; then
+    mv "$LOCAL_NAME" /usr/local/bin/skyline
     INSTALL_DIR="/usr/local/bin"
     echo ""
     echo "✅ Installed to /usr/local/bin/"
   else
     mkdir -p "$HOME/.local/bin"
-    mv skyline "$HOME/.local/bin/skyline"
+    mv "$LOCAL_NAME" "$HOME/.local/bin/skyline"
     INSTALL_DIR="$HOME/.local/bin"
     echo ""
     echo "✅ Installed to $HOME/.local/bin/"
@@ -429,8 +373,7 @@ runtime:
   # Code execution engine (98% cost reduction vs traditional MCP)
   codeExecution:
     enabled: true
-    engine: "deno"  # or "node", "bun"
-    # denoPath: "/home/user/.deno/bin/deno"  # auto-detect if not set
+    engine: "goja"  # Embedded JS runtime (zero external dependencies)
     timeout: 30s
     memoryLimit: "512MB"
     
@@ -598,13 +541,17 @@ EOF
     echo ""
   fi
 else
-  # macOS or no systemctl - show manual instructions
+  # macOS, Windows, or no systemctl - show manual instructions
   echo ""
   echo "📝 Next steps:"
-  echo "   1. Create config.yaml with your API specs"
-  echo "   2. Run: skyline --config=config.yaml"
+  if [ "$OS" = "windows" ]; then
+    echo "   1. Run: skyline.exe"
+    echo "   2. Open Admin UI at https://localhost:8191/ui"
+  else
+    echo "   1. Run: skyline"
+    echo "   2. Open Admin UI at https://localhost:8191/ui"
+  fi
   echo ""
   echo "📚 Documentation: https://skyline.projex.cc/docs"
-  echo "💡 Examples: https://github.com/emadomedher/skyline-mcp/tree/main/examples"
   echo ""
 fi

@@ -29,6 +29,7 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 		NewJenkinsAdapter(),
 		NewWSDLAdapter(),
 		NewODataAdapter(),
+		NewCKANAdapter(),
 	}
 
 	var services []*canonical.Service

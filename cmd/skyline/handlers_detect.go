@@ -78,6 +78,7 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		{Type: "wsdl", Path: "/wdsl/wsdl", Method: http.MethodGet},
 		{Type: "odata", Path: "/$metadata", Method: http.MethodGet},
 		{Type: "odata", Path: "/odata/$metadata", Method: http.MethodGet},
+		{Type: "ckan", Path: "/api/3/action/package_list", Method: http.MethodGet},
 		{Type: "openrpc", Path: "/jsonrpc/openrpc.json", Method: http.MethodGet},
 		{Type: "openrpc", Path: "/openrpc.json", Method: http.MethodGet},
 		{Type: "openrpc", Path: "/jsonrpc", Method: http.MethodPost, Body: []byte(rpcDiscoverPayload), Headers: map[string]string{"Content-Type": "application/json"}},

@@ -48,6 +48,7 @@ You describe your APIs in a YAML file. Skyline does the rest:
   │  Jenkins     │      │                 │      │                  │
   │  Jira Cloud  │      │                 │      │                  │
   │  Google API  │      │                 │      │                  │
+  │  CKAN        │      │                 │      │                  │
   └──────────────┘      └────────────────┘      └──────────────────┘
 ```
 
@@ -121,6 +122,7 @@ Skyline auto-detects the spec format. No manual configuration needed.
 | **Jenkins 2.545** ⚠️ | `/api/json` object graph | **34 operations** - Custom implementation. Jobs, builds, pipelines, Blue Ocean, nodes, credentials, plugins, queue. Full CSRF support. See [special cases](#special-cases) |
 | **Slack Web API** ⚠️ | `{"ok":...}` response format | **23 operations** - Custom implementation. Chat, conversations, users, files, reactions, pins, reminders. See [special cases](#special-cases) |
 | **Jira Cloud** | `*.atlassian.net` host | Auto-fetches the official Atlassian OpenAPI spec |
+| **CKAN Open Data** ⚠️ | `/api/3/action/` endpoint or `spec_type: ckan` | **7 operations** — Custom implementation. Dataset search, resource access, datastore queries, organization/tag listing. Compatible with any CKAN 2.x/3.x portal worldwide. |
 
 ---
 
@@ -691,6 +693,50 @@ apis:
 ```
 
 **Future:** If Slack fixes their OpenAPI spec validation issues, Skyline can switch to auto-detection for full 172-operation coverage.
+
+### CKAN Open Data Portals ⚠️
+
+**Why custom?**
+CKAN (https://ckan.org) is the open-source data management system powering the majority of government open data portals worldwide. It does not expose an OpenAPI, Swagger, or any machine-readable specification — it uses its own fixed action-based JSON API at `/api/3/action/{action}`.
+
+**Solution:**
+Manually implemented 7 core operations based on the [CKAN API documentation](https://docs.ckan.org/en/latest/api/), covering dataset discovery, resource access, and datastore queries.
+
+**Operations (7):**
+- **searchDatasets** — Full-text search with filter queries, sorting, and pagination
+- **listDatasets** — List all published dataset names with pagination
+- **getDataset** — Full dataset metadata including all resources
+- **getResource** — Individual resource (file/link) metadata and download URL
+- **queryDatastore** — Filtered SQL-style queries against tabular data resources
+- **listOrganizations** — All data publishers/organizations on the portal
+- **listTags** — All subject tags used to categorize datasets
+
+**Compatible portals (any CKAN 2.x / 3.x instance):**
+- 🇺🇸 **data.gov** — US Federal Open Data
+- 🇬🇧 **data.gov.uk** — UK Government Data
+- 🇸🇦 **open.data.gov.sa** — Saudi Arabia Open Data
+- 🇪🇺 **data.europa.eu** — EU Open Data Portal
+- 🇦🇺 **data.gov.au** — Australian Government Data
+- 🇨🇦 **open.canada.ca** — Canada Open Data
+- 🇮🇳 **data.gov.in** — India Government Data
+- 🇧🇷 **dados.gov.br** — Brazil Open Data
+- And **100+ more** national, regional, and city portals
+
+**Example:**
+```yaml
+apis:
+  - name: us-open-data
+    spec_type: ckan
+    base_url_override: https://catalog.data.gov
+    # No auth needed for public portals
+    # auth required only for private datasets:
+    # auth:
+    #   type: api-key
+    #   header: Authorization
+    #   value: ${CKAN_API_TOKEN}
+```
+
+**Auto-detection:** Skyline can also auto-detect CKAN portals — just provide the base URL and Skyline will probe `/api/3/action/package_list` to confirm it's a CKAN instance.
 
 ---
 

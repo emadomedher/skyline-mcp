@@ -145,6 +145,50 @@ const apiClient = {
   },
 };
 
+// Profile export/import crypto — browser-side AES-256-GCM + PBKDF2
+const profileCrypto = {
+  toBase64url(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  },
+  fromBase64url(str) {
+    const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 ? b64 + '='.repeat(4 - b64.length % 4) : b64;
+    const bin = atob(pad);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return buf.buffer;
+  },
+  async deriveKey(password, saltBuf) {
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: saltBuf, iterations: 200000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  },
+  async encryptApis(apis, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv   = crypto.getRandomValues(new Uint8Array(12));
+    const key  = await this.deriveKey(password, salt.buffer);
+    const plain = new TextEncoder().encode(JSON.stringify(apis));
+    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain);
+    return { salt: this.toBase64url(salt), iv: this.toBase64url(iv), payload: this.toBase64url(cipher) };
+  },
+  async decryptApis(encObj, password) {
+    const salt = this.fromBase64url(encObj.salt);
+    const iv   = new Uint8Array(this.fromBase64url(encObj.iv));
+    const ct   = this.fromBase64url(encObj.payload);
+    const key  = await this.deriveKey(password, salt);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return JSON.parse(new TextDecoder().decode(plain));
+  },
+};
+
 function blankApi() {
   return {
     id: generateUUID(),
@@ -240,6 +284,31 @@ createApp({
     });
     const showToken = ref(false);
     const oauthRedirectHint = window.location.origin;
+
+    // Export flow
+    const exportFlow = reactive({
+      open: false,
+      busy: false,
+      error: '',
+      apis: {},   // keyed by api.id: { selected, includeAuth, includeFilter, name }
+      encrypt: false,
+      password: '',
+      showPassword: false,
+    });
+
+    // Import flow
+    const importFlow = reactive({
+      open: false,
+      step: 'pick',   // 'pick' | 'password' | 'merge'
+      busy: false,
+      error: '',
+      file: null,
+      targetProfile: '',
+      newProfileName: '',
+      password: '',
+      showPassword: false,
+      importApis: [],  // { name, spec_url, hasAuth, hasFilter, selected, importAuth, importFilter, conflicts, _raw }
+    });
     const showNewProfileModal = ref(false);
     const newProfileName = ref("");
     const newProfileError = ref("");
@@ -1529,6 +1598,214 @@ createApp({
 
     onMounted(refreshProfiles);
 
+    // ── Export ──────────────────────────────────────────────────────────────
+    function openExportFlow() {
+      if (!activeProfile.value || !form.apis.length) return;
+      exportFlow.apis = {};
+      for (const api of form.apis) {
+        exportFlow.apis[api.id] = {
+          selected: true,
+          includeAuth: api.authType && api.authType !== 'none',
+          includeFilter: !!(api.filterMode),
+          name: api.name,
+        };
+      }
+      exportFlow.encrypt = false;
+      exportFlow.password = '';
+      exportFlow.error = '';
+      exportFlow.open = true;
+    }
+
+    function closeExportFlow() {
+      exportFlow.open = false;
+      exportFlow.password = '';
+    }
+
+    async function runExport() {
+      const selected = form.apis.filter(api => exportFlow.apis[api.id]?.selected);
+      if (selected.length === 0) { exportFlow.error = 'Select at least one API.'; return; }
+      if (exportFlow.encrypt && !exportFlow.password) { exportFlow.error = 'Password is required for encryption.'; return; }
+      exportFlow.busy = true;
+      exportFlow.error = '';
+      try {
+        const apis = selected.map(api => {
+          const opts = exportFlow.apis[api.id];
+          const entry = { name: api.name.trim(), spec_url: api.specUrl.trim() };
+          if (api.baseUrl?.trim()) entry.base_url_override = api.baseUrl.trim();
+          if (api.type)            entry.spec_type = api.type;
+          const mrb = parseInt(api.maxResponseBytes, 10);
+          if (!isNaN(mrb) && mrb > 0) entry.max_response_bytes = mrb;
+          if (opts.includeAuth && api.authType && api.authType !== 'none') {
+            entry.auth = { type: api.authType };
+            if (api.authType === 'bearer')  entry.auth.token = api.bearerToken;
+            if (api.authType === 'basic')   { entry.auth.username = api.basicUser; entry.auth.password = api.basicPass; }
+            if (api.authType === 'api-key') { entry.auth.header = api.apiKeyHeader; entry.auth.value = api.apiKeyValue; }
+            if (api.authType === 'oauth2')  { entry.auth.client_id = api.oauthClientId; entry.auth.client_secret = api.oauthClientSecret; entry.auth.refresh_token = api.oauthRefreshToken; }
+          }
+          if (opts.includeFilter && api.filterMode && api.filterOperations.length > 0) {
+            entry.filter = { mode: api.filterMode, operations: api.filterOperations };
+          }
+          return entry;
+        });
+
+        const manifest = { version: 1, exported_at: new Date().toISOString(), source_profile: activeProfile.value, encrypted: exportFlow.encrypt };
+        if (exportFlow.encrypt) {
+          const enc = await profileCrypto.encryptApis(apis, exportFlow.password);
+          Object.assign(manifest, { kdf: 'pbkdf2-sha256', iterations: 200000, ...enc });
+        } else {
+          manifest.apis = apis;
+        }
+
+        const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `${activeProfile.value}.skylineprofile`;
+        a.click();
+        URL.revokeObjectURL(url);
+        closeExportFlow();
+      } catch (err) {
+        exportFlow.error = `Export failed: ${err.message}`;
+      } finally {
+        exportFlow.busy = false;
+      }
+    }
+
+    // ── Import ──────────────────────────────────────────────────────────────
+    function openImportFlow() {
+      importFlow.open = true;
+      importFlow.step = 'pick';
+      importFlow.file = null;
+      importFlow.targetProfile = profiles.value[0] || '__new__';
+      importFlow.newProfileName = '';
+      importFlow.password = '';
+      importFlow.showPassword = false;
+      importFlow.error = '';
+      importFlow.importApis = [];
+    }
+
+    function closeImportFlow() {
+      importFlow.open = false;
+      importFlow.password = '';
+    }
+
+    async function handleImportFilePick(event) {
+      const file = event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      importFlow.error = '';
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (parsed.version !== 1 || !parsed.exported_at) throw new Error('Not a valid .skylineprofile file.');
+        importFlow.file = parsed;
+        if (parsed.encrypted) {
+          importFlow.step = 'password';
+        } else {
+          await prepareImportApis(parsed.apis);
+          importFlow.step = 'merge';
+        }
+      } catch (err) {
+        importFlow.error = `Failed to read file: ${err.message}`;
+      }
+    }
+
+    async function handleImportDecrypt() {
+      if (!importFlow.password) { importFlow.error = 'Password is required.'; return; }
+      importFlow.busy = true;
+      importFlow.error = '';
+      try {
+        const apis = await profileCrypto.decryptApis(importFlow.file, importFlow.password);
+        await prepareImportApis(apis);
+        importFlow.step = 'merge';
+      } catch (_) {
+        importFlow.error = 'Wrong password or corrupted file.';
+      } finally {
+        importFlow.busy = false;
+      }
+    }
+
+    async function prepareImportApis(apis) {
+      let existingNames = new Set();
+      const target = importFlow.targetProfile;
+      if (target && target !== '__new__') {
+        try {
+          const data = await apiClient.loadProfile(target);
+          existingNames = new Set((data.config?.apis || []).map(a => a.name));
+        } catch (_) { /* ignore — treat as empty */ }
+      }
+      importFlow.importApis = apis.map(api => ({
+        name: api.name,
+        spec_url: api.spec_url || '',
+        hasAuth:    !!api.auth,
+        hasFilter:  !!(api.filter?.mode),
+        selected:     true,
+        importAuth:   !!api.auth,
+        importFilter: !!(api.filter?.mode),
+        conflicts:    existingNames.has(api.name),
+        _raw: api,
+      }));
+    }
+
+    async function onImportTargetChange() {
+      if (!importFlow.importApis.length) return;
+      let existingNames = new Set();
+      const target = importFlow.targetProfile;
+      if (target && target !== '__new__') {
+        try {
+          const data = await apiClient.loadProfile(target);
+          existingNames = new Set((data.config?.apis || []).map(a => a.name));
+        } catch (_) { /* ignore */ }
+      }
+      for (const row of importFlow.importApis) {
+        row.conflicts = existingNames.has(row.name);
+      }
+    }
+
+    async function runImport() {
+      const selectedRows = importFlow.importApis.filter(r => r.selected);
+      if (selectedRows.length === 0) { importFlow.error = 'Select at least one API.'; return; }
+      const profileName = importFlow.targetProfile === '__new__'
+        ? importFlow.newProfileName.trim()
+        : importFlow.targetProfile;
+      if (!profileName) { importFlow.error = 'Profile name is required.'; return; }
+      importFlow.busy = true;
+      importFlow.error = '';
+      try {
+        let existingApis = [];
+        let existingToken = '';
+        if (importFlow.targetProfile !== '__new__') {
+          try {
+            const data = await apiClient.loadProfile(profileName);
+            existingApis = data.config?.apis || [];
+            existingToken = data.token || '';
+          } catch (_) { /* new */ }
+        }
+        if (!existingToken) {
+          const arr = new Uint8Array(32);
+          crypto.getRandomValues(arr);
+          existingToken = btoa(String.fromCharCode(...arr));
+        }
+        const merged = [...existingApis];
+        for (const row of selectedRows) {
+          const api = { ...row._raw };
+          if (!row.importAuth)   delete api.auth;
+          if (!row.importFilter) delete api.filter;
+          const idx = merged.findIndex(e => e.name === api.name);
+          if (idx >= 0) merged[idx] = api; else merged.push(api);
+        }
+        await apiClient.saveProfile(profileName, existingToken, { apis: merged });
+        await refreshProfiles();
+        await loadProfile(profileName);
+        closeImportFlow();
+        setStatus('ok', `Imported ${selectedRows.length} API(s) into "${profileName}".`);
+      } catch (err) {
+        importFlow.error = `Import failed: ${err.message}`;
+      } finally {
+        importFlow.busy = false;
+      }
+    }
+
     return {
       profiles,
       activeProfile,
@@ -1617,6 +1894,18 @@ createApp({
       clineSnippet,
       codexSnippet,
       copySnippet,
+      // Export / Import
+      exportFlow,
+      openExportFlow,
+      closeExportFlow,
+      runExport,
+      importFlow,
+      openImportFlow,
+      closeImportFlow,
+      handleImportFilePick,
+      handleImportDecrypt,
+      onImportTargetChange,
+      runImport,
     };
   },
   template: `
@@ -1625,9 +1914,23 @@ createApp({
         <div class="profile-list">
           <div class="sidebar-header">
             <span class="notice" style="margin:0; padding:0;">Profiles</span>
-            <button class="icon-btn" @click="openNewProfileModal" title="New Profile">
-              <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-            </button>
+            <div style="display:flex; gap:2px; align-items:center;">
+              <button class="icon-btn" @click="openImportFlow" title="Import Profile">
+                <iconify-icon icon="mdi:import"></iconify-icon>
+              </button>
+              <button
+                class="icon-btn"
+                @click="openExportFlow"
+                :disabled="!activeProfile || !form.apis.length"
+                :style="{ opacity: (!activeProfile || !form.apis.length) ? '0.35' : '1' }"
+                title="Export Profile"
+              >
+                <iconify-icon icon="mdi:export"></iconify-icon>
+              </button>
+              <button class="icon-btn" @click="openNewProfileModal" title="New Profile">
+                <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
+              </button>
+            </div>
           </div>
 
           <div v-if="profiles.length === 0" class="notice" style="margin-top:12px; font-size:12px; opacity:0.7;">No profiles yet.</div>
@@ -2576,6 +2879,191 @@ kubectl create token skyline --duration=8760h</pre>
             </div>
             <div class="modal-footer">
               <button class="ghost" @click="pickService('pick')">Back</button>
+            </div>
+          </template>
+
+        </div>
+      </div>
+
+      <!-- Export Profile Modal -->
+      <div v-if="exportFlow.open" class="modal-backdrop" @click.self="closeExportFlow">
+        <div class="modal-card" style="max-width:520px; width:95%;">
+          <div class="modal-header">
+            <iconify-icon icon="mdi:export" style="font-size:22px; color:var(--blue);"></iconify-icon>
+            <span>Export Profile — {{ activeProfile }}</span>
+          </div>
+          <div class="modal-body" style="max-height:60vh; overflow-y:auto;">
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">Select APIs to include:</div>
+            <div v-for="api in form.apis" :key="api.id"
+                 style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px;">
+              <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                <input type="checkbox" v-model="exportFlow.apis[api.id].selected" />
+                <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'" style="font-size:16px; flex-shrink:0;"></iconify-icon>
+                <span style="font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ api.name || api.specUrl }}</span>
+              </label>
+              <div v-if="exportFlow.apis[api.id].selected"
+                   style="display:flex; gap:16px; margin-top:8px; padding-left:26px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;"
+                       :style="{ opacity: (api.authType && api.authType !== 'none') ? '1' : '0.4' }">
+                  <input type="checkbox" v-model="exportFlow.apis[api.id].includeAuth" :disabled="!api.authType || api.authType === 'none'" />
+                  Include credentials
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;"
+                       :style="{ opacity: api.filterMode ? '1' : '0.4' }">
+                  <input type="checkbox" v-model="exportFlow.apis[api.id].includeFilter" :disabled="!api.filterMode" />
+                  Include filter matrix
+                </label>
+              </div>
+            </div>
+            <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:500;">
+                <input type="checkbox" v-model="exportFlow.encrypt" />
+                <iconify-icon icon="mdi:lock-outline" style="font-size:16px;"></iconify-icon>
+                Encrypt with password
+              </label>
+              <div v-if="exportFlow.encrypt" style="margin-top:10px; position:relative;">
+                <input
+                  :type="exportFlow.showPassword ? 'text' : 'password'"
+                  v-model="exportFlow.password"
+                  placeholder="Encryption password"
+                  style="width:100%; padding-right:40px; box-sizing:border-box;"
+                />
+                <button class="token-toggle" @click="exportFlow.showPassword = !exportFlow.showPassword" type="button" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-dim);">
+                  <iconify-icon :icon="exportFlow.showPassword ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                </button>
+              </div>
+            </div>
+            <div v-if="exportFlow.error" class="modal-error" style="margin-top:10px;">{{ exportFlow.error }}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="ghost" @click="closeExportFlow">Cancel</button>
+            <button class="primary" :disabled="exportFlow.busy" @click="runExport">
+              <iconify-icon icon="mdi:download"></iconify-icon>
+              {{ exportFlow.busy ? 'Exporting…' : 'Export' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import Profile Modal -->
+      <div v-if="importFlow.open" class="modal-backdrop" @click.self="closeImportFlow">
+        <div class="modal-card" style="max-width:540px; width:95%;">
+
+          <!-- Step: pick file -->
+          <template v-if="importFlow.step === 'pick'">
+            <div class="modal-header">
+              <iconify-icon icon="mdi:import" style="font-size:22px; color:var(--blue);"></iconify-icon>
+              <span>Import Profile</span>
+            </div>
+            <div class="modal-body">
+              <div style="margin-bottom:14px;">
+                <label style="display:block; margin-bottom:6px; font-size:13px;">Import file <span style="color:var(--text-dim);">(.skylineprofile)</span></label>
+                <input type="file" accept=".skylineprofile,application/json" @change="handleImportFilePick" style="width:100%; box-sizing:border-box;" />
+              </div>
+              <div>
+                <label style="display:block; margin-bottom:6px; font-size:13px;">Import into</label>
+                <select v-model="importFlow.targetProfile" style="width:100%;">
+                  <option v-for="name in profiles" :key="name" :value="name">{{ name }}</option>
+                  <option value="__new__">+ Create new profile</option>
+                </select>
+              </div>
+              <div v-if="importFlow.targetProfile === '__new__'" style="margin-top:10px;">
+                <label style="display:block; margin-bottom:6px; font-size:13px;">New profile name</label>
+                <input v-model="importFlow.newProfileName" placeholder="e.g. imported-prod" style="width:100%; box-sizing:border-box;" />
+              </div>
+              <div v-if="importFlow.error" class="modal-error" style="margin-top:10px;">{{ importFlow.error }}</div>
+            </div>
+            <div class="modal-footer">
+              <button class="ghost" @click="closeImportFlow">Cancel</button>
+            </div>
+          </template>
+
+          <!-- Step: password for encrypted file -->
+          <template v-else-if="importFlow.step === 'password'">
+            <div class="modal-header">
+              <iconify-icon icon="mdi:lock-outline" style="font-size:22px; color:var(--blue);"></iconify-icon>
+              <span>Enter Decryption Password</span>
+            </div>
+            <div class="modal-body">
+              <p style="color:var(--text-dim); font-size:13px; margin:0 0 12px;">This file is encrypted. Enter the password used during export.</p>
+              <div style="position:relative;">
+                <input
+                  :type="importFlow.showPassword ? 'text' : 'password'"
+                  v-model="importFlow.password"
+                  placeholder="Decryption password"
+                  @keyup.enter="handleImportDecrypt"
+                  style="width:100%; padding-right:40px; box-sizing:border-box;"
+                  autofocus
+                />
+                <button @click="importFlow.showPassword = !importFlow.showPassword" type="button" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-dim);">
+                  <iconify-icon :icon="importFlow.showPassword ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                </button>
+              </div>
+              <div v-if="importFlow.error" class="modal-error" style="margin-top:10px;">{{ importFlow.error }}</div>
+            </div>
+            <div class="modal-footer">
+              <button class="ghost" @click="importFlow.step = 'pick'">Back</button>
+              <button class="primary" :disabled="importFlow.busy" @click="handleImportDecrypt">
+                <iconify-icon icon="mdi:lock-open-outline"></iconify-icon>
+                {{ importFlow.busy ? 'Decrypting…' : 'Decrypt' }}
+              </button>
+            </div>
+          </template>
+
+          <!-- Step: select APIs to merge -->
+          <template v-else-if="importFlow.step === 'merge'">
+            <div class="modal-header">
+              <iconify-icon icon="mdi:import" style="font-size:22px; color:var(--blue);"></iconify-icon>
+              <span>Select APIs to Import</span>
+            </div>
+            <div class="modal-body">
+              <div style="margin-bottom:12px;">
+                <label style="display:block; margin-bottom:6px; font-size:13px;">Import into</label>
+                <select v-model="importFlow.targetProfile" @change="onImportTargetChange" style="width:100%;">
+                  <option v-for="name in profiles" :key="name" :value="name">{{ name }}</option>
+                  <option value="__new__">+ Create new profile</option>
+                </select>
+                <div v-if="importFlow.targetProfile === '__new__'" style="margin-top:8px;">
+                  <input v-model="importFlow.newProfileName" placeholder="New profile name" style="width:100%; box-sizing:border-box;" />
+                </div>
+              </div>
+              <div style="max-height:50vh; overflow-y:auto;">
+                <div v-for="row in importFlow.importApis" :key="row.name"
+                     style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px;">
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="checkbox" v-model="row.selected" />
+                    <span style="font-weight:500; flex:1;">{{ row.name }}</span>
+                    <span v-if="row.conflicts"
+                          style="font-size:11px; color:var(--orange); background:rgba(249,115,22,0.12); padding:2px 7px; border-radius:4px; flex-shrink:0;">
+                      will overwrite
+                    </span>
+                  </div>
+                  <div v-if="row.spec_url" style="margin-top:2px; padding-left:26px; font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    {{ row.spec_url }}
+                  </div>
+                  <div v-if="row.selected"
+                       style="display:flex; gap:16px; margin-top:8px; padding-left:26px;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;"
+                           :style="{ opacity: row.hasAuth ? '1' : '0.4' }">
+                      <input type="checkbox" v-model="row.importAuth" :disabled="!row.hasAuth" />
+                      Import credentials
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;"
+                           :style="{ opacity: row.hasFilter ? '1' : '0.4' }">
+                      <input type="checkbox" v-model="row.importFilter" :disabled="!row.hasFilter" />
+                      Import filter matrix
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div v-if="importFlow.error" class="modal-error" style="margin-top:10px;">{{ importFlow.error }}</div>
+            </div>
+            <div class="modal-footer">
+              <button class="ghost" @click="importFlow.step = importFlow.file?.encrypted ? 'password' : 'pick'">Back</button>
+              <button class="primary" :disabled="importFlow.busy" @click="runImport">
+                <iconify-icon icon="mdi:check"></iconify-icon>
+                {{ importFlow.busy ? 'Importing…' : 'Import' }}
+              </button>
             </div>
           </template>
 

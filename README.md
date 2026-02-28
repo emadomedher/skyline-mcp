@@ -947,18 +947,16 @@ rm -rf ~/.skyline/
 
 ## License
 
-**Apache License 2.0**
+**GNU Affero General Public License v3.0 (AGPL-3.0)**
 
-Skyline is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text.
+Skyline is licensed under the AGPL-3.0. See [LICENSE](LICENSE) for the full license text.
 
-### Why Apache 2.0?
+### Why AGPL-3.0?
 
-- ✅ **Patent protection**: Explicit grant protects you from patent litigation
-- ✅ **Commercial use**: Safe for enterprise and commercial projects
-- ✅ **Permissive**: Modify and distribute freely, including in proprietary software
-- ✅ **Attribution**: Requires credit to contributors (fair and simple)
+- ✅ **Strong copyleft**: Ensures the software and all modifications remain open source
+- ✅ **Network protection**: Users interacting over a network get access to the source code
+- ✅ **Commercial use**: Can be used commercially, but modifications must be shared
+- ✅ **Community first**: Contributions benefit everyone in the ecosystem
 
 **Copyright 2026 [Projex Digital](https://projex.cc)**
-
-Used by Apache Foundation, Kubernetes, Android, TensorFlow, and thousands of enterprise projects.
 

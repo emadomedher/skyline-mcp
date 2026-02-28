@@ -24,6 +24,10 @@ const typeIcons = {
   openrpc: "mdi:code-json",
   grpc: "mdi:server-network",
   "jira-rest": "simple-icons:jira",
+  asyncapi: "simple-icons:asyncapi",
+  raml: "mdi:code-braces",
+  apiblueprint: "mdi:file-document-outline",
+  insomnia: "simple-icons:insomnia",
 };
 
 const typeLabels = {
@@ -36,6 +40,10 @@ const typeLabels = {
   openrpc: "OpenRPC (JSON-RPC)",
   grpc: "gRPC",
   "jira-rest": "Jira REST",
+  asyncapi: "AsyncAPI",
+  raml: "RAML",
+  apiblueprint: "API Blueprint",
+  insomnia: "Insomnia Collection",
 };
 
 // Known service identification — overlays the generic spec-type icon/label
@@ -602,6 +610,10 @@ createApp({
       if (lower.includes("$metadata") || lower.includes("odata")) return "odata";
       if (lower.includes("postman")) return "postman";
       if (lower.includes("openrpc") || lower.includes("jsonrpc")) return "openrpc";
+      if (lower.includes("asyncapi")) return "asyncapi";
+      if (lower.includes(".raml")) return "raml";
+      if (lower.includes(".apib") || lower.includes("apiblueprint")) return "apiblueprint";
+      if (lower.includes("insomnia")) return "insomnia";
       return "";
     }
 

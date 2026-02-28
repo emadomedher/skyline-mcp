@@ -11,8 +11,8 @@ import (
 
 	"skyline-mcp/internal/canonical"
 	"skyline-mcp/internal/config"
-	grpcparser "skyline-mcp/internal/parsers/grpc"
 	graphqlparser "skyline-mcp/internal/parsers/graphql"
+	grpcparser "skyline-mcp/internal/parsers/grpc"
 	"skyline-mcp/internal/providers"
 	"skyline-mcp/internal/redact"
 )
@@ -22,13 +22,17 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 	adapters := []SpecAdapter{
 		NewOpenAPIAdapter(),
 		NewSwagger2Adapter(),
+		NewAsyncAPIAdapter(),
 		NewPostmanAdapter(),
+		NewInsomniaAdapter(),
 		NewGoogleDiscoveryAdapter(),
 		NewOpenRPCAdapter(),
 		NewGraphQLAdapter(),
 		NewJenkinsAdapter(),
 		NewWSDLAdapter(),
 		NewODataAdapter(),
+		NewRAMLAdapter(),
+		NewAPIBlueprintAdapter(),
 		NewCKANAdapter(),
 	}
 

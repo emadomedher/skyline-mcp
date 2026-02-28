@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/parsers/asyncapi"
 	"skyline-mcp/internal/parsers/graphql"
+	"skyline-mcp/internal/parsers/insomnia"
 	"skyline-mcp/internal/parsers/openrpc"
 	"skyline-mcp/internal/parsers/postman"
+	"skyline-mcp/internal/parsers/raml"
 	"skyline-mcp/internal/spec"
 )
 
@@ -86,6 +89,10 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		{Type: "graphql", Path: "/graphql/schema", Method: http.MethodGet},
 		{Type: "graphql", Path: "/graphql", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
 		{Type: "graphql", Path: "/api/graphql", Method: http.MethodPost, Body: []byte(graphqlIntrospectionPayload), Headers: map[string]string{"Content-Type": "application/json"}},
+		{Type: "asyncapi", Path: "/asyncapi.json", Method: http.MethodGet},
+		{Type: "asyncapi", Path: "/asyncapi.yaml", Method: http.MethodGet},
+		{Type: "asyncapi", Path: "/asyncapi.yml", Method: http.MethodGet},
+		{Type: "insomnia", Path: "/insomnia.json", Method: http.MethodGet},
 	}
 	if basePathLooksLikeGraphQL(baseURL) {
 		probes = append([]probe{
@@ -142,10 +149,13 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		"graphql": func(raw []byte) bool {
 			return graphql.LooksLikeGraphQLSDL(raw) || graphql.LooksLikeGraphQLIntrospection(raw)
 		},
-		"wsdl":    spec.NewWSDLAdapter().Detect,
-		"odata":   looksLikeODataMetadata,
-		"postman": postman.LooksLikePostmanCollection,
-		"openrpc": openrpc.LooksLikeOpenRPC,
+		"wsdl":     spec.NewWSDLAdapter().Detect,
+		"odata":    looksLikeODataMetadata,
+		"postman":  postman.LooksLikePostmanCollection,
+		"openrpc":  openrpc.LooksLikeOpenRPC,
+		"asyncapi": asyncapi.LooksLikeAsyncAPI,
+		"insomnia": insomnia.LooksLikeInsomniaCollection,
+		"raml":     raml.LooksLikeRAML,
 	}
 
 	for i := range resp.Detected {
@@ -269,13 +279,17 @@ func (s *server) fetchOperations(ctx context.Context, specURL, specType string) 
 	adapters := []spec.SpecAdapter{
 		spec.NewOpenAPIAdapter(),
 		spec.NewSwagger2Adapter(),
+		spec.NewAsyncAPIAdapter(),
 		spec.NewPostmanAdapter(),
+		spec.NewInsomniaAdapter(),
 		spec.NewGoogleDiscoveryAdapter(),
 		spec.NewOpenRPCAdapter(),
 		spec.NewGraphQLAdapter(),
 		spec.NewJenkinsAdapter(),
 		spec.NewWSDLAdapter(),
 		spec.NewODataAdapter(),
+		spec.NewRAMLAdapter(),
+		spec.NewAPIBlueprintAdapter(),
 	}
 
 	var service *canonical.Service

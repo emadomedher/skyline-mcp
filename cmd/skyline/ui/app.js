@@ -261,7 +261,7 @@ createApp({
     const addedToast = ref(false);
     const addFlow = reactive({
       open: false,
-      step: "pick", // 'pick' | 'kubernetes' | 'gitlab' | 'jira' | 'slack' | 'gmail' | 'custom'
+      step: "pick", // 'pick' | 'kubernetes' | 'gitlab' | 'jira' | 'slack' | 'gmail' | 'custom' | 'library'
       kubeParsed: null,
       kubeStatus: null,
       kubeTutorial: false,
@@ -281,6 +281,12 @@ createApp({
       gmailScopes: "https://www.googleapis.com/auth/gmail.modify",
       gmailTutorial: false,
       oauthRedirectUri: "",
+      // Library import fields
+      libraryItems: [],
+      libraryLoading: false,
+      libraryError: "",
+      librarySearch: "",
+      libraryCategory: "All",
     });
     const showToken = ref(false);
     const oauthRedirectHint = window.location.origin;
@@ -1257,6 +1263,7 @@ createApp({
         open: true, step: "pick", kubeParsed: null, kubeStatus: null, kubeTutorial: false,
         apiName: "", instanceUrl: "", email: "", token: "",
         customUrl: "", detecting: false, detectError: "", detectResults: [], busy: false, error: "",
+        libraryItems: [], libraryLoading: false, libraryError: "", librarySearch: "", libraryCategory: "All",
       });
     }
 
@@ -1268,6 +1275,7 @@ createApp({
       addFlow.step = svc;
       addFlow.error = "";
       if (svc === "gitlab" && !addFlow.instanceUrl) addFlow.instanceUrl = "https://gitlab.com";
+      if (svc === "library") loadLibrary();
     }
 
     async function handleAddFlowKubeUpload(event) {
@@ -1596,6 +1604,74 @@ createApp({
       addApiToProfile(api);
     }
 
+    // ── Library import ──────────────────────────────────────────────────────
+    const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles.json";
+
+    async function loadLibrary() {
+      if (addFlow.libraryItems.length > 0) return; // already loaded
+      addFlow.libraryLoading = true;
+      addFlow.libraryError = "";
+      try {
+        const res = await fetch(LIBRARY_URL);
+        if (!res.ok) throw new Error(`Failed to load library (${res.status})`);
+        const data = await res.json();
+        addFlow.libraryItems = data.profiles || [];
+      } catch (err) {
+        addFlow.libraryError = err.message;
+      } finally {
+        addFlow.libraryLoading = false;
+      }
+    }
+
+    const libraryCategories = computed(() => {
+      const cats = new Set(addFlow.libraryItems.map((p) => p.category));
+      return ["All", ...Array.from(cats).sort()];
+    });
+
+    const filteredLibraryItems = computed(() => {
+      let items = addFlow.libraryItems;
+      if (addFlow.libraryCategory !== "All") {
+        items = items.filter((p) => p.category === addFlow.libraryCategory);
+      }
+      const q = addFlow.librarySearch.toLowerCase().trim();
+      if (q) {
+        items = items.filter(
+          (p) =>
+            p.title.toLowerCase().includes(q) ||
+            p.subtitle.toLowerCase().includes(q) ||
+            (p.tags || []).some((t) => t.toLowerCase().includes(q))
+        );
+      }
+      return items;
+    });
+
+    async function addFromLibrary(item) {
+      // Fetch the full profile for spec details
+      const profileUrl = LIBRARY_URL.replace("profiles.json", item.profilePath);
+      try {
+        addFlow.busy = true;
+        const res = await fetch(profileUrl);
+        if (!res.ok) throw new Error(`Failed to load profile`);
+        const profile = await res.json();
+        const api = blankApi();
+        api.name = profile.title || item.title;
+        api.baseUrl = profile.baseUrl || "";
+        api.specUrl = profile.specUrl || "";
+        api.type = profile.specType || "";
+        api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+        if (profile.authType === "bearer") api.authType = "bearer";
+        else if (profile.authType === "basic") api.authType = "basic";
+        else if (profile.authType === "oauth2") api.authType = "oauth2";
+        else if (profile.authType === "api-key") api.authType = "api-key";
+        api.detectedOnce = true;
+        addApiToProfile(api);
+      } catch (err) {
+        addFlow.error = err.message;
+      } finally {
+        addFlow.busy = false;
+      }
+    }
+
     onMounted(refreshProfiles);
 
     // ── Export ──────────────────────────────────────────────────────────────
@@ -1873,6 +1949,10 @@ createApp({
       oauthRedirectHint,
       runAddFlowDetect,
       addFromDetectResult,
+      loadLibrary,
+      libraryCategories,
+      filteredLibraryItems,
+      addFromLibrary,
       // Profile tree / tabs
       selectedApiId,
       selectedApi,
@@ -2636,6 +2716,10 @@ createApp({
                   <iconify-icon icon="simple-icons:gmail" style="font-size:28px; color:#EA4335;"></iconify-icon>
                   <span>Gmail</span>
                 </button>
+                <button class="service-pick-btn" @click="pickService('library')">
+                  <iconify-icon icon="mdi:bookshelf" style="font-size:28px; color:#8B5CF6;"></iconify-icon>
+                  <span>Browse Library</span>
+                </button>
                 <button class="service-pick-btn service-pick-custom" @click="pickService('custom')">
                   <iconify-icon icon="mdi:cloud-search-outline" style="font-size:28px;"></iconify-icon>
                   <span>Custom API</span>
@@ -2841,6 +2925,64 @@ kubectl create token skyline --duration=8760h</pre>
                 <iconify-icon icon="mdi:check"></iconify-icon>
                 {{ addFlow.busy ? 'Connecting…' : 'Connect Gmail Account' }}
               </button>
+            </div>
+          </template>
+
+          <!-- Step: library -->
+          <template v-else-if="addFlow.step === 'library'">
+            <div class="modal-header">
+              <iconify-icon icon="mdi:bookshelf" style="font-size:22px; color:#8B5CF6;"></iconify-icon>
+              <span>Import from Library</span>
+            </div>
+            <div class="modal-body" style="max-height:60vh; overflow-y:auto;">
+              <div v-if="addFlow.libraryLoading" style="text-align:center; padding:20px; color:var(--text-dim);">
+                Loading library…
+              </div>
+              <div v-else-if="addFlow.libraryError" style="color:var(--red); font-size:13px;">{{ addFlow.libraryError }}</div>
+              <template v-else>
+                <div class="primary-input" style="margin-bottom:10px;">
+                  <input v-model="addFlow.librarySearch" placeholder="Search APIs..." />
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
+                  <button
+                    v-for="cat in libraryCategories"
+                    :key="cat"
+                    style="padding:3px 10px; border-radius:99px; font-size:11px; cursor:pointer; border:1px solid var(--border); transition:all .15s;"
+                    :style="addFlow.libraryCategory === cat
+                      ? { background: 'var(--blue)', color: '#fff', borderColor: 'var(--blue)' }
+                      : { background: 'var(--bg-input)', color: 'var(--text-dim)' }"
+                    @click="addFlow.libraryCategory = cat"
+                  >{{ cat }}</button>
+                </div>
+                <div v-if="filteredLibraryItems.length === 0" style="text-align:center; padding:12px; color:var(--text-dim); font-size:13px;">
+                  No APIs match your search.
+                </div>
+                <div
+                  v-for="item in filteredLibraryItems"
+                  :key="item.id"
+                  class="detect-result-item"
+                  @click="addFromLibrary(item)"
+                  :style="{ opacity: addFlow.busy ? '0.5' : '1', pointerEvents: addFlow.busy ? 'none' : 'auto' }"
+                >
+                  <img
+                    :src="'https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/' + item.logo"
+                    :alt="item.title"
+                    style="width:24px; height:24px; flex-shrink:0; object-fit:contain;"
+                  />
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-weight:500;">{{ item.title }}</div>
+                    <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.subtitle }}</div>
+                  </div>
+                  <div style="display:flex; gap:4px; flex-shrink:0;">
+                    <span style="font-size:10px; padding:2px 6px; border-radius:99px; background:var(--bg-input); color:var(--text-dim); border:1px solid var(--border);">{{ item.category }}</span>
+                  </div>
+                  <iconify-icon icon="mdi:plus-circle" style="color:var(--blue); flex-shrink:0;"></iconify-icon>
+                </div>
+              </template>
+              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
+            </div>
+            <div class="modal-footer">
+              <button class="ghost" @click="pickService('pick')">Back</button>
             </div>
           </template>
 

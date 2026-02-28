@@ -1617,7 +1617,9 @@ createApp({
     }
 
     // ── Library import ──────────────────────────────────────────────────────
-    const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles.json";
+    // Slim library endpoint — compact JSON with short keys (277 KB gzipped)
+    // Keys: id, t=title, d=description, c=category, at=authType, su=specUrl, st=specType, bu=baseUrl, w=website
+    const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles-slim.json";
 
     async function loadLibrary() {
       if (addFlow.libraryItems.length > 0) return; // already loaded
@@ -1627,7 +1629,18 @@ createApp({
         const res = await fetch(LIBRARY_URL);
         if (!res.ok) throw new Error(`Failed to load library (${res.status})`);
         const data = await res.json();
-        addFlow.libraryItems = data.profiles || [];
+        // Expand short keys to readable names for the UI
+        addFlow.libraryItems = (data.profiles || []).map((p) => ({
+          id: p.id,
+          title: p.t,
+          subtitle: p.d || "",
+          category: p.c,
+          authType: p.at,
+          specUrl: p.su || "",
+          specType: p.st || "",
+          baseUrl: p.bu || "",
+          website: p.w || "",
+        }));
       } catch (err) {
         addFlow.libraryError = err.message;
       } finally {
@@ -1650,38 +1663,26 @@ createApp({
         items = items.filter(
           (p) =>
             p.title.toLowerCase().includes(q) ||
-            p.subtitle.toLowerCase().includes(q) ||
-            (p.tags || []).some((t) => t.toLowerCase().includes(q))
+            p.subtitle.toLowerCase().includes(q)
         );
       }
       return items;
     });
 
-    async function addFromLibrary(item) {
-      // Fetch the full profile for spec details
-      const profileUrl = LIBRARY_URL.replace("profiles.json", item.profilePath);
-      try {
-        addFlow.busy = true;
-        const res = await fetch(profileUrl);
-        if (!res.ok) throw new Error(`Failed to load profile`);
-        const profile = await res.json();
-        const api = blankApi();
-        api.name = profile.title || item.title;
-        api.baseUrl = profile.baseUrl || "";
-        api.specUrl = profile.specUrl || "";
-        api.type = profile.specType || "";
-        api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
-        if (profile.authType === "bearer") api.authType = "bearer";
-        else if (profile.authType === "basic") api.authType = "basic";
-        else if (profile.authType === "oauth2") api.authType = "oauth2";
-        else if (profile.authType === "api-key") api.authType = "api-key";
-        api.detectedOnce = true;
-        addApiToProfile(api);
-      } catch (err) {
-        addFlow.error = err.message;
-      } finally {
-        addFlow.busy = false;
-      }
+    function addFromLibrary(item) {
+      // All fields are already in the slim payload — no second fetch needed
+      const api = blankApi();
+      api.name = item.title;
+      api.baseUrl = item.baseUrl;
+      api.specUrl = item.specUrl;
+      api.type = item.specType;
+      api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+      if (item.authType === "bearer") api.authType = "bearer";
+      else if (item.authType === "basic") api.authType = "basic";
+      else if (item.authType === "oauth2") api.authType = "oauth2";
+      else if (item.authType === "api-key") api.authType = "api-key";
+      api.detectedOnce = true;
+      addApiToProfile(api);
     }
 
     onMounted(refreshProfiles);
@@ -2977,10 +2978,16 @@ kubectl create token skyline --duration=8760h</pre>
                   :style="{ opacity: addFlow.busy ? '0.5' : '1', pointerEvents: addFlow.busy ? 'none' : 'auto' }"
                 >
                   <img
-                    :src="'https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/' + item.logo"
+                    v-if="item.website"
+                    :src="'https://www.google.com/s2/favicons?domain=' + new URL(item.website).hostname + '&sz=32'"
                     :alt="item.title"
-                    style="width:24px; height:24px; flex-shrink:0; object-fit:contain;"
+                    style="width:24px; height:24px; flex-shrink:0; object-fit:contain; border-radius:4px;"
+                    @error="$event.target.style.display='none'"
                   />
+                  <span
+                    v-else
+                    style="width:24px; height:24px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-radius:4px; background:var(--bg-input); color:var(--text-dim); font-size:12px; font-weight:600;"
+                  >{{ item.title.trim().charAt(0).toUpperCase() }}</span>
                   <div style="flex:1; min-width:0;">
                     <div style="font-weight:500;">{{ item.title }}</div>
                     <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.subtitle }}</div>

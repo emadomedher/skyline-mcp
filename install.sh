@@ -397,9 +397,6 @@ profiles:
 
 # Security
 security:
-  # Allowed domains for discovery mode (wildcard supported)
-  allowedDomains:
-    - "*"  # Allow all by default (can restrict in production)
   # cors:
   #   enabled: true
   #   origins: ["http://localhost:*"]

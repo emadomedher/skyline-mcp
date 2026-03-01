@@ -119,6 +119,12 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 		w.Write([]byte("ok"))
 	})
 
+	// Readiness check
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
 	// Root handler
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

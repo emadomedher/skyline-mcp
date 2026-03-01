@@ -77,7 +77,8 @@ type ProfilesSection struct {
 }
 
 type SecuritySection struct {
-	CORS *CORSConfig `yaml:"cors,omitempty"`
+	CORS         *CORSConfig `yaml:"cors,omitempty"`
+	MetricsToken string      `yaml:"metricsToken,omitempty"`
 }
 
 type CORSConfig struct {
@@ -169,7 +170,7 @@ func (c *ServerConfig) ApplyDefaults() {
 
 	// Runtime defaults
 	if c.Runtime.CodeExecution.Engine == "" {
-		c.Runtime.CodeExecution.Engine = "deno"
+		c.Runtime.CodeExecution.Engine = "goja"
 	}
 	if c.Runtime.CodeExecution.Timeout == 0 {
 		c.Runtime.CodeExecution.Timeout = 30 * time.Second
@@ -307,6 +308,8 @@ profiles:
 
 # Security
 security:
+  # Prometheus scraping token (GET /metrics with Authorization: Bearer <token>)
+  # metricsToken: "your-prometheus-token"
   # cors:
   #   enabled: true
   #   origins: ["http://localhost:*"]

@@ -397,6 +397,8 @@ profiles:
 
 # Security
 security:
+  # Prometheus scraping token (GET /metrics with Authorization: Bearer <token>)
+  # metricsToken: "your-prometheus-token"
   # cors:
   #   enabled: true
   #   origins: ["http://localhost:*"]

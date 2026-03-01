@@ -45,6 +45,10 @@ You describe your APIs in a YAML file. Skyline does the rest:
   │  gRPC        │      │  stdio / HTTP   │      │  Claude, Cursor  │
   │  JSON-RPC    │      │                 │      │  or any MCP host │
   │  Postman     │      │                 │      │                  │
+  │  AsyncAPI    │      │                 │      │                  │
+  │  RAML        │      │                 │      │                  │
+  │  API Bluepr. │      │                 │      │                  │
+  │  Insomnia    │      │                 │      │                  │
   │  Jenkins     │      │                 │      │                  │
   │  Jira Cloud  │      │                 │      │                  │
   │  Google API  │      │                 │      │                  │
@@ -66,8 +70,8 @@ Skyline uses **code execution** by default, providing up to **98% cost reduction
 
 **Code Execution (Default):**
 - AI receives tool hints (~2K tokens)
-- Writes one TypeScript script
-- Skyline executes code in Deno sandbox
+- Writes one JavaScript script
+- Skyline executes code in embedded Goja JS runtime — zero external dependencies
 - Code calls tools internally, filters data locally
 - **Cost: ~$0.002 per request** (97.7% cheaper!)
 
@@ -75,23 +79,11 @@ Skyline uses **code execution** by default, providing up to **98% cost reduction
 
 ### Requirements
 
-The **install script automatically installs Deno** when you run:
+Code execution uses the **embedded Goja JS runtime** (a pure-Go JavaScript engine). There are **no external dependencies** — everything is compiled into the Skyline binary.
 
 ```bash
 curl -fsSL https://skyline.projex.cc/install | bash
 ```
-
-It will:
-- ✅ Detect if Deno is already installed
-- ✅ Prompt to install if missing (default: yes)
-- ✅ Add Deno to your shell profile automatically
-
-**Manual Deno installation** (if needed):
-```bash
-curl -fsSL https://deno.land/install.sh | sh
-```
-
-If Deno is not available, Skyline automatically falls back to traditional MCP tools.
 
 ### Disable Code Execution
 
@@ -100,7 +92,7 @@ If Deno is not available, Skyline automatically falls back to traditional MCP to
 enable_code_execution: false  # Use traditional MCP tools
 ```
 
-See [CODE-EXECUTION.md](CODE-EXECUTION.md) for full documentation.
+See the [Skyline documentation](https://skyline.projex.cc/docs) for full details on code execution.
 
 ---
 
@@ -122,6 +114,10 @@ Skyline auto-detects the spec format. No manual configuration needed.
 | **Jenkins 2.545** ⚠️ | `/api/json` object graph | **34 operations** - Custom implementation. Jobs, builds, pipelines, Blue Ocean, nodes, credentials, plugins, queue. Full CSRF support. See [special cases](#special-cases) |
 | **Slack Web API** ⚠️ | `{"ok":...}` response format | **23 operations** - Custom implementation. Chat, conversations, users, files, reactions, pins, reminders. See [special cases](#special-cases) |
 | **Jira Cloud** | `*.atlassian.net` host | Auto-fetches the official Atlassian OpenAPI spec |
+| **AsyncAPI** | `asyncapi` field in JSON/YAML | Event-driven APIs; maps channels and operations to MCP tools |
+| **RAML** | `#%RAML` header | RESTful API Modeling Language; full resource/method support |
+| **API Blueprint** | `FORMAT: 1A` header | Markdown-based API description; parses resource groups and actions |
+| **Insomnia** | `_type: export` in JSON | Insomnia export collections; walks request items with full param support |
 | **CKAN Open Data** ⚠️ | `/api/3/action/` endpoint or `spec_type: ckan` | **7 operations** — Custom implementation. Dataset search, resource access, datastore queries, organization/tag listing. Compatible with any CKAN 2.x/3.x portal worldwide. |
 
 ---
@@ -185,7 +181,7 @@ Profiles are encrypted using:
 - **Authentication:** Built-in MAC prevents tampering
 - **Storage:** `profiles.enc.yaml` (encrypted JSON envelope)
 
-**See [CONFIGURATION-GUIDE.md](CONFIGURATION-GUIDE.md) for complete documentation.**
+**See the [Skyline documentation](https://skyline.projex.cc/docs) for complete configuration documentation.**
 
 ---
 
@@ -268,7 +264,7 @@ The core. Loads your config, fetches and parses API specs, builds MCP tools, and
 ```
 Config (YAML)
   → Spec Fetcher (URL or file)
-    → Auto-Detect adapter (OpenAPI | Swagger2 | GraphQL | WSDL | OData | OpenRPC | Postman | gRPC | Jenkins | Google | Jira)
+    → Auto-Detect adapter (OpenAPI | Swagger2 | GraphQL | WSDL | OData | OpenRPC | Postman | gRPC | AsyncAPI | RAML | API Blueprint | Insomnia | Jenkins | Google | Jira)
       → Canonical Model (Service → Operations → Parameters + Schemas)
         → MCP Registry (tools + resources + JSON Schema validators)
           → MCP Server (JSON-RPC 2.0 over stdio or streamable HTTP)
@@ -435,7 +431,7 @@ skyline-mcp/
 │
 ├── cmd/                              # ── Entrypoint ─────────────────
 │   └── skyline/                      #    Unified binary
-│       ├── main.go                   #      All transports (http, stdio)
+│       ├── server.go                 #      All transports (http, stdio)
 │       └── ui/                       #      Embedded Web UI & admin
 │           ├── index.html
 │           ├── admin.html
@@ -476,7 +472,11 @@ skyline-mcp/
 │   │   ├── grpc_adapter.go           #      gRPC adapter
 │   │   ├── google_adapter.go         #      Google API Discovery adapter
 │   │   ├── jenkins_adapter.go        #      Jenkins adapter
-│   │   └── jenkins_writes.go         #      Jenkins write operations
+│   │   ├── jenkins_writes.go         #      Jenkins write operations
+│   │   ├── asyncapi_adapter.go       #      AsyncAPI adapter
+│   │   ├── raml_adapter.go           #      RAML adapter
+│   │   ├── apiblueprint_adapter.go   #      API Blueprint adapter
+│   │   └── insomnia_adapter.go       #      Insomnia adapter
 │   │
 │   └── parsers/                      # ── Parsers ────────────────────
 │       ├── openapi/                  #      OpenAPI 3.x parser
@@ -488,7 +488,11 @@ skyline-mcp/
 │       ├── postman/                  #      Postman Collection v2.x parser
 │       ├── grpc/                     #      gRPC reflection parser
 │       ├── googleapi/                #      Google API Discovery parser
-│       └── jenkins/                  #      Jenkins object graph parser
+│       ├── jenkins/                  #      Jenkins object graph parser
+│       ├── asyncapi/                 #      AsyncAPI parser
+│       ├── raml/                     #      RAML parser
+│       ├── apiblueprint/             #      API Blueprint parser
+│       └── insomnia/                 #      Insomnia collection parser
 │
 ├── examples/                         # ── Examples ───────────────────
 │   ├── config.yaml.example           #    Full config with all API types
@@ -500,6 +504,7 @@ skyline-mcp/
 │   ├── skyline-banner.svg
 │   └── skyline-logo.svg
 │
+├── Dockerfile                        # ── Docker ──────────────────────
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -601,13 +606,7 @@ spec:
         - containerPort: 8080
 ```
 
-See **[docs/JENKINS-2.545-SUPPORT.md](docs/JENKINS-2.545-SUPPORT.md)** for complete documentation including:
-- All 34 operations with examples
-- Authentication guide (API tokens)
-- CSRF handling details
-- Troubleshooting guide
-- Pipeline operations
-- Blue Ocean integration
+See the [Skyline documentation](https://skyline.projex.cc/docs) for complete Jenkins integration docs including all 34 operations with examples, authentication guide, CSRF handling, and troubleshooting.
 
 ---
 
@@ -628,7 +627,7 @@ Manually implemented 34 operations based on [Jenkins REST API documentation](htt
 - Blue Ocean API integration
 - Node/agent management
 
-**See:** [docs/JENKINS-2.545-SUPPORT.md](docs/JENKINS-2.545-SUPPORT.md)
+**See:** [Skyline documentation](https://skyline.projex.cc/docs) for full Jenkins integration details.
 
 ### Slack Web API ⚠️
 
@@ -727,6 +726,16 @@ go test ./...
 curl -fsSL https://skyline.projex.cc/install | bash -s source
 ```
 
+### Docker
+
+```bash
+# Build the container
+docker build -t skyline-mcp .
+
+# Run with a config file
+docker run -p 8191:8191 -v $(pwd)/config.yaml:/app/config.yaml skyline-mcp
+```
+
 ---
 
 ## Troubleshooting
@@ -799,12 +808,12 @@ go run .
 
 # In another terminal, run Skyline with mock config
 cd skyline-mcp
-go run ./cmd/skyline --config ./config.all-mocks.yaml
+go run ./cmd/skyline --config ./examples/config.mock.yaml
 ```
 
 #### Example Config for Mocking Bird
 
-See **[config.all-mocks.yaml](config.all-mocks.yaml)** for a complete working config that uses all Mocking Bird endpoints:
+See **[examples/config.mock.yaml](examples/config.mock.yaml)** for a complete working config that uses all Mocking Bird endpoints:
 
 ```yaml
 apis:

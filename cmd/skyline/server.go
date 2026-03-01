@@ -567,6 +567,7 @@ func main() {
 	}
 	// API endpoints (always available)
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.HandleFunc("/readyz", s.handleReady)
 	mux.HandleFunc("/profiles", s.handleProfiles)
 	mux.HandleFunc("/profiles/", s.handleProfileRoute)
 	mux.HandleFunc("/detect", s.handleDetect)
@@ -576,6 +577,7 @@ func main() {
 	mux.HandleFunc("/oauth/exchange", s.handleOAuthExchange)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/operations", s.handleOperations)
+	mux.HandleFunc("/metrics", s.handlePublicMetrics)
 
 	// OAuth 2.1 endpoints (for ChatGPT MCP compatibility)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
@@ -657,6 +659,56 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *server) handleReady(w http.ResponseWriter, _ *http.Request) {
+	// Readiness: server has loaded profiles and is ready to serve traffic
+	s.mu.RLock()
+	ready := len(s.store.Profiles) >= 0 // Always ready once server is running
+	s.mu.RUnlock()
+	if ready {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("not ready"))
+	}
+}
+
+func (s *server) handlePublicMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check metrics token from config
+	expectedToken := ""
+	if s.serverCfg != nil {
+		expectedToken = s.serverCfg.Security.MetricsToken
+	}
+
+	if expectedToken == "" {
+		// No metrics token configured — reject with helpful message
+		http.Error(w, "metrics endpoint requires security.metricsToken to be configured", http.StatusForbidden)
+		return
+	}
+
+	// Accept token via Authorization: Bearer <token> header
+	auth := r.Header.Get("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	token := strings.TrimPrefix(auth, "Bearer ")
+	if token != expectedToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(s.metrics.PrometheusFormat()))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

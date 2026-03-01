@@ -57,3 +57,48 @@ jobs:
 
       - name: Run go vet
         run: go vet ./...
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Clone Mocking Bird
+        uses: actions/checkout@v4
+        with:
+          repository: emadomedher/mocking-bird
+          path: mocking-bird
+
+      - name: Build Mocking Bird
+        run: go build -o mockingbird .
+        working-directory: mocking-bird
+
+      - name: Start Mocking Bird
+        run: |
+          cd mocking-bird
+          ./mockingbird &
+          echo "MOCKINGBIRD_PID=$!" >> $GITHUB_ENV
+          # Wait for gRPC ports to be ready
+          for port in 50051 50052 50053 50054; do
+            for i in $(seq 1 30); do
+              if nc -z localhost $port 2>/dev/null; then
+                echo "Port $port ready"
+                break
+              fi
+              sleep 0.5
+            done
+          done
+
+      - name: Run integration tests
+        run: go test -tags integration -v -count=1 ./internal/parsers/grpc/
+
+      - name: Stop Mocking Bird
+        if: always()
+        run: kill $MOCKINGBIRD_PID 2>/dev/null || true

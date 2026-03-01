@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -21,9 +21,11 @@ import (
 	"golang.org/x/term"
 
 	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/logging"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/oauth"
+	"skyline-mcp/internal/ratelimit"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
 )
@@ -45,9 +47,11 @@ func main() {
 	validateFlag := flag.Bool("validate", false, "Validate encrypted profiles file can be decrypted")
 	initProfilesFlag := flag.Bool("init-profiles", false, "Generate new encrypted profiles file")
 	keyFlag := flag.String("key", "", "Encryption key (overrides env var)")
+	logFormat := flag.String("log-format", "text", "Log output format: text, json")
+	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
 	flag.Parse()
 
-	logger := log.New(os.Stderr, "", log.LstdFlags)
+	logger := logging.Setup(*logFormat, *logLevel)
 
 	// Handle version flag (both -v and --version)
 	if *versionFlag || *versionShort {
@@ -58,7 +62,8 @@ func main() {
 	// Handle update command
 	if len(flag.Args()) > 0 && flag.Args()[0] == "update" {
 		if err := runUpdate(logger); err != nil {
-			logger.Fatalf("update failed: %v", err)
+			slog.Error("update failed", "error", err)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
@@ -77,14 +82,16 @@ func main() {
 
 	if *envFile != "" {
 		if err := loadEnvFile(*envFile); err != nil {
-			logger.Fatalf("env file: %v", err)
+			slog.Error("env file error", "error", err)
+			os.Exit(1)
 		}
 	}
 
 	// Handle STDIO transport mode early (before profile/encryption logic)
 	if *transport == "stdio" {
 		if err := runSTDIO(*configPath, logger); err != nil {
-			logger.Fatalf("STDIO mode error: %v", err)
+			slog.Error("STDIO mode error", "error", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -92,14 +99,16 @@ func main() {
 	// Handle HTTP transport mode with direct config (skip profile logic)
 	if *transport == "http" && *configPath != "" {
 		if err := runHTTPWithConfig(*configPath, *bind, *admin, logger); err != nil {
-			logger.Fatalf("HTTP mode error: %v", err)
+			slog.Error("HTTP mode error", "error", err)
+			os.Exit(1)
 		}
 		return
 	}
 
 	// Validate transport
 	if *transport != "http" {
-		logger.Fatalf("unsupported transport: %s (only 'http' and 'stdio' supported)", *transport)
+		slog.Error("unsupported transport", "transport", *transport)
+		os.Exit(1)
 	}
 
 	// From here on: HTTP mode with profile-based system
@@ -126,91 +135,76 @@ func main() {
 		// No encryption key set
 		if profilesFileExists {
 			// Encrypted profiles file exists - need key to decrypt it
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("🔐 Encrypted profiles file found")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Printf("An encrypted profiles file exists at:")
-			logger.Printf("  %s", tempProfilesPath)
-			logger.Printf("")
-			logger.Printf("This file contains your API credentials and cannot be accessed")
-			logger.Printf("without the encryption key.")
-			logger.Printf("")
-			logger.Printf("❌ SKYLINE_PROFILES_KEY environment variable is not set")
-			logger.Printf("")
-			logger.Printf("To decrypt your profiles, you need to set the encryption key:")
-			logger.Printf("")
-			logger.Printf("  1. If you saved the key to ~/.skyline/skyline.env:")
-			logger.Printf("     source ~/.skyline/skyline.env")
-			logger.Printf("     skyline")
-			logger.Printf("")
-			logger.Printf("  2. If you have the key in a password manager:")
-			logger.Printf("     export SKYLINE_PROFILES_KEY=<your-64-char-hex-key>")
-			logger.Printf("     skyline")
-			logger.Printf("")
-			logger.Printf("  3. If you lost the key:")
-			logger.Printf("     ⚠️  Your profiles are permanently encrypted")
-			logger.Printf("     You'll need to delete the file and start fresh:")
-			logger.Printf("     rm %s", tempProfilesPath)
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Fatalf("Encryption key required to decrypt profiles file")
+			slog.Error("encrypted profiles file found but no key set",
+				"path", tempProfilesPath,
+				"hint", "set SKYLINE_PROFILES_KEY environment variable")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "🔐 Encrypted profiles file found")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintf(os.Stderr, "An encrypted profiles file exists at:\n  %s\n", tempProfilesPath)
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "❌ SKYLINE_PROFILES_KEY environment variable is not set")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "To decrypt your profiles, set the encryption key:")
+			fmt.Fprintln(os.Stderr, "  1. source ~/.skyline/skyline.env && skyline")
+			fmt.Fprintln(os.Stderr, "  2. export SKYLINE_PROFILES_KEY=<your-64-char-hex-key> && skyline")
+			fmt.Fprintf(os.Stderr, "  3. If lost: rm %s\n", tempProfilesPath)
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			os.Exit(1)
 		}
 
 		// No key and no file - check if running interactively
 		// SECURITY: Never generate keys in service/non-interactive mode (prevents keys in logs)
 		if !term.IsTerminal(int(os.Stdout.Fd())) {
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("🔐 Encryption key required")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Printf("Running in non-interactive mode (service/background).")
-			logger.Printf("Encryption key must be configured before starting service.")
-			logger.Printf("")
-			logger.Printf("To set up encryption:")
-			logger.Printf("")
-			logger.Printf("  1. Generate a key:")
-			logger.Printf("     openssl rand -hex 32")
-			logger.Printf("")
-			logger.Printf("  2. Save to ~/.skyline/skyline.env:")
-			logger.Printf("     echo 'SKYLINE_PROFILES_KEY=<your-key>' > ~/.skyline/skyline.env")
-			logger.Printf("     chmod 600 ~/.skyline/skyline.env")
-			logger.Printf("")
-			logger.Printf("  3. Restart the service:")
-			logger.Printf("     systemctl --user restart skyline")
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Fatalf("Encryption key generation requires interactive terminal (security measure)")
+			slog.Error("encryption key required in non-interactive mode",
+				"hint", "set SKYLINE_PROFILES_KEY before starting service")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "🔐 Encryption key required")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Running in non-interactive mode (service/background).")
+			fmt.Fprintln(os.Stderr, "Encryption key must be configured before starting service.")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "  1. openssl rand -hex 32")
+			fmt.Fprintln(os.Stderr, "  2. echo 'SKYLINE_PROFILES_KEY=<your-key>' > ~/.skyline/skyline.env")
+			fmt.Fprintln(os.Stderr, "  3. systemctl --user restart skyline")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			os.Exit(1)
 		}
 
 		// Interactive mode - generate new key
 		key = make([]byte, 32)
 		if _, err := rand.Read(key); err != nil {
-			logger.Fatalf("failed to generate encryption key: %v", err)
+			slog.Error("failed to generate encryption key", "error", err)
+			os.Exit(1)
 		}
 		keyHex := hex.EncodeToString(key)
 
 		// Determine skyline.env path
 		home, err := os.UserHomeDir()
 		if err != nil {
-			logger.Fatalf("get home dir: %v", err)
+			slog.Error("get home dir failed", "error", err)
+			os.Exit(1)
 		}
 		skylineDir := filepath.Join(home, ".skyline")
 		envPath := filepath.Join(skylineDir, "skyline.env")
 
 		// Create .skyline directory if it doesn't exist
 		if err := os.MkdirAll(skylineDir, 0o755); err != nil {
-			logger.Fatalf("create .skyline dir: %v", err)
+			slog.Error("create .skyline dir failed", "error", err)
+			os.Exit(1)
 		}
 
 		// Save key to skyline.env
 		envContent := fmt.Sprintf("export SKYLINE_PROFILES_KEY=%s\n", keyHex)
 		if err := os.WriteFile(envPath, []byte(envContent), 0o600); err != nil {
-			logger.Fatalf("save encryption key: %v", err)
+			slog.Error("save encryption key failed", "error", err)
+			os.Exit(1)
 		}
 
 		// Set the env var for this process
@@ -252,7 +246,8 @@ func main() {
 		// Key is set - decode it
 		key, err = decodeKey(keyRaw)
 		if err != nil {
-			logger.Fatalf("invalid encryption key in %s: %v", *keyEnv, err)
+			slog.Error("invalid encryption key", "env", *keyEnv, "error", err)
+			os.Exit(1)
 		}
 
 		// Ensure env file exists (may have been deleted or key set manually)
@@ -271,13 +266,15 @@ func main() {
 
 	mode := strings.ToLower(strings.TrimSpace(*authMode))
 	if mode != "none" && mode != "bearer" {
-		logger.Fatalf("unsupported auth mode %q", *authMode)
+		slog.Error("unsupported auth mode", "mode", *authMode)
+		os.Exit(1)
 	}
 
 	// Initialize audit logger
 	auditLogger, err := audit.NewLogger("./skyline-audit.db")
 	if err != nil {
-		logger.Fatalf("init audit logger: %v", err)
+		slog.Error("init audit logger failed", "error", err)
+		os.Exit(1)
 	}
 	defer auditLogger.Close()
 
@@ -290,7 +287,8 @@ func main() {
 		// Default to ~/.skyline/config.yaml
 		home, err := os.UserHomeDir()
 		if err != nil {
-			logger.Fatalf("get home dir: %v", err)
+			slog.Error("get home dir failed", "error", err)
+			os.Exit(1)
 		}
 		serverConfigPath = filepath.Join(home, ".skyline", "config.yaml")
 	}
@@ -298,18 +296,33 @@ func main() {
 	// Load server configuration
 	serverCfg, err := serverconfig.Load(serverConfigPath)
 	if err != nil {
-		logger.Fatalf("load server config: %v", err)
+		slog.Error("load server config failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Check if config file exists, if not create default
 	if _, err := os.Stat(serverConfigPath); os.IsNotExist(err) {
-		logger.Printf("Config file not found, creating default: %s", serverConfigPath)
+		slog.Info("config file not found, creating default", "path", serverConfigPath)
 		if err := serverconfig.GenerateDefault(serverConfigPath); err != nil {
-			logger.Printf("Warning: could not create default config: %v", err)
+			slog.Warn("could not create default config", "error", err)
 		} else {
-			logger.Printf("✓ Created default config.yaml")
+			slog.Info("created default config.yaml")
 		}
 	}
+
+	// Apply log level/format from server config if not overridden by CLI flags
+	cfgLogLevel := serverCfg.Logging.Level
+	cfgLogFormat := serverCfg.Logging.Format
+	// CLI flags take precedence; if they were explicitly set, the logger is already
+	// configured. If not, re-configure from config file.
+	if *logLevel == "info" && cfgLogLevel != "" && cfgLogLevel != "info" {
+		*logLevel = cfgLogLevel
+	}
+	if *logFormat == "text" && cfgLogFormat != "" && cfgLogFormat != "text" {
+		*logFormat = cfgLogFormat
+	}
+	// Re-setup logger with final format/level (from config or CLI)
+	logger = logging.Setup(*logFormat, *logLevel)
 
 	// Apply configuration
 	// Override bind address if set via command line flag
@@ -338,13 +351,15 @@ func main() {
 	}
 	tlsCertPath, tlsKeyPath, err = ensureTLSCert(tlsCertPath, tlsKeyPath, []string{tlsHost, "localhost", "127.0.0.1", "::1"}, logger)
 	if err != nil {
-		logger.Fatalf("tls setup: %v", err)
+		slog.Error("tls setup failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Create TCP listener with same-port HTTP→HTTPS redirect
 	tcpLn, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		logger.Fatalf("listen: %v", err)
+		slog.Error("listen failed", "addr", listenAddr, "error", err)
+		os.Exit(1)
 	}
 	ln := &tlsRedirectListener{Listener: tcpLn, httpsHost: listenAddr}
 
@@ -373,39 +388,40 @@ func main() {
 	auditLogger.Close()
 	auditLogger, err = audit.NewLogger(auditDBPath)
 	if err != nil {
-		logger.Fatalf("init audit logger: %v", err)
+		slog.Error("init audit logger failed", "error", err)
+		os.Exit(1)
 	}
 	defer auditLogger.Close()
-
-	// Set log level from config
-	setLogLevel(logger, serverCfg.Logging.Level)
 
 	// Use persisted admin token from config, or generate and save one
 	adminToken := serverCfg.Server.AdminToken
 	if adminToken == "" {
 		adminTokenRaw := make([]byte, 16)
 		if _, randErr := rand.Read(adminTokenRaw); randErr != nil {
-			logger.Fatalf("generate admin token: %v", randErr)
+			slog.Error("generate admin token failed", "error", randErr)
+			os.Exit(1)
 		}
 		adminToken = hex.EncodeToString(adminTokenRaw)
 		serverCfg.Server.AdminToken = adminToken
 		if err := serverconfig.InjectAdminToken(serverConfigPath, adminToken); err != nil {
-			logger.Printf("Warning: could not persist admin token to config: %v", err)
+			slog.Warn("could not persist admin token to config", "error", err)
 		} else {
-			logger.Printf("✓ Generated and saved admin token to config")
+			slog.Info("generated and saved admin token to config")
 		}
 	}
 
-	logger.Printf("Skyline MCP Server starting...")
-	logger.Printf("  Transport: %s", *transport)
-	logger.Printf("  Admin UI: %v", *admin)
-	logger.Printf("  Listen: %s", listenAddr)
-	logger.Printf("  Config: %s", serverConfigPath)
-	logger.Printf("  Profiles: %s", profilesPath)
-	logger.Printf("  Audit DB: %s", auditDBPath)
-	logger.Printf("  Code Execution: %v", serverCfg.Runtime.CodeExecution.Enabled)
-	logger.Printf("  Cache: %v", serverCfg.Runtime.Cache.Enabled)
-	logger.Printf("  Log Level: %s", serverCfg.Logging.Level)
+	slog.Info("Skyline MCP Server starting",
+		"transport", *transport,
+		"admin", *admin,
+		"listen", listenAddr,
+		"config", serverConfigPath,
+		"profiles", profilesPath,
+		"audit_db", auditDBPath,
+		"code_execution", serverCfg.Runtime.CodeExecution.Enabled,
+		"cache", serverCfg.Runtime.Cache.Enabled,
+		"log_level", *logLevel,
+		"log_format", *logFormat,
+	)
 
 	s := &server{
 		path:           profilesPath,
@@ -421,12 +437,13 @@ func main() {
 		sessionTracker: mcp.NewSessionTracker(),
 		agentHub:       audit.NewGenericHub(),
 		oauthStore:     oauth.NewStore(),
+		detectLimiter:  ratelimit.New(5, 0, 0), // 5 requests per minute for detect endpoint
 	}
 
 	// Initialize cache if enabled in config
 	if serverCfg.Runtime.Cache.Enabled {
 		s.cache = newProfileCache(serverCfg.Runtime.Cache.TTL)
-		logger.Printf("  Cache TTL: %s", serverCfg.Runtime.Cache.TTL)
+		slog.Info("cache enabled", "ttl", serverCfg.Runtime.Cache.TTL)
 	}
 
 	// Start metrics remote write if configured
@@ -434,7 +451,7 @@ func main() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		metricsCollector.StartRemoteWrite(ctx, rw.Endpoint, rw.Interval, rw.Username, rw.Password, logger)
-		logger.Printf("  Metrics remote write: %s (every %s)", rw.Endpoint, rw.Interval)
+		slog.Info("metrics remote write enabled", "endpoint", rw.Endpoint, "interval", rw.Interval)
 	}
 
 	// Try to load existing profiles
@@ -442,35 +459,35 @@ func main() {
 		// If profile exists but decryption failed, show helpful error
 		if profileExists && keyRaw != "" {
 			absPath, _ := filepath.Abs(profilesPath)
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("❌ Failed to decrypt profiles file")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Printf("The encryption key is invalid for this profiles file.")
-			logger.Printf("")
-			logger.Printf("📁 Profiles file:")
-			logger.Printf("   %s", absPath)
-			logger.Printf("")
-			logger.Printf("🔑 Key used (from %s):", *keyEnv)
-			logger.Printf("   %s...%s", keyRaw[:16], keyRaw[len(keyRaw)-16:])
-			logger.Printf("")
-			logger.Printf("💡 Options:")
-			logger.Printf("   • Use the correct key for this file")
-			logger.Printf("   • Delete the file to start fresh (data will be lost)")
-			logger.Printf("   • Restore from backup")
-			logger.Printf("")
-			logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			logger.Printf("")
-			logger.Fatalf("Error: %v", err)
+			slog.Error("failed to decrypt profiles file",
+				"path", absPath,
+				"key_env", *keyEnv,
+				"error", err,
+			)
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "❌ Failed to decrypt profiles file")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "The encryption key is invalid for this profiles file.")
+			fmt.Fprintf(os.Stderr, "\n📁 Profiles file:\n   %s\n", absPath)
+			fmt.Fprintf(os.Stderr, "\n🔑 Key used (from %s):\n   %s...%s\n", *keyEnv, keyRaw[:16], keyRaw[len(keyRaw)-16:])
+			fmt.Fprintln(os.Stderr, "\n💡 Options:")
+			fmt.Fprintln(os.Stderr, "   • Use the correct key for this file")
+			fmt.Fprintln(os.Stderr, "   • Delete the file to start fresh (data will be lost)")
+			fmt.Fprintln(os.Stderr, "   • Restore from backup")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			os.Exit(1)
 		}
-		logger.Fatalf("load store: %v", err)
+		slog.Error("load store failed", "error", err)
+		os.Exit(1)
 	}
 
 	// If profiles file doesn't exist, create an empty encrypted one
 	if !profileExists {
 		if err := s.save(); err != nil {
-			logger.Printf("Warning: could not create profiles file: %v", err)
+			slog.Warn("could not create profiles file", "error", err)
 		}
 
 		// Show first-run status if key wasn't just generated (that case already showed its message)
@@ -509,7 +526,8 @@ func main() {
 		})
 		uiFS, err := fs.Sub(uiFiles, "ui")
 		if err != nil {
-			logger.Fatalf("ui fs: %v", err)
+			slog.Error("ui fs error", "error", err)
+			os.Exit(1)
 		}
 		mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiFS))))
 		mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
@@ -573,24 +591,28 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	logger.Printf("")
-	logger.Printf("✓ Skyline MCP Server ready (HTTPS)")
-	if *admin {
-		logger.Printf("  Admin token: %s", adminToken)
-		logger.Printf("  → https://%s", listenAddr)
-	}
-	logger.Printf("")
+	slog.Info("Skyline MCP Server ready (HTTPS)",
+		"admin_token", adminToken,
+		"url", "https://"+listenAddr,
+	)
+
+	// Start graceful-shutdown listener in the background.
+	go shutdownOnSignal([]*http.Server{httpServer}, func() {
+		auditLogger.Close()
+		slog.Debug("audit logger closed")
+	})
 
 	if err := httpServer.ServeTLS(ln, tlsCertPath, tlsKeyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Fatalf("server error: %v", err)
+		slog.Error("server error", "error", err)
+		os.Exit(1)
 	}
 }
 
-func logRequests(next http.Handler, logger *log.Logger) http.Handler {
+func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		logger.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+		logger.Debug("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
 	})
 }
 

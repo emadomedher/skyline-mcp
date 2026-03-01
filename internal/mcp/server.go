@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"time"
 
 	"skyline-mcp/internal/canonical"
@@ -47,19 +47,19 @@ type Executor interface {
 }
 
 type Server struct {
-	registry           *Registry
-	executor           Executor    // Runtime executor for tool calls
-	codeExecutor       interface{} // Code executor for /execute endpoint (optional)
-	version            string
-	logger             *log.Logger
-	redactor           *redact.Redactor
-	toolCallHook       ToolCallHook      // Optional hook for audit/metrics on tool calls
-	toolCallStartHook  ToolCallStartHook // Optional hook fired before tool execution
-	maxResponseBytes   int               // Default max response size in bytes (0 = no limit)
-	maxResponseByAPI   map[string]int    // Per-API max response bytes (overrides default)
+	registry          *Registry
+	executor          Executor    // Runtime executor for tool calls
+	codeExecutor      interface{} // Code executor for /execute endpoint (optional)
+	version           string
+	logger            *slog.Logger
+	redactor          *redact.Redactor
+	toolCallHook      ToolCallHook      // Optional hook for audit/metrics on tool calls
+	toolCallStartHook ToolCallStartHook // Optional hook fired before tool execution
+	maxResponseBytes  int               // Default max response size in bytes (0 = no limit)
+	maxResponseByAPI  map[string]int    // Per-API max response bytes (overrides default)
 }
 
-func NewServer(registry *Registry, executor Executor, logger *log.Logger, redactor *redact.Redactor, version string) *Server {
+func NewServer(registry *Registry, executor Executor, logger *slog.Logger, redactor *redact.Redactor, version string) *Server {
 	if version == "" {
 		version = "dev"
 	}

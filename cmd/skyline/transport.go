@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"skyline-mcp/internal/codegen"
@@ -21,7 +24,7 @@ import (
 )
 
 // runHTTPWithConfig runs the MCP server in HTTP mode with direct config file (no profiles)
-func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logger *log.Logger) error {
+func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logger *slog.Logger) error {
 	ctx := context.Background()
 
 	// Expand config path
@@ -57,32 +60,23 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 	}
 
 	// Log startup
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("🚀 Skyline MCP Server v%s - HTTP Mode (Direct Config)", Version)
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("Config: %s", configPath)
-	logger.Printf("APIs: %d configured", len(cfg.APIs))
-	logger.Printf("Listen: %s", listenAddr)
-	logger.Printf("Transport: HTTP (no authentication)")
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("")
+	logger.Info("🚀 Skyline MCP Server starting", "version", Version, "mode", "http", "config", configPath, "apis", len(cfg.APIs), "listen", listenAddr, "transport", "HTTP")
 
 	// Load services from API specs
-	logger.Printf("📚 Loading API specifications...")
+	logger.Info("📚 Loading API specifications...")
 	services, err := spec.LoadServices(ctx, cfg, logger, redactor)
 	if err != nil {
 		return fmt.Errorf("load services: %w", err)
 	}
-	logger.Printf("✓ Loaded %d services", len(services))
+	logger.Info("✓ Loaded services", "count", len(services))
 
 	// Build MCP registry
-	logger.Printf("🔨 Building MCP tool registry...")
+	logger.Info("🔨 Building MCP tool registry...")
 	registry, err := mcp.NewRegistry(services)
 	if err != nil {
 		return fmt.Errorf("build registry: %w", err)
 	}
-	logger.Printf("✓ Registered %d tools", len(registry.Tools))
-	logger.Printf("✓ Registered %d resources", len(registry.Resources))
+	logger.Info("✓ Registered tools and resources", "tools", len(registry.Tools), "resources", len(registry.Resources))
 
 	// Initialize executor
 	executor, err := runtime.NewExecutor(cfg, services, logger, redactor)
@@ -115,7 +109,7 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			logger.Printf("Error encoding response: %v", err)
+			logger.Error("error encoding response", "error", err)
 		}
 	})
 
@@ -161,21 +155,27 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 		IdleTimeout:  120 * time.Second,
 	}
 
-	logger.Printf("")
-	logger.Printf("✅ Server initialized successfully (HTTPS)")
-	logger.Printf("📡 MCP Endpoint: https://%s/mcp/v1", listenAddr)
-	logger.Printf("🏥 Health Check: https://%s/healthz", listenAddr)
-	logger.Printf("")
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("")
+	logger.Info("✅ Server initialized successfully", "protocol", "HTTPS", "mcp_endpoint", "https://"+listenAddr+"/mcp/v1", "health_check", "https://"+listenAddr+"/healthz")
+
+	// Start graceful-shutdown listener in the background.
+	go shutdownOnSignal([]*http.Server{httpServer}, func() {
+		if err := executor.Close(); err != nil {
+			logger.Warn("executor cleanup error", "error", err)
+		}
+		logger.Debug("executor closed")
+	})
 
 	// Start server with TLS
-	return httpServer.ServeTLS(ln, tlsCertPath, tlsKeyPath)
+	if err := httpServer.ServeTLS(ln, tlsCertPath, tlsKeyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // runSTDIO runs the MCP server in STDIO mode for Claude Desktop integration
-func runSTDIO(configPathArg string, logger *log.Logger) error {
-	ctx := context.Background()
+func runSTDIO(configPathArg string, logger *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// STDIO mode requires a config file
 	if configPathArg == "" {
@@ -215,31 +215,23 @@ func runSTDIO(configPathArg string, logger *log.Logger) error {
 	}
 
 	// Log startup (to stderr, not stdout - stdout is reserved for MCP protocol)
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("🚀 Skyline MCP Server v%s - STDIO Mode", Version)
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("Config: %s", configPath)
-	logger.Printf("APIs: %d configured", len(cfg.APIs))
-	logger.Printf("Transport: STDIO (stdin/stdout)")
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("")
+	logger.Info("🚀 Skyline MCP Server starting", "version", Version, "mode", "stdio", "config", configPath, "apis", len(cfg.APIs), "transport", "STDIO")
 
 	// Load services from API specs
-	logger.Printf("📚 Loading API specifications...")
+	logger.Info("📚 Loading API specifications...")
 	services, err := spec.LoadServices(ctx, cfg, logger, redactor)
 	if err != nil {
 		return fmt.Errorf("load services: %w", err)
 	}
-	logger.Printf("✓ Loaded %d services", len(services))
+	logger.Info("✓ Loaded services", "count", len(services))
 
 	// Build MCP registry
-	logger.Printf("🔨 Building MCP tool registry...")
+	logger.Info("🔨 Building MCP tool registry...")
 	registry, err := mcp.NewRegistry(services)
 	if err != nil {
 		return fmt.Errorf("build registry: %w", err)
 	}
-	logger.Printf("✓ Registered %d tools", len(registry.Tools))
-	logger.Printf("✓ Registered %d resources", len(registry.Resources))
+	logger.Info("✓ Registered tools and resources", "tools", len(registry.Tools), "resources", len(registry.Resources))
 
 	// Initialize executor
 	executor, err := runtime.NewExecutor(cfg, services, logger, redactor)
@@ -253,7 +245,7 @@ func runSTDIO(configPathArg string, logger *log.Logger) error {
 	// Set up code execution (goja — no external dependencies)
 	codeExec, err := codegen.SetupCodeExecution(registry, logger)
 	if err != nil {
-		logger.Printf("Warning: code execution setup failed: %v", err)
+		logger.Warn("code execution setup failed", "error", err)
 	} else if codeExec != nil {
 		// Wire direct tool calling (no HTTP server in STDIO mode)
 		codeExec.SetDirectCallFunc(func(ctx context.Context, toolName string, args map[string]any) (any, error) {
@@ -268,20 +260,23 @@ func runSTDIO(configPathArg string, logger *log.Logger) error {
 			return result.Body, nil
 		})
 		mcpServer.SetCodeExecutor(codeExec)
-		logger.Printf("✓ Code execution enabled (goja)")
+		logger.Info("✓ Code execution enabled", "runtime", "goja")
 	}
 
-	logger.Printf("")
-	logger.Printf("✅ Server initialized successfully")
-	logger.Printf("📡 Ready for MCP protocol over STDIO")
-	logger.Printf("")
-	logger.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Printf("")
+	logger.Info("✅ Server initialized successfully", "mode", "stdio")
 
 	// Run server in STDIO mode (stdin → stdout)
-	if err := mcpServer.Serve(ctx, os.Stdin, os.Stdout); err != nil {
-		return fmt.Errorf("server error: %w", err)
+	serveErr := mcpServer.Serve(ctx, os.Stdin, os.Stdout)
+
+	// Clean up resources
+	if err := executor.Close(); err != nil {
+		logger.Warn("executor cleanup error", "error", err)
 	}
 
+	if serveErr != nil && ctx.Err() == nil {
+		return fmt.Errorf("server error: %w", serveErr)
+	}
+
+	logger.Info("Shutdown complete")
 	return nil
 }

@@ -33,6 +33,13 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Global rate limit for detect endpoint
+	if s.detectLimiter != nil {
+		if err := s.detectLimiter.Wait(r.Context()); err != nil {
+			http.Error(w, "rate limited — try again shortly", http.StatusTooManyRequests)
+			return
+		}
+	}
 	var req detectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -299,7 +306,7 @@ func (s *server) fetchOperations(ctx context.Context, specURL, specType string) 
 		}
 		parsed, err := adapter.Parse(ctx, raw, "temp", "")
 		if err != nil {
-			s.logger.Printf("adapter %T parse error: %v", adapter, err)
+			s.logger.Debug("adapter parse error", "adapter", fmt.Sprintf("%T", adapter), "error", err)
 			continue
 		}
 		service = parsed

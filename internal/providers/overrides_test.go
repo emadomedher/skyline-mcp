@@ -1,12 +1,11 @@
 package providers
 
 import (
-	"log"
-	"os"
 	"testing"
 
 	"skyline-mcp/internal/canonical"
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/logging"
 )
 
 func TestDetectOverrides_NameMatch(t *testing.T) {
@@ -87,7 +86,7 @@ func TestPatternMatches_OperationIDGlob(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_BlocksKnownBad(t *testing.T) {
-	logger := log.New(os.Stderr, "", 0)
+	logger := logging.Discard()
 	services := []*canonical.Service{{
 		Name:    "jira",
 		BaseURL: "https://mycompany.atlassian.net",
@@ -118,7 +117,7 @@ func TestApplyProviderOverrides_BlocksKnownBad(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_RespectsOptOut(t *testing.T) {
-	logger := log.New(os.Stderr, "", 0)
+	logger := logging.Discard()
 	services := []*canonical.Service{{
 		Name:    "jira",
 		BaseURL: "https://mycompany.atlassian.net",
@@ -140,7 +139,7 @@ func TestApplyProviderOverrides_RespectsOptOut(t *testing.T) {
 }
 
 func TestApplyProviderOverrides_NoMatchPassesThrough(t *testing.T) {
-	logger := log.New(os.Stderr, "", 0)
+	logger := logging.Discard()
 	services := []*canonical.Service{{
 		Name:    "petstore",
 		BaseURL: "http://localhost:8080",

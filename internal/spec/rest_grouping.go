@@ -2,7 +2,7 @@ package spec
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -12,7 +12,7 @@ import (
 
 // ApplyRESTGrouping applies REST CRUD grouping to services that opt in.
 // Auto-enabled for well-known APIs (Jira, Slack) and any API with optimization.enable_crud_grouping.
-func ApplyRESTGrouping(services []*canonical.Service, apiConfigs []config.APIConfig, logger *log.Logger) []*canonical.Service {
+func ApplyRESTGrouping(services []*canonical.Service, apiConfigs []config.APIConfig, logger *slog.Logger) []*canonical.Service {
 	// Build lookup of which APIs should have REST grouping
 	shouldGroup := make(map[string]bool)
 	for _, api := range apiConfigs {
@@ -38,8 +38,7 @@ func ApplyRESTGrouping(services []*canonical.Service, apiConfigs []config.APICon
 		after := len(grouped)
 
 		if after < before {
-			logger.Printf("REST grouping for %s: %d operations → %d tools (%.0f%% reduction)",
-				svc.Name, before, after, float64(before-after)/float64(before)*100)
+			logger.Info("REST grouping applied", "api", svc.Name, "before", before, "after", after, "reduction_pct", int(float64(before-after)/float64(before)*100))
 		}
 
 		result = append(result, &canonical.Service{

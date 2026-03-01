@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"log"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -80,7 +80,7 @@ func matchesProvider(o ProviderOverride, nameL, urlL string) bool {
 // ApplyProviderOverrides applies built-in provider-specific blocklists to services.
 // Operations matching known-bad patterns are removed with a log entry explaining why.
 // APIs with DisableProviderOverrides=true are skipped entirely.
-func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.APIConfig, logger *log.Logger) []*canonical.Service {
+func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.APIConfig, logger *slog.Logger) []*canonical.Service {
 	// Build lookup: API name -> APIConfig
 	configByName := make(map[string]config.APIConfig, len(apiConfigs))
 	for _, api := range apiConfigs {
@@ -96,7 +96,7 @@ func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.A
 		}
 
 		if apiCfg.DisableProviderOverrides {
-			logger.Printf("provider overrides disabled for %s (user opt-out)", svc.Name)
+			logger.Info("provider overrides disabled (user opt-out)", "api", svc.Name)
 			result = append(result, svc)
 			continue
 		}
@@ -110,7 +110,7 @@ func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.A
 		// Collect all block patterns from all matching overrides
 		var allPatterns []config.OperationPattern
 		for _, o := range overrides {
-			logger.Printf("provider override %q matched for %s: %s", o.Provider, svc.Name, o.Reason)
+			logger.Debug("provider override matched", "provider", o.Provider, "api", svc.Name, "reason", o.Reason)
 			allPatterns = append(allPatterns, o.BlockPatterns...)
 		}
 
@@ -118,8 +118,7 @@ func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.A
 
 		removed := len(svc.Operations) - len(filtered)
 		if removed > 0 {
-			logger.Printf("provider overrides for %s: removed %d known-broken operations (%d remaining)",
-				svc.Name, removed, len(filtered))
+			logger.Info("provider overrides applied", "api", svc.Name, "removed", removed, "remaining", len(filtered))
 		}
 
 		result = append(result, &canonical.Service{
@@ -133,11 +132,11 @@ func ApplyProviderOverrides(services []*canonical.Service, apiConfigs []config.A
 }
 
 // applyBlocklist removes operations matching any of the block patterns.
-func applyBlocklist(ops []*canonical.Operation, patterns []config.OperationPattern, serviceName string, logger *log.Logger) []*canonical.Operation {
+func applyBlocklist(ops []*canonical.Operation, patterns []config.OperationPattern, serviceName string, logger *slog.Logger) []*canonical.Operation {
 	result := make([]*canonical.Operation, 0, len(ops))
 	for _, op := range ops {
 		if operationMatchesAny(op, patterns) {
-			logger.Printf("  blocked %s %s (operation: %s) — provider override", op.Method, op.Path, op.ID)
+			logger.Debug("blocked operation (provider override)", "method", op.Method, "path", op.Path, "operation", op.ID)
 			continue
 		}
 		result = append(result, op)

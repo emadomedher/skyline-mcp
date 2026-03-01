@@ -8,17 +8,22 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/circuitbreaker"
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/ratelimit"
 	"skyline-mcp/internal/redact"
 
 	"google.golang.org/grpc"
@@ -31,9 +36,11 @@ import (
 
 type Executor struct {
 	client    *http.Client
-	logger    *log.Logger
+	logger    *slog.Logger
 	redactor  *redact.Redactor
 	services  map[string]serviceConfig
+	limiters  map[string]*ratelimit.Limiter
+	breakers  map[string]*circuitbreaker.Breaker
 	crumbMu   sync.Mutex
 	crumbs    map[string]*crumbState
 	grpcMu    sync.Mutex
@@ -54,14 +61,25 @@ type Result struct {
 	Body        any    `json:"body"`
 }
 
-func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *log.Logger, redactor *redact.Redactor) (*Executor, error) {
+func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *slog.Logger, redactor *redact.Redactor) (*Executor, error) {
 	serviceMap := map[string]serviceConfig{}
+	limiterMap := map[string]*ratelimit.Limiter{}
+	breakerMap := map[string]*circuitbreaker.Breaker{}
 	for _, api := range cfg.APIs {
 		serviceMap[api.Name] = serviceConfig{
 			Auth:    api.Auth,
 			Timeout: time.Duration(derefInt(api.TimeoutSeconds, cfg.TimeoutSeconds)) * time.Second,
 			Retries: derefInt(api.Retries, cfg.Retries),
 		}
+		rpm := derefInt(api.RateLimitRPM, 0)
+		rph := derefInt(api.RateLimitRPH, 0)
+		rpd := derefInt(api.RateLimitRPD, 0)
+		if rpm > 0 || rph > 0 || rpd > 0 {
+			limiterMap[api.Name] = ratelimit.New(rpm, rph, rpd)
+			logger.Debug("rate limiter configured", "component", "executor", "api", api.Name, "rpm", rpm, "rph", rph, "rpd", rpd)
+		}
+		breakerMap[api.Name] = circuitbreaker.New(api.Name, 5, 30*time.Second)
+		logger.Debug("circuit breaker configured", "component", "executor", "api", api.Name, "threshold", 5, "cooldown", "30s")
 	}
 	for _, svc := range services {
 		cfgEntry, ok := serviceMap[svc.Name]
@@ -77,10 +95,27 @@ func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *log.
 		logger:    logger,
 		redactor:  redactor,
 		services:  serviceMap,
+		limiters:  limiterMap,
+		breakers:  breakerMap,
 		crumbs:    map[string]*crumbState{},
 		grpcConns: map[string]*grpc.ClientConn{},
 		oauth2Mgr: NewOAuth2TokenManager(),
 	}, nil
+}
+
+// Close releases resources held by the Executor, including gRPC connections.
+func (e *Executor) Close() error {
+	e.grpcMu.Lock()
+	defer e.grpcMu.Unlock()
+	var firstErr error
+	for addr, conn := range e.grpcConns {
+		if err := conn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		e.logger.Debug("closed gRPC connection", "addr", addr)
+	}
+	e.grpcConns = map[string]*grpc.ClientConn{}
+	return firstErr
 }
 
 func derefInt(v *int, fallback int) int {
@@ -88,6 +123,38 @@ func derefInt(v *int, fallback int) int {
 		return fallback
 	}
 	return *v
+}
+
+// recordBreakerOutcome records a success or failure on the circuit breaker
+// based on the upstream call result. 5xx status codes, timeouts, and connection
+// errors count as failures. 4xx errors are valid API responses and do not
+// trip the breaker.
+func (e *Executor) recordBreakerOutcome(breaker *circuitbreaker.Breaker, result *Result, err error, apiName string) {
+	if breaker == nil {
+		return
+	}
+	prevState := breaker.State()
+	if err != nil {
+		breaker.RecordFailure(err)
+		if prevState != circuitbreaker.Open && breaker.State() == circuitbreaker.Open {
+			stats := breaker.Stats()
+			e.logger.Warn("circuit breaker tripped", "component", "executor", "api", apiName, "failures", stats.ConsecutiveFails, "last_error", err)
+		}
+		return
+	}
+	if result != nil && result.Status >= 500 {
+		serverErr := fmt.Errorf("HTTP %d", result.Status)
+		breaker.RecordFailure(serverErr)
+		if prevState != circuitbreaker.Open && breaker.State() == circuitbreaker.Open {
+			stats := breaker.Stats()
+			e.logger.Warn("circuit breaker tripped", "component", "executor", "api", apiName, "failures", stats.ConsecutiveFails, "last_error", serverErr)
+		}
+		return
+	}
+	breaker.RecordSuccess()
+	if prevState != circuitbreaker.Closed && breaker.State() == circuitbreaker.Closed {
+		e.logger.Info("circuit breaker recovered", "component", "executor", "api", apiName)
+	}
 }
 
 func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args map[string]any) (*Result, error) {
@@ -99,17 +166,39 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 		return nil, fmt.Errorf("base URL is missing for service %s", op.ServiceName)
 	}
 
+	// Check rate limit before any upstream call.
+	if limiter, ok := e.limiters[op.ServiceName]; ok {
+		if err := limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	// Check circuit breaker before any upstream call.
+	breaker := e.breakers[op.ServiceName]
+	if breaker != nil {
+		if err := breaker.Allow(); err != nil {
+			e.logger.Warn("circuit breaker rejected request", "component", "executor", "api", op.ServiceName, "error", err)
+			return nil, err
+		}
+	}
+
 	// Dispatch REST composite operations — route to the sub-operation for the given action.
+	// Note: REST composite delegates back to Execute() for sub-operations, which will
+	// check the circuit breaker again. That's correct — the sub-op is for the same service.
 	if op.RESTComposite != nil {
-		return e.executeRESTComposite(ctx, op, args)
+		result, err := e.executeRESTComposite(ctx, op, args)
+		// Don't record here — the recursive Execute call already records.
+		return result, err
 	}
 
 	// Dispatch gRPC protocol to separate handler.
 	if op.Protocol == "grpc" {
-		return e.executeGRPC(ctx, op, args, cfg)
+		result, err := e.executeGRPC(ctx, op, args, cfg)
+		e.recordBreakerOutcome(breaker, result, err, op.ServiceName)
+		return result, err
 	}
 
-	e.logger.Printf("[EXECUTOR] Starting execute for %s (timeout=%v)", op.ToolName, cfg.Timeout)
+	e.logger.Info("executing tool", "component", "executor", "tool", op.ToolName, "timeout", cfg.Timeout)
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
@@ -117,7 +206,7 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	if err != nil {
 		return nil, err
 	}
-	e.logger.Printf("[EXECUTOR] Resolved URL: %s", e.redactor.Redact(fullURL))
+	e.logger.Debug("resolved URL", "component", "executor", "url", e.redactor.Redact(fullURL))
 	parsedURL, err := url.Parse(fullURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -230,27 +319,45 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 			return nil, fmt.Errorf("apply auth: %w", err)
 		}
 
-		e.logger.Printf("[EXECUTOR] Making HTTP request: %s %s (attempt %d/%d)", method, e.redactor.Redact(parsedURL.String()), attempt+1, attempts)
+		e.logger.Debug("HTTP request", "component", "executor", "method", method, "url", e.redactor.Redact(parsedURL.String()), "attempt", attempt+1, "max_attempts", attempts)
 		resp, err := e.client.Do(req)
-		e.logger.Printf("[EXECUTOR] HTTP request completed (err=%v, status=%v)", err, func() int {
-			if resp != nil {
-				return resp.StatusCode
-			}
-			return 0
-		}())
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+		e.logger.Debug("HTTP response", "component", "executor", "status", statusCode, "error", err)
+
+		// Handle connection-level errors (no response received).
 		if err != nil {
-			if attempt < attempts-1 && isRetryable(method) {
-				e.logger.Printf("request failed, retrying: %s", e.redactor.Redact(err.Error()))
+			if attempt < attempts-1 && isRetryable(method, 0, err) {
+				delay := retryDelay(attempt, 0)
+				e.logger.Warn("retrying request", "component", "executor", "api", op.ServiceName, "attempt", attempt+1, "delay", delay, "status", 0, "error", e.redactor.Redact(err.Error()))
+				if sleepErr := sleepContext(ctx, delay); sleepErr != nil {
+					failErr := fmt.Errorf("request failed: %w", err)
+					e.recordBreakerOutcome(breaker, nil, failErr, op.ServiceName)
+					return nil, failErr
+				}
 				continue
 			}
-			return nil, fmt.Errorf("request failed: %w", err)
+			failErr := fmt.Errorf("request failed: %w", err)
+			e.recordBreakerOutcome(breaker, nil, failErr, op.ServiceName)
+			return nil, failErr
 		}
-		result, retry, err := normalizeResponse(resp)
+
+		result, retry, retryAfter, err := normalizeResponse(resp)
 		if err != nil {
 			return nil, err
 		}
-		if retry && attempt < attempts-1 && isRetryable(method) {
-			e.logger.Printf("retrying on %d", result.Status)
+		if retry && attempt < attempts-1 && isRetryable(method, result.Status, nil) {
+			delay := retryDelay(attempt, retryAfter)
+			if retryAfter > 0 {
+				slog.Debug("using Retry-After from upstream", "seconds", delay.Seconds(), "api", op.ServiceName)
+			}
+			e.logger.Warn("retrying request", "component", "executor", "api", op.ServiceName, "attempt", attempt+1, "delay", delay, "status", result.Status, "error", err)
+			if sleepErr := sleepContext(ctx, delay); sleepErr != nil {
+				e.recordBreakerOutcome(breaker, result, nil, op.ServiceName)
+				return result, nil
+			}
 			continue
 		}
 		if op.SoapNamespace != "" {
@@ -261,9 +368,12 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 		if op.JSONRPC != nil {
 			result = tryUnwrapJSONRPC(result)
 		}
+		e.recordBreakerOutcome(breaker, result, nil, op.ServiceName)
 		return result, nil
 	}
-	return nil, fmt.Errorf("request failed after retries")
+	retryErr := fmt.Errorf("request failed after retries")
+	e.recordBreakerOutcome(breaker, nil, retryErr, op.ServiceName)
+	return nil, retryErr
 }
 
 func buildJSONRPCBody(op *canonical.Operation, args map[string]any) ([]byte, error) {
@@ -427,7 +537,7 @@ func (e *Executor) executeRESTComposite(ctx context.Context, op *canonical.Opera
 		}
 	}
 
-	e.logger.Printf("[EXECUTOR] REST composite %s: routing action=%q to %s %s", op.ToolName, action, subOp.Method, subOp.Path)
+	e.logger.Debug("REST composite routing", "component", "executor", "tool", op.ToolName, "action", action, "method", subOp.Method, "path", subOp.Path)
 	return e.Execute(ctx, subOp, subArgs)
 }
 
@@ -441,7 +551,7 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 	// Extract input object from args
 	inputVal, hasInput := args["input"]
 	inputObj := make(map[string]any)
-	
+
 	if hasInput {
 		if inputMap, ok := inputVal.(map[string]any); ok {
 			for k, v := range inputMap {
@@ -449,7 +559,7 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 			}
 		}
 	}
-	
+
 	// Check for top-level 'id' argument (backwards compat)
 	if topLevelID, ok := args["id"]; ok {
 		inputObj["id"] = topLevelID
@@ -467,10 +577,10 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 			hasUpdateID = true
 		}
 	}
-	
+
 	var opRef *canonical.GraphQLOpRef
 	var opAlias string
-	
+
 	if !hasUpdateID && comp.Create != nil {
 		// No update identifier = CREATE operation
 		opRef = comp.Create
@@ -479,7 +589,7 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 		// Has update identifier = UPDATE operation
 		opRef = comp.Update
 		opAlias = "update"
-		
+
 		// GitLab UPDATE quirk: Remove global 'id' if projectPath+iid provided
 		// UpdateIssueInput doesn't accept 'id', only projectPath+iid
 		if _, hasPath := inputObj["projectPath"]; hasPath {
@@ -498,7 +608,7 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 	// Build GraphQL mutation
 	opName := fmt.Sprintf("composite_%s_%s", strings.ToLower(comp.Pattern), opAlias)
 	varDef := fmt.Sprintf("$input: %s", opRef.InputType)
-	
+
 	// Default selection - include common fields
 	selection := fmt.Sprintf("{ %s { id } errors }", strings.ToLower(comp.Pattern))
 	if userSelection, ok := args["selection"]; ok {
@@ -522,7 +632,7 @@ func buildCompositeGraphQLBody(op *canonical.Operation, args map[string]any) ([]
 			"input": inputObj,
 		},
 	}
-	
+
 	return json.Marshal(payload)
 }
 
@@ -706,7 +816,25 @@ func sameHost(baseURL, targetURL *url.URL) bool {
 	return strings.EqualFold(baseURL.Scheme, targetURL.Scheme) && strings.EqualFold(baseURL.Host, targetURL.Host)
 }
 
-func isRetryable(method string) bool {
+// sleepContext waits for the specified duration or until the context is
+// cancelled, whichever comes first. Returns the context error if cancelled.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// isIdempotent returns true for HTTP methods that are safe to retry on any
+// server error.
+func isIdempotent(method string) bool {
 	switch strings.ToUpper(method) {
 	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodOptions:
 		return true
@@ -715,19 +843,115 @@ func isRetryable(method string) bool {
 	}
 }
 
-func normalizeResponse(resp *http.Response) (*Result, bool, error) {
+// isRetryable determines whether a failed request should be retried based on
+// the HTTP method, response status code, and error. Connection errors are
+// always retryable for idempotent methods. 503 and 429 are retryable for ALL
+// methods (including POST) because they explicitly signal "try again later".
+// Other 5xx codes (500, 502, 504) are retryable only for idempotent methods.
+func isRetryable(method string, statusCode int, err error) bool {
+	// Connection-level errors (no response received) — safe to retry idempotent.
+	if err != nil && statusCode == 0 {
+		return isIdempotent(method)
+	}
+
+	switch statusCode {
+	case http.StatusServiceUnavailable, // 503
+		http.StatusTooManyRequests: // 429
+		// These explicitly mean "try again later" — safe for all methods.
+		return true
+	case http.StatusInternalServerError, // 500
+		http.StatusBadGateway,     // 502
+		http.StatusGatewayTimeout: // 504
+		return isIdempotent(method)
+	default:
+		return false
+	}
+}
+
+const (
+	retryBaseDelay = 500 * time.Millisecond
+	retryMaxDelay  = 10 * time.Second
+	retryAfterCap  = 30 * time.Second
+)
+
+// retryDelay calculates the backoff delay for a given retry attempt.
+// If retryAfter is non-zero (from an upstream Retry-After header), it is used
+// instead of the exponential calculation (capped at retryAfterCap).
+// Otherwise the delay is: min(baseDelay * 2^attempt + jitter, maxDelay).
+// Attempt 0 means the first retry (second overall request).
+func retryDelay(attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		if retryAfter > retryAfterCap {
+			return retryAfterCap
+		}
+		return retryAfter
+	}
+
+	exp := math.Pow(2, float64(attempt))
+	delay := time.Duration(float64(retryBaseDelay) * exp)
+
+	// Add jitter: random value in [0, baseDelay/2).
+	jitter := time.Duration(rand.Int64N(int64(retryBaseDelay / 2)))
+	delay += jitter
+
+	if delay > retryMaxDelay {
+		delay = retryMaxDelay
+	}
+	return delay
+}
+
+// parseRetryAfter extracts the delay from a Retry-After header value.
+// It handles both integer seconds ("120") and HTTP-date format
+// ("Mon, 02 Jan 2006 15:04:05 GMT"). Returns 0 for unparseable values.
+// The result is capped at retryAfterCap.
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	// Try integer seconds first.
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		d := time.Duration(seconds) * time.Second
+		if d > retryAfterCap {
+			return retryAfterCap
+		}
+		return d
+	}
+
+	// Try HTTP-date format.
+	if t, err := http.ParseTime(value); err == nil {
+		d := time.Until(t)
+		if d <= 0 {
+			return 0
+		}
+		if d > retryAfterCap {
+			return retryAfterCap
+		}
+		return d
+	}
+
+	return 0
+}
+
+// normalizeResponse reads the HTTP response body and returns a Result.
+// The second return value (retry) is true when the status code indicates the
+// request may be retried (5xx or 429). The third return value carries the
+// parsed Retry-After header duration (0 if absent/unparseable).
+func normalizeResponse(resp *http.Response) (*Result, bool, time.Duration, error) {
 	defer resp.Body.Close()
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, false, fmt.Errorf("read response: %w", err)
+		return nil, false, 0, fmt.Errorf("read response: %w", err)
 	}
 	contentType := resp.Header.Get("Content-Type")
+	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 
-	if resp.StatusCode >= 500 {
-		return &Result{Status: resp.StatusCode, ContentType: contentType}, true, nil
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		return &Result{Status: resp.StatusCode, ContentType: contentType}, true, retryAfter, nil
 	}
 	if resp.StatusCode >= 400 {
-		return nil, false, fmt.Errorf("http error status %d", resp.StatusCode)
+		return nil, false, 0, fmt.Errorf("http error status %d", resp.StatusCode)
 	}
 
 	var body any
@@ -747,7 +971,7 @@ func normalizeResponse(resp *http.Response) (*Result, bool, error) {
 		Status:      resp.StatusCode,
 		ContentType: contentType,
 		Body:        body,
-	}, false, nil
+	}, false, 0, nil
 }
 
 func tryParseSOAP(result *Result) (*Result, bool) {

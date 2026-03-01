@@ -135,7 +135,7 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 	// Track MCP session lifecycle for active connection metrics + agent monitoring
 	streamable.SetSessionHook(func(event mcp.SessionEvent) {
 		event.Profile = profileName
-		s.logger.Printf("[MCP] session %s: %s (profile=%s, client=%v)", event.SessionID, event.Type, profileName, event.ClientInfo)
+		s.logger.Info("MCP session event", "session_id", event.SessionID, "type", event.Type, "profile", profileName, "client_info", event.ClientInfo)
 		if event.Type == "connected" {
 			s.sessionTracker.Register(event.SessionID, profileName, event.ClientInfo)
 			s.metrics.RecordConnection(true)
@@ -161,6 +161,6 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 	})
 	s.mcpServers.Store(cacheKey, streamable)
 
-	s.logger.Printf("created MCP Streamable HTTP server for profile=%s", prof.Name)
+	s.logger.Info("created MCP Streamable HTTP server", "profile", prof.Name)
 	return streamable, nil
 }

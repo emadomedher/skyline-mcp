@@ -8,7 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -25,7 +25,7 @@ import (
 // point to existing files they are returned as-is. Otherwise a self-signed
 // certificate is generated, written to ~/.skyline/tls/, and installed into
 // the system trust store (best-effort).
-func ensureTLSCert(certPath, keyPath string, hosts []string, logger *log.Logger) (string, string, error) {
+func ensureTLSCert(certPath, keyPath string, hosts []string, logger *slog.Logger) (string, string, error) {
 	// Expand ~ in user-provided paths
 	if certPath != "" {
 		if p, err := serverconfig.ExpandPath(certPath); err == nil {
@@ -41,11 +41,11 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *log.Logger)
 	// If both files exist, use them directly
 	if certPath != "" && keyPath != "" {
 		if fileExists(certPath) && fileExists(keyPath) {
-			logger.Printf("Using TLS certificate: %s", certPath)
+			logger.Info("using TLS certificate", "component", "tls", "cert", certPath)
 			return certPath, keyPath, nil
 		}
 		// User provided paths but files missing — warn and fall through to auto-gen
-		logger.Printf("WARNING: configured TLS cert/key not found (%s, %s), generating self-signed", certPath, keyPath)
+		logger.Warn("configured TLS cert/key not found, generating self-signed", "component", "tls", "cert", certPath, "key", keyPath)
 	}
 
 	// Auto-generate into ~/.skyline/tls/
@@ -59,7 +59,7 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *log.Logger)
 
 	// If auto-generated files already exist, reuse them (but still ensure trusted)
 	if fileExists(autoCert) && fileExists(autoKey) {
-		logger.Printf("Using auto-generated self-signed certificate (~/.skyline/tls/)")
+		logger.Debug("using auto-generated self-signed certificate", "component", "tls", "dir", "~/.skyline/tls/")
 		ensureCertTrusted(autoCert, logger)
 		return autoCert, autoKey, nil
 	}
@@ -135,7 +135,7 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *log.Logger)
 	}
 	keyFile.Close()
 
-	logger.Printf("Generated self-signed TLS certificate (~/.skyline/tls/)")
+	logger.Info("generated self-signed TLS certificate", "component", "tls", "dir", "~/.skyline/tls/")
 
 	// Install into system trust store (best-effort)
 	ensureCertTrusted(autoCert, logger)
@@ -145,7 +145,7 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *log.Logger)
 
 // ensureCertTrusted checks whether the certificate is already trusted by the OS
 // and installs it if not. Safe to call on every startup — skips if already trusted.
-func ensureCertTrusted(certPath string, logger *log.Logger) {
+func ensureCertTrusted(certPath string, logger *slog.Logger) {
 	switch runtime.GOOS {
 	case "darwin":
 		// Check if already trusted via security verify-cert
@@ -163,14 +163,10 @@ func ensureCertTrusted(certPath string, logger *log.Logger) {
 		keychain := filepath.Join(home, "Library", "Keychains", "login.keychain-db")
 		cmd := exec.Command("security", "add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", keychain, certPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			logger.Printf("Could not auto-trust certificate: %v", err)
-			if len(out) > 0 {
-				logger.Printf("  %s", strings.TrimSpace(string(out)))
-			}
-			logger.Printf("  To trust manually:")
-			logger.Printf("    security add-trusted-cert -r trustRoot -p ssl -k %s %s", keychain, certPath)
+			logger.Warn("could not auto-trust certificate", "component", "tls", "error", err, "output", strings.TrimSpace(string(out)),
+				"manual_cmd", fmt.Sprintf("security add-trusted-cert -r trustRoot -p ssl -k %s %s", keychain, certPath))
 		} else {
-			logger.Printf("Installed certificate into macOS login keychain (trusted for SSL)")
+			logger.Info("installed certificate into macOS login keychain", "component", "tls")
 		}
 		return
 
@@ -181,8 +177,8 @@ func ensureCertTrusted(certPath string, logger *log.Logger) {
 		if fileExists(dest) {
 			return
 		}
-		logger.Printf("To trust the self-signed certificate on Linux:")
-		logger.Printf("  sudo cp %s %s && sudo update-ca-certificates", certPath, dest)
+		logger.Info("to trust the self-signed certificate on Linux", "component", "tls",
+			"manual_cmd", fmt.Sprintf("sudo cp %s %s && sudo update-ca-certificates", certPath, dest))
 		return
 
 	case "windows":
@@ -195,20 +191,15 @@ func ensureCertTrusted(certPath string, logger *log.Logger) {
 		// Install to current user's trusted root store (no admin required)
 		cmd := exec.Command("certutil", "-user", "-addstore", "Root", certPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			logger.Printf("Could not auto-trust certificate: %v", err)
-			if len(out) > 0 {
-				logger.Printf("  %s", strings.TrimSpace(string(out)))
-			}
-			logger.Printf("  To trust manually:")
-			logger.Printf("    certutil -user -addstore Root %s", certPath)
+			logger.Warn("could not auto-trust certificate", "component", "tls", "error", err, "output", strings.TrimSpace(string(out)),
+				"manual_cmd", fmt.Sprintf("certutil -user -addstore Root %s", certPath))
 		} else {
-			logger.Printf("Installed certificate into Windows user trust store")
+			logger.Info("installed certificate into Windows user trust store", "component", "tls")
 		}
 		return
 	}
 
-	logger.Printf("Self-signed certificate at: %s", certPath)
-	logger.Printf("Add it to your system trust store for MCP clients to connect without errors.")
+	logger.Info("self-signed certificate generated — add to system trust store for MCP clients", "component", "tls", "cert", certPath)
 }
 
 // tlsRedirectListener wraps a net.Listener and handles both TLS and plain HTTP

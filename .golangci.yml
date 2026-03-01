@@ -1,0 +1,99 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    # Essential — catch real bugs
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+
+    # Style — keep code consistent
+    - gofmt
+    - goimports
+    - misspell
+
+    # Security
+    - gosec
+
+linters-settings:
+  errcheck:
+    # Don't flag unchecked errors for these functions (common and harmless)
+    exclude-functions:
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - fmt.Fprint
+      - (io.Closer).Close
+      - (*os.File).Close
+      - (net/http.ResponseWriter).Write
+
+  govet:
+    enable-all: false
+    enable:
+      - assign
+      - atomic
+      - bools
+      - buildtag
+      - composites
+      - copylocks
+      - httpresponse
+      - loopclosure
+      - lostcancel
+      - nilfunc
+      - printf
+      - shadow
+      - shift
+      - structtag
+      - unmarshal
+      - unreachable
+      - unusedresult
+
+  gosec:
+    excludes:
+      - G104 # duplicates errcheck
+      - G304 # file path from variable (too noisy for CLI tools)
+      - G204 # subprocess with variable (expected in a tool like this)
+      - G114 # net/http serve without timeout (we handle this)
+
+  goimports:
+    local-prefixes: skyline-mcp
+
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+
+  exclude-rules:
+    # Test files: relax errcheck and gosec
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+
+    # Generated files
+    - path: \.pb\.go$
+      linters:
+        - govet
+        - errcheck
+        - staticcheck
+        - unused
+        - gosimple
+        - gofmt
+        - goimports
+        - gosec
+
+    # Allow unused parameters in interface implementations
+    - linters:
+        - unused
+      source: "^func \\(.*\\) .+\\(.*\\) {"
+
+  exclude:
+    # Common false positives
+    - "should have a package comment"
+    - "don't use ALL_CAPS in Go names"

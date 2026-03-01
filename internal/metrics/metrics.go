@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -208,17 +208,17 @@ func (c *Collector) PrometheusFormat() string {
 
 // Snapshot returns a snapshot of current metrics
 type Snapshot struct {
-	TotalRequests     int64              `json:"total_requests"`
-	SuccessRequests   int64              `json:"success_requests"`
-	FailedRequests    int64              `json:"failed_requests"`
-	ActiveConnections int64              `json:"active_connections"`
-	TotalConnections  int64              `json:"total_connections"`
-	AvgDurationMs     float64            `json:"avg_duration_ms"`
-	CacheHits         int64              `json:"cache_hits"`
-	CacheMisses       int64              `json:"cache_misses"`
-	ProfileRequests   map[string]int64   `json:"profile_requests"`
-	ToolRequests      map[string]int64   `json:"tool_requests"`
-	UptimeSeconds     float64            `json:"uptime_seconds"`
+	TotalRequests     int64            `json:"total_requests"`
+	SuccessRequests   int64            `json:"success_requests"`
+	FailedRequests    int64            `json:"failed_requests"`
+	ActiveConnections int64            `json:"active_connections"`
+	TotalConnections  int64            `json:"total_connections"`
+	AvgDurationMs     float64          `json:"avg_duration_ms"`
+	CacheHits         int64            `json:"cache_hits"`
+	CacheMisses       int64            `json:"cache_misses"`
+	ProfileRequests   map[string]int64 `json:"profile_requests"`
+	ToolRequests      map[string]int64 `json:"tool_requests"`
+	UptimeSeconds     float64          `json:"uptime_seconds"`
 }
 
 // Snapshot returns a snapshot of current metrics
@@ -262,7 +262,7 @@ func (c *Collector) Snapshot() *Snapshot {
 
 // StartRemoteWrite starts a background goroutine that periodically POSTs
 // Prometheus-format metrics to a remote write endpoint (e.g. Grafana Cloud).
-func (c *Collector) StartRemoteWrite(ctx context.Context, endpoint string, interval time.Duration, username, password string, logger *log.Logger) {
+func (c *Collector) StartRemoteWrite(ctx context.Context, endpoint string, interval time.Duration, username, password string, logger *slog.Logger) {
 	if endpoint == "" {
 		return
 	}
@@ -282,7 +282,7 @@ func (c *Collector) StartRemoteWrite(ctx context.Context, endpoint string, inter
 				body := c.PrometheusFormat()
 				req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(body))
 				if err != nil {
-					logger.Printf("metrics remote write: create request: %v", err)
+					logger.Error("metrics remote write: create request failed", "error", err)
 					continue
 				}
 				req.Header.Set("Content-Type", "text/plain")
@@ -292,12 +292,12 @@ func (c *Collector) StartRemoteWrite(ctx context.Context, endpoint string, inter
 
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
-					logger.Printf("metrics remote write: %v", err)
+					logger.Error("metrics remote write failed", "error", err)
 					continue
 				}
 				resp.Body.Close()
 				if resp.StatusCode >= 400 {
-					logger.Printf("metrics remote write: status %d", resp.StatusCode)
+					logger.Warn("metrics remote write returned error status", "status", resp.StatusCode)
 				}
 			}
 		}

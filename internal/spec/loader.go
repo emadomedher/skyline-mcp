@@ -3,7 +3,7 @@ package spec
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"strings"
@@ -17,7 +17,7 @@ import (
 	"skyline-mcp/internal/redact"
 )
 
-func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, redactor *redact.Redactor) ([]*canonical.Service, error) {
+func LoadServices(ctx context.Context, cfg *config.Config, logger *slog.Logger, redactor *redact.Redactor) ([]*canonical.Service, error) {
 	fetcher := NewFetcher(15 * time.Second)
 	adapters := []SpecAdapter{
 		NewOpenAPIAdapter(),
@@ -40,7 +40,7 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 	for i, api := range cfg.APIs {
 		svc, err := loadSingleAPI(ctx, fetcher, adapters, api, i, logger, redactor)
 		if err != nil {
-			logger.Printf("WARNING: skipping api %q (apis[%d]): %v", api.Name, i, err)
+			logger.Warn("skipping api", "api", api.Name, "index", i, "error", err)
 			continue
 		}
 		services = append(services, svc)
@@ -62,11 +62,11 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *log.Logger, r
 	return services, nil
 }
 
-func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter, api config.APIConfig, idx int, logger *log.Logger, redactor *redact.Redactor) (*canonical.Service, error) {
+func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter, api config.APIConfig, idx int, logger *slog.Logger, redactor *redact.Redactor) (*canonical.Service, error) {
 	// Special path for gRPC: use reflection instead of file-based spec.
 	if api.SpecType == "grpc" {
 		target := strings.TrimPrefix(strings.TrimPrefix(api.BaseURLOverride, "http://"), "https://")
-		logger.Printf("loading grpc service %s via reflection from %s", api.Name, target)
+		logger.Info("loading grpc service via reflection", "api", api.Name, "target", target)
 		svc, err := grpcparser.ParseViaReflection(ctx, target, api.Name)
 		if err != nil {
 			return nil, fmt.Errorf("grpc reflection: %w", err)
@@ -78,7 +78,7 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 	if api.SpecType != "" {
 		for _, adapter := range adapters {
 			if adapter.Name() == api.SpecType {
-				logger.Printf("using adapter %s directly for %s (spec_type override)", api.SpecType, api.Name)
+				logger.Debug("using adapter directly", "adapter", api.SpecType, "api", api.Name)
 				return adapter.Parse(ctx, nil, api.Name, api.BaseURLOverride)
 			}
 		}
@@ -88,7 +88,7 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 	var err error
 
 	if api.SpecFile != "" {
-		logger.Printf("loading spec for %s from file %s", api.Name, api.SpecFile)
+		logger.Debug("loading spec from file", "api", api.Name, "file", api.SpecFile)
 		raw, err = os.ReadFile(api.SpecFile)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
@@ -98,45 +98,43 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 		fetchAuth := api.Auth // auth to use for spec fetch; nil for well-known public URLs
 		if specURL == "" || looksLikeDeadSlackSpec(specURL) {
 			if slackURL, ok := resolveSlackSpecURL(api); ok {
-				logger.Printf("using well-known slack spec for %s", api.Name)
+				logger.Debug("using well-known slack spec", "api", api.Name)
 				specURL = slackURL
 				fetchAuth = nil
 			}
 		}
 		if looksLikeGitLabSpec(specURL, api) {
 			if looksLikeGraphQLEndpoint(specURL) {
-				// GitLab GraphQL: fetch introspection from public gitlab.com
-				// (self-hosted instances often block introspection or return 500)
-				logger.Printf("fetching well-known gitlab graphql schema for %s via public introspection", api.Name)
+				logger.Debug("fetching well-known gitlab graphql schema via public introspection", "api", api.Name)
 				raw, err = fetcher.FetchGraphQLIntrospection(ctx, gitlabGraphQLIntrospectionURL, nil)
 				if err != nil {
 					return nil, fmt.Errorf("gitlab graphql introspection: %w", err)
 				}
 			} else {
-				logger.Printf("using well-known gitlab spec for %s", api.Name)
+				logger.Debug("using well-known gitlab spec", "api", api.Name)
 				specURL = gitlabSpecURL
 				fetchAuth = nil
 			}
 		}
 		if looksLikeJiraBase(specURL) {
 			if jiraSpecURL, ok := detectJiraSpecURL(ctx, fetcher, specURL, api.Auth); ok {
-				logger.Printf("detected jira cloud for %s; using %s", api.Name, redactor.Redact(jiraSpecURL))
+				logger.Debug("detected jira cloud", "api", api.Name, "spec_url", redactor.Redact(jiraSpecURL))
 				specURL = jiraSpecURL
 				fetchAuth = nil
 			}
 		}
 		if looksLikeGmailAPI(api) {
-			logger.Printf("using well-known gmail discovery spec for %s", api.Name)
+			logger.Debug("using well-known gmail discovery spec", "api", api.Name)
 			specURL = gmailDiscoveryURL
 			fetchAuth = nil
 		}
 		if raw == nil {
-			logger.Printf("loading spec for %s from %s", api.Name, redactor.Redact(specURL))
+			logger.Debug("loading spec from URL", "api", api.Name, "url", redactor.Redact(specURL))
 			raw, err = fetcher.Fetch(ctx, specURL, fetchAuth)
-			logger.Printf("fetch completed for %s (len=%d, err=%v)", api.Name, len(raw), err)
+			logger.Debug("fetch completed", "api", api.Name, "size", len(raw), "error", err)
 			if err != nil {
 				if looksLikeGraphQLEndpoint(specURL) {
-					logger.Printf("fetching graphql introspection for %s from %s", api.Name, redactor.Redact(specURL))
+					logger.Debug("fetching graphql introspection", "api", api.Name, "url", redactor.Redact(specURL))
 					raw, err = fetcher.FetchGraphQLIntrospection(ctx, specURL, api.Auth)
 				}
 				if err != nil {
@@ -148,7 +146,7 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 
 	parseRaw := func(raw []byte) (*canonical.Service, string, error) {
 		for _, adapter := range adapters {
-			logger.Printf("trying adapter: %s", adapter.Name())
+			logger.Debug("trying adapter", "adapter", adapter.Name())
 			if !adapter.Detect(raw) {
 				continue
 			}
@@ -175,15 +173,15 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 		return nil, "", nil
 	}
 
-	logger.Printf("parsing spec for %s (size=%d bytes)", api.Name, len(raw))
+	logger.Debug("parsing spec", "api", api.Name, "size", len(raw))
 	service, adapterName, err := parseRaw(raw)
 	if err != nil {
-		logger.Printf("parse completed for %s (adapter=%s, err=%v)", api.Name, adapterName, err)
+		logger.Debug("parse failed", "api", api.Name, "adapter", adapterName, "error", err)
 		return nil, fmt.Errorf("parse: %w", err)
 	}
 	if api.SpecFile == "" && looksLikeGraphQLEndpoint(api.SpecURL) {
 		if service == nil || adapterName != "graphql" {
-			logger.Printf("retrying %s with graphql introspection from %s", api.Name, redactor.Redact(api.SpecURL))
+			logger.Debug("retrying with graphql introspection", "api", api.Name, "url", redactor.Redact(api.SpecURL))
 			raw, err = fetcher.FetchGraphQLIntrospection(ctx, api.SpecURL, api.Auth)
 			if err != nil {
 				return nil, fmt.Errorf("graphql introspection: %w", err)

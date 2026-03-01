@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,12 +21,12 @@ import (
 
 type HTTPServer struct {
 	server *Server
-	logger *log.Logger
+	logger *slog.Logger
 	auth   *config.AuthConfig
 	store  *sessionStore
 }
 
-func NewHTTPServer(server *Server, logger *log.Logger, auth *config.AuthConfig) *HTTPServer {
+func NewHTTPServer(server *Server, logger *slog.Logger, auth *config.AuthConfig) *HTTPServer {
 	return &HTTPServer{
 		server: server,
 		logger: logger,
@@ -270,13 +270,13 @@ func (h *HTTPServer) dispatch(ctx context.Context, ch chan []byte, req *rpcReque
 	}
 	encoded, err := json.Marshal(resp)
 	if err != nil {
-		h.logger.Printf("sse encode error: %v", err)
+		h.logger.Error("sse encode error", "error", err)
 		return
 	}
 	select {
 	case ch <- encoded:
 	default:
-		h.logger.Printf("sse buffer full, dropping message")
+		h.logger.Warn("sse buffer full, dropping message")
 	}
 }
 

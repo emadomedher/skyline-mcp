@@ -367,7 +367,7 @@ func (s *server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Printf("config saved to %s", s.configPath)
+	s.logger.Info("config saved", "path", s.configPath)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",

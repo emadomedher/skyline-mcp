@@ -6,27 +6,31 @@ import (
 )
 
 type Config struct {
-	APIs               []APIConfig `json:"apis" yaml:"apis"`
-	TimeoutSeconds     int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
-	Retries            int         `json:"retries,omitempty" yaml:"retries,omitempty"`
-	EnableCodeExecution *bool      `json:"enable_code_execution,omitempty" yaml:"enable_code_execution,omitempty"`
-	MaxResponseBytes   int         `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
+	APIs                []APIConfig `json:"apis" yaml:"apis"`
+	TimeoutSeconds      int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries             int         `json:"retries,omitempty" yaml:"retries,omitempty"`
+	EnableCodeExecution *bool       `json:"enable_code_execution,omitempty" yaml:"enable_code_execution,omitempty"`
+	MaxResponseBytes    int         `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
 }
 
 type APIConfig struct {
-	Name            string                `json:"name" yaml:"name"`
-	SpecURL         string                `json:"spec_url" yaml:"spec_url"`
-	SpecFile        string                `json:"spec_file,omitempty" yaml:"spec_file,omitempty"`
-	SpecType        string                `json:"spec_type,omitempty" yaml:"spec_type,omitempty"`
-	BaseURLOverride string                `json:"base_url_override,omitempty" yaml:"base_url_override,omitempty"`
-	Auth            *AuthConfig           `json:"auth,omitempty" yaml:"auth,omitempty"`
-	TimeoutSeconds  *int                  `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
-	Retries         *int                  `json:"retries,omitempty" yaml:"retries,omitempty"`
-	Jenkins         *JenkinsConfig        `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
+	Name                     string                   `json:"name" yaml:"name"`
+	SpecURL                  string                   `json:"spec_url" yaml:"spec_url"`
+	SpecFile                 string                   `json:"spec_file,omitempty" yaml:"spec_file,omitempty"`
+	SpecType                 string                   `json:"spec_type,omitempty" yaml:"spec_type,omitempty"`
+	BaseURLOverride          string                   `json:"base_url_override,omitempty" yaml:"base_url_override,omitempty"`
+	Auth                     *AuthConfig              `json:"auth,omitempty" yaml:"auth,omitempty"`
+	TimeoutSeconds           *int                     `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Retries                  *int                     `json:"retries,omitempty" yaml:"retries,omitempty"`
+	Jenkins                  *JenkinsConfig           `json:"jenkins,omitempty" yaml:"jenkins,omitempty"`
 	Filter                   *OperationFilterEnhanced `json:"filter,omitempty" yaml:"filter,omitempty"`
 	Optimization             *GraphQLOptimization     `json:"optimization,omitempty" yaml:"optimization,omitempty"`
 	DisableProviderOverrides bool                     `json:"disable_provider_overrides,omitempty" yaml:"disable_provider_overrides,omitempty"`
 	MaxResponseBytes         *int                     `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
+	// Rate limiting — 0 means unlimited
+	RateLimitRPM *int `json:"rate_limit_rpm,omitempty" yaml:"rate_limit_rpm,omitempty"` // Max requests per minute
+	RateLimitRPH *int `json:"rate_limit_rph,omitempty" yaml:"rate_limit_rph,omitempty"` // Max requests per hour
+	RateLimitRPD *int `json:"rate_limit_rpd,omitempty" yaml:"rate_limit_rpd,omitempty"` // Max requests per day
 }
 
 type AuthConfig struct {
@@ -120,6 +124,15 @@ func (c *Config) Validate() error {
 		}
 		if api.Retries != nil && *api.Retries < 0 {
 			return fmt.Errorf("apis[%d]: retries must be >= 0", i)
+		}
+		if api.RateLimitRPM != nil && *api.RateLimitRPM < 0 {
+			return fmt.Errorf("apis[%d]: rate_limit_rpm must be >= 0", i)
+		}
+		if api.RateLimitRPH != nil && *api.RateLimitRPH < 0 {
+			return fmt.Errorf("apis[%d]: rate_limit_rph must be >= 0", i)
+		}
+		if api.RateLimitRPD != nil && *api.RateLimitRPD < 0 {
+			return fmt.Errorf("apis[%d]: rate_limit_rpd must be >= 0", i)
 		}
 		if api.Jenkins != nil {
 			for j, write := range api.Jenkins.AllowWrites {

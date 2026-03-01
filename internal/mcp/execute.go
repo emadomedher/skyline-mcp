@@ -3,9 +3,9 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
-	
+
 	"skyline-mcp/internal/executor"
 )
 
@@ -35,17 +35,17 @@ func (s *Server) HandleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[EXECUTE] Running code (language=%s, timeout=%d)", req.Language, req.Timeout)
+	slog.Info("running code", "component", "execute", "language", req.Language, "timeout", req.Timeout)
 
 	// Execute code
 	result, err := exec.Execute(r.Context(), req)
 	if err != nil {
-		log.Printf("[EXECUTE] Execution failed: %v", err)
+		slog.Error("execution failed", "component", "execute", "error", err)
 		http.Error(w, fmt.Sprintf("execution failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[EXECUTE] Completed (exit=%d, time=%.3fs)", result.ExitCode, result.ExecutionTime)
+	slog.Info("execution completed", "component", "execute", "exit_code", result.ExitCode, "execution_time", result.ExecutionTime)
 
 	// Return result
 	w.Header().Set("Content-Type", "application/json")
@@ -67,7 +67,7 @@ func (s *Server) HandleInternalToolCall(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	log.Printf("[INTERNAL] Tool call: %s", req.ToolName)
+	slog.Debug("internal tool call", "component", "execute", "tool", req.ToolName)
 
 	// Find tool
 	tool, exists := s.registry.Tools[req.ToolName]
@@ -125,7 +125,7 @@ func (s *Server) HandleSearchTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[SEARCH-TOOLS] Query: %s, Detail: %s", req.Query, req.Detail)
+	slog.Debug("search tools", "component", "execute", "query", req.Query, "detail", req.Detail)
 
 	// Default detail level
 	if req.Detail == "" {
@@ -135,7 +135,7 @@ func (s *Server) HandleSearchTools(w http.ResponseWriter, r *http.Request) {
 	// Search tools
 	results := SearchTools(s.registry, req.Query, req.Detail)
 
-	log.Printf("[SEARCH-TOOLS] Found %d results", len(results))
+	slog.Debug("search tools completed", "component", "execute", "results", len(results))
 
 	// Return results
 	w.Header().Set("Content-Type", "application/json")

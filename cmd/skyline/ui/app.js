@@ -215,6 +215,10 @@ function blankApi() {
     detectedOnce: false,
     // Response truncation (per-API)
     maxResponseBytes: "",
+    // Rate limiting (per-API)
+    rateLimitRpm: "",
+    rateLimitRph: "",
+    rateLimitRpd: "",
     // Filter configuration
     filterMode: "",
     filterOperations: [],
@@ -555,6 +559,10 @@ createApp({
           detectedOnce: true,
           // Response truncation
           maxResponseBytes: api.max_response_bytes != null ? String(api.max_response_bytes) : "",
+          // Rate limiting
+          rateLimitRpm: api.rate_limit_rpm || "",
+          rateLimitRph: api.rate_limit_rph || "",
+          rateLimitRpd: api.rate_limit_rpd || "",
           // Load filter configuration
           filterMode: api.filter?.mode || "",
           filterOperations: api.filter?.operations || [],
@@ -832,6 +840,10 @@ createApp({
           if (!isNaN(mrb) && mrb >= 0) {
             entry.max_response_bytes = mrb;
           }
+          // Include rate limiting if set
+          if (api.rateLimitRpm) entry.rate_limit_rpm = parseInt(api.rateLimitRpm);
+          if (api.rateLimitRph) entry.rate_limit_rph = parseInt(api.rateLimitRph);
+          if (api.rateLimitRpd) entry.rate_limit_rpd = parseInt(api.rateLimitRpd);
           // Include filter configuration if set
           if (api.filterMode && api.filterOperations.length > 0) {
             entry.filter = {
@@ -2283,6 +2295,30 @@ createApp({
                   <div class="muted" style="font-size:11px; margin-top:4px;">
                     Bytes. 0 = no limit. Empty = inherit global default (50KB).
                   </div>
+                </div>
+              </div>
+
+              <!-- Rate Limiting -->
+              <div style="margin-top:16px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                  <iconify-icon icon="mdi:speedometer"></iconify-icon> Rate Limiting
+                </div>
+                <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+                  <div>
+                    <label>Requests / Minute</label>
+                    <input v-model="selectedApi.rateLimitRpm" type="number" min="0" placeholder="0 = unlimited" />
+                  </div>
+                  <div>
+                    <label>Requests / Hour</label>
+                    <input v-model="selectedApi.rateLimitRph" type="number" min="0" placeholder="0 = unlimited" />
+                  </div>
+                  <div>
+                    <label>Requests / Day</label>
+                    <input v-model="selectedApi.rateLimitRpd" type="number" min="0" placeholder="0 = unlimited" />
+                  </div>
+                </div>
+                <div class="muted" style="font-size:11px; margin-top:4px;">
+                  Per-minute uses token bucket (allows bursts). Per-hour and per-day use fixed windows. 0 or empty = unlimited.
                 </div>
               </div>
 

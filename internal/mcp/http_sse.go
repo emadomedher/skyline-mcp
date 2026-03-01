@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -105,6 +106,7 @@ func (h *HTTPServer) handleStreamableHTTPPost(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -230,6 +232,7 @@ func (h *HTTPServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -368,18 +371,21 @@ func authorizeRequest(r *http.Request, auth *config.AuthConfig) bool {
 		if token == "" {
 			return false
 		}
-		return r.Header.Get("Authorization") == "Bearer "+token
+		expected := []byte("Bearer " + token)
+		actual := []byte(r.Header.Get("Authorization"))
+		return subtle.ConstantTimeCompare(actual, expected) == 1
 	case "basic":
 		if auth.Username == "" || auth.Password == "" {
 			return false
 		}
-		expected := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth.Username+":"+auth.Password))
-		return r.Header.Get("Authorization") == expected
+		expected := []byte("Basic " + base64.StdEncoding.EncodeToString([]byte(auth.Username+":"+auth.Password)))
+		actual := []byte(r.Header.Get("Authorization"))
+		return subtle.ConstantTimeCompare(actual, expected) == 1
 	case "api-key":
 		if auth.Header == "" || auth.Value == "" {
 			return false
 		}
-		return r.Header.Get(auth.Header) == auth.Value
+		return subtle.ConstantTimeCompare([]byte(r.Header.Get(auth.Header)), []byte(auth.Value)) == 1
 	default:
 		return false
 	}

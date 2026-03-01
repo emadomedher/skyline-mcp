@@ -19,6 +19,7 @@ func (s *server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r)
 	var req struct {
 		ClientID    string `json:"client_id"`
 		RedirectURI string `json:"redirect_uri"`
@@ -78,6 +79,7 @@ func (s *server) handleOAuthExchange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r)
 	var req struct {
 		Code         string `json:"code"`
 		ClientID     string `json:"client_id"`

@@ -65,10 +65,10 @@ type CacheConfig struct {
 }
 
 type AuditSection struct {
-	Enabled      bool          `yaml:"enabled"`
-	Database     string        `yaml:"database"`
-	RotateAfter  time.Duration `yaml:"rotateAfter,omitempty"`
-	MaxSize      string        `yaml:"maxSize,omitempty"`
+	Enabled     bool          `yaml:"enabled"`
+	Database    string        `yaml:"database"`
+	RotateAfter time.Duration `yaml:"rotateAfter,omitempty"`
+	MaxSize     string        `yaml:"maxSize,omitempty"`
 }
 
 type ProfilesSection struct {
@@ -237,9 +237,9 @@ func (c *ServerConfig) Save(path string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	// Write atomically
+	// Write atomically — 0o600 because config may contain the admin token
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write temp file: %w", err)
 	}
 
@@ -270,7 +270,7 @@ func GenerateDefault(path string) error {
 
 	// Default config with comments (same as install.sh)
 	defaultConfig := `# Skyline MCP Server Configuration
-# Manage these settings via Web UI at http://localhost:19190/ui/settings
+# Manage these settings via Web UI at https://localhost:8191/ui/settings
 # or edit this file directly
 
 server:
@@ -329,8 +329,8 @@ logging:
   # output: "~/.skyline/skyline.log"
 `
 
-	// Write to file
-	if err := os.WriteFile(path, []byte(defaultConfig), 0o644); err != nil {
+	// Write to file — 0o600 because config may contain the admin token
+	if err := os.WriteFile(path, []byte(defaultConfig), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -381,7 +381,7 @@ func InjectAdminToken(path, token string) error {
 		}
 	}
 
-	return os.WriteFile(expanded, []byte(content), 0o644)
+	return os.WriteFile(expanded, []byte(content), 0o600)
 }
 
 // ExpandPath expands ~ to home directory

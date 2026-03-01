@@ -49,6 +49,7 @@ type server struct {
 	agentHub       *audit.GenericHub
 	oauthStore     *oauth.Store
 	detectLimiter  *ratelimit.Limiter
+	verifyLimiter  *ratelimit.Limiter
 }
 
 type upsertRequest struct {

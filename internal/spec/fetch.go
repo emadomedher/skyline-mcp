@@ -13,6 +13,10 @@ import (
 	"skyline-mcp/internal/config"
 )
 
+// maxSpecSize is the maximum allowed size for fetched spec files (10 MB).
+// This prevents OOM from unexpectedly large responses.
+const maxSpecSize = 10 << 20
+
 type Fetcher struct {
 	client *http.Client
 }
@@ -37,7 +41,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url string, auth *config.AuthConfig
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch spec: unexpected status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSpecSize))
 	if err != nil {
 		return nil, fmt.Errorf("read spec: %w", err)
 	}
@@ -67,7 +71,7 @@ func (f *Fetcher) FetchGraphQLIntrospection(ctx context.Context, url string, aut
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch introspection: unexpected status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSpecSize))
 	if err != nil {
 		return nil, fmt.Errorf("read introspection: %w", err)
 	}
@@ -104,7 +108,7 @@ func (f *Fetcher) FetchOpenRPCDiscover(ctx context.Context, url string, auth *co
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch rpc.discover: unexpected status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSpecSize))
 	if err != nil {
 		return nil, fmt.Errorf("read rpc.discover: %w", err)
 	}

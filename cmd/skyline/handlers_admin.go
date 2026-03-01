@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,7 +21,7 @@ func (s *server) isAdminSession(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return cookie.Value == s.adminToken
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.adminToken)) == 1
 }
 
 // handleAdminAuth handles GET (check) and POST (login) for admin authentication.
@@ -33,6 +34,7 @@ func (s *server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodPost:
+		limitBody(w, r)
 		var req struct {
 			Token string `json:"token"`
 		}
@@ -40,7 +42,7 @@ func (s *server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		if req.Token != s.adminToken {
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(s.adminToken)) != 1 {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -333,6 +335,7 @@ func (s *server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handlePostConfig saves updated server configuration
 func (s *server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	// Read request body (raw YAML)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -356,7 +359,7 @@ func (s *server) handlePostConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Write config file atomically (write to temp, then rename)
 	tmp := s.configPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		http.Error(w, fmt.Sprintf("write temp file: %v", err), http.StatusInternalServerError)
 		return
 	}

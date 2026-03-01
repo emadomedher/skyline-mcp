@@ -36,7 +36,7 @@ func (s *server) handleOAuthAuthorizationServer(w http.ResponseWriter, r *http.R
 		"registration_endpoint":                 issuer + "/oauth/register",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code"},
-		"code_challenge_methods_supported":       []string{"S256"},
+		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post"},
 	})
 }
@@ -48,6 +48,7 @@ func (s *server) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r)
 	var req struct {
 		ClientName   string   `json:"client_name"`
 		RedirectURIs []string `json:"redirect_uris"`
@@ -63,12 +64,12 @@ func (s *server) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 
 	client := s.oauthStore.RegisterClient(req.ClientName, req.RedirectURIs)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"client_id":                client.ID,
-		"client_secret":            client.Secret,
-		"client_name":              client.Name,
-		"redirect_uris":            client.RedirectURIs,
-		"grant_types":              []string{"authorization_code"},
-		"response_types":           []string{"code"},
+		"client_id":                  client.ID,
+		"client_secret":              client.Secret,
+		"client_name":                client.Name,
+		"redirect_uris":              client.RedirectURIs,
+		"grant_types":                []string{"authorization_code"},
+		"response_types":             []string{"code"},
 		"token_endpoint_auth_method": "client_secret_post",
 	})
 }
@@ -125,6 +126,7 @@ func (s *server) handleOAuthAuthorizeGet(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *server) handleOAuthAuthorizePost(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form data", http.StatusBadRequest)
 		return
@@ -206,6 +208,7 @@ func (s *server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r)
 
 	// Support both form-encoded and JSON
 	contentType := r.Header.Get("Content-Type")
@@ -297,4 +300,3 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, stat
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
-

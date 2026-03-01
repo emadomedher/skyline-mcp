@@ -40,6 +40,7 @@ func (s *server) handleDetect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	limitBody(w, r)
 	var req detectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -209,6 +210,14 @@ func (s *server) handleTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Rate limit to mitigate SSRF abuse (shares detect limiter)
+	if s.detectLimiter != nil {
+		if err := s.detectLimiter.Wait(r.Context()); err != nil {
+			http.Error(w, "rate limited — try again shortly", http.StatusTooManyRequests)
+			return
+		}
+	}
+	limitBody(w, r)
 	var req testRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -237,6 +246,14 @@ func (s *server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Rate limit to mitigate SSRF abuse (shares detect limiter)
+	if s.detectLimiter != nil {
+		if err := s.detectLimiter.Wait(r.Context()); err != nil {
+			http.Error(w, "rate limited — try again shortly", http.StatusTooManyRequests)
+			return
+		}
+	}
+	limitBody(w, r)
 
 	var req operationsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

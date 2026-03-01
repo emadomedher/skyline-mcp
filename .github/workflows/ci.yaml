@@ -70,15 +70,22 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Clone Mocking Bird
-        uses: actions/checkout@v4
-        with:
-          repository: emadomedher/mocking-bird
-          path: mocking-bird
-
-      - name: Build Mocking Bird
-        run: go build -o mockingbird .
-        working-directory: mocking-bird
+      - name: Download Mocking Bird
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Try to download latest prebuilt binary; fall back to building from source
+          ASSET_URL=$(gh release view --repo emadomedher/mocking-bird --json assets -q '.assets[] | select(.name == "mockingbird-linux-amd64") | .url' 2>/dev/null || echo "")
+          if [ -n "$ASSET_URL" ]; then
+            echo "Downloading prebuilt Mocking Bird binary..."
+            gh release download --repo emadomedher/mocking-bird --pattern 'mockingbird-linux-amd64' --pattern 'clothes.proto' --dir mocking-bird
+            mv mocking-bird/mockingbird-linux-amd64 mocking-bird/mockingbird
+            chmod +x mocking-bird/mockingbird
+          else
+            echo "No release found, building from source..."
+            git clone --depth 1 https://github.com/emadomedher/mocking-bird.git mocking-bird
+            cd mocking-bird && go build -o mockingbird . && cd ..
+          fi
 
       - name: Start Mocking Bird
         run: |

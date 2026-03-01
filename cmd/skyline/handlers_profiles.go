@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,22 @@ import (
 
 	"skyline-mcp/internal/config"
 )
+
+// clientIP extracts the real client IP from the request, respecting
+// X-Forwarded-For and X-Real-IP headers set by reverse proxies.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP (leftmost = original client)
+		if i := strings.Index(xff, ","); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	return r.RemoteAddr
+}
 
 func (s *server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -83,6 +100,7 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 		_, _ = w.Write([]byte(prof.ConfigYAML))
 	case http.MethodPut:
+		limitBody(w, r)
 		var req upsertRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -191,7 +209,7 @@ func (s *server) authorizeProfile(r *http.Request, prof profile) error {
 		return nil
 	}
 	token := bearerToken(r.Header.Get("Authorization"))
-	if token == "" || token != prof.Token {
+	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(prof.Token)) != 1 {
 		return fmt.Errorf("unauthorized")
 	}
 	return nil
@@ -251,6 +269,7 @@ func (s *server) handleProfileExecute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r)
 
 	// Extract profile name from URL path
 	name := extractProfileName(r.URL.Path, "/profiles/", "/execute")
@@ -284,7 +303,7 @@ func (s *server) handleProfileExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startTime := time.Now()
-	clientAddr := r.RemoteAddr
+	clientAddr := clientIP(r)
 
 	// Measure request size
 	reqBytes, _ := json.Marshal(req.Arguments)

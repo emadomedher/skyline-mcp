@@ -121,6 +121,11 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 	// Create StreamableHTTPServer
 	streamable := mcp.NewStreamableHTTPServer(mcpServer, s.logger, authCfg)
 
+	// Wire CORS allowed origins from server config
+	if s.serverCfg != nil && s.serverCfg.Security.CORS != nil && s.serverCfg.Security.CORS.Enabled {
+		streamable.AllowedOrigins = s.serverCfg.Security.CORS.Origins
+	}
+
 	// Wire OAuth validator for ChatGPT MCP compatibility
 	if s.oauthStore != nil {
 		streamable.OAuthValidator = func(token string) (string, bool) {

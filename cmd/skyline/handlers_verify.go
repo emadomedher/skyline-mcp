@@ -15,6 +15,14 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Rate limit to mitigate SSRF abuse
+	if s.verifyLimiter != nil {
+		if err := s.verifyLimiter.Wait(r.Context()); err != nil {
+			http.Error(w, "rate limited — try again shortly", http.StatusTooManyRequests)
+			return
+		}
+	}
+	limitBody(w, r)
 
 	var req struct {
 		Service     string `json:"service"`
@@ -35,6 +43,7 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		Transport: &http.Transport{
+			//nolint:gosec // Intentional: verify endpoint must work with self-hosted instances using self-signed certificates
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}

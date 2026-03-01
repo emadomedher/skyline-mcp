@@ -270,8 +270,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize audit logger
-	auditLogger, err := audit.NewLogger("./skyline-audit.db")
+	// Initialize audit logger (temporary — re-initialized with config path below)
+	auditLogger, err := audit.NewLogger("./skyline-audit.db", 0)
 	if err != nil {
 		slog.Error("init audit logger failed", "error", err)
 		os.Exit(1)
@@ -384,9 +384,9 @@ func main() {
 		}
 	}
 
-	// Re-initialize audit logger with config path
+	// Re-initialize audit logger with config path and rotation setting
 	auditLogger.Close()
-	auditLogger, err = audit.NewLogger(auditDBPath)
+	auditLogger, err = audit.NewLogger(auditDBPath, serverCfg.Audit.RotateAfter)
 	if err != nil {
 		slog.Error("init audit logger failed", "error", err)
 		os.Exit(1)
@@ -438,6 +438,7 @@ func main() {
 		agentHub:       audit.NewGenericHub(),
 		oauthStore:     oauth.NewStore(),
 		detectLimiter:  ratelimit.New(5, 0, 0), // 5 requests per minute for detect endpoint
+		verifyLimiter:  ratelimit.New(5, 0, 0), // 5 requests per minute for verify endpoint
 	}
 
 	// Initialize cache if enabled in config
@@ -585,14 +586,14 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         listenAddr,
-		Handler:      logRequests(mux, logger),
+		Handler:      recoverMiddleware(logRequests(mux, logger)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
 	slog.Info("Skyline MCP Server ready (HTTPS)",
-		"admin_token", adminToken,
+		"admin_token", adminToken[:8]+"...",
 		"url", "https://"+listenAddr,
 	)
 
@@ -611,9 +612,46 @@ func main() {
 func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+
+		// Add security headers to non-MCP responses (browser-facing routes).
+		// Skip MCP protocol endpoints so we don't interfere with API clients.
+		if !strings.HasSuffix(r.URL.Path, "/mcp") {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			w.Header().Set("Content-Security-Policy",
+				"default-src 'self'; "+
+					"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://code.iconify.design; "+
+					"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+					"img-src 'self' data: https:; "+
+					"connect-src 'self' https://api.iconify.design; "+
+					"font-src 'self' https://fonts.gstatic.com")
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
 		next.ServeHTTP(w, r)
 		logger.Debug("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
 	})
+}
+
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				slog.Error("panic recovered in HTTP handler", "error", err, "path", r.URL.Path, "method", r.Method)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+const maxBodySize = 1 << 20 // 1MB body size limit for API endpoints
+
+// limitBody applies a 1MB body size limit to prevent abuse.
+func limitBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {

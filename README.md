@@ -137,11 +137,11 @@ Skyline auto-detects the spec format. No manual configuration needed.
 skyline
 
 # Or with explicit flags
-skyline --transport http --admin --bind localhost:19190
+skyline --transport http --admin --bind localhost:8191
 
 # Open browser
-# http://localhost:19190/ui/
-# http://localhost:19190/admin/
+# https://localhost:8191/ui/
+# https://localhost:8191/admin/
 ```
 
 The encryption key is **automatically generated** on first run and saved to `~/.skyline/skyline.env`.
@@ -235,7 +235,7 @@ Secrets use `${ENV_VAR}` syntax and are automatically redacted from all logs.
 go run ./cmd/skyline --config ./config.yaml
 
 # streamable HTTP (for networked MCP clients)
-go run ./cmd/skyline --config ./config.yaml --transport http --listen :8080
+go run ./cmd/skyline --config ./config.yaml --transport http --bind localhost:8191
 ```
 
 ### 3. Connect your AI
@@ -284,10 +284,10 @@ Built-in web interface for managing configurations, profiles, and server setting
 skyline
 
 # Or explicitly
-skyline --transport http --admin --bind localhost:19190
+skyline --transport http --admin --bind localhost:8191
 
-# Open http://localhost:19190/ui/
-# Open http://localhost:19190/admin/
+# Open https://localhost:8191/ui/
+# Open https://localhost:8191/admin/
 ```
 
 Features:
@@ -296,25 +296,6 @@ Features:
 - **Spec detection** — Auto-discover API specs from base URLs
 - **Settings editor** — Edit server config.yaml via Web UI
 - **Metrics & audit** — View API call history and performance stats
-
-### Mock API Server &nbsp;`mock-api/`
-
-A standalone mock server for development and testing. Serves working mock APIs for every supported generic protocol type:
-
-| Mock API | Protocol | Endpoints |
-|---|---|---|
-| Pets | OpenAPI 3.x | `GET/POST /openapi/pets`, `GET/PUT/DELETE /openapi/pets/{id}` |
-| Dinosaurs | Swagger 2.0 | `GET/POST /swagger/dinosaurs`, `GET/PUT/DELETE /swagger/dinosaurs/{id}` |
-| Plants | WSDL / SOAP | `POST /wdsl/soap` with SOAP envelope |
-| Cars | GraphQL | `POST /graphql` with query/mutation |
-| Movies | OData v4 | `GET/POST /odata/Movies`, `GET/PUT/PATCH/DELETE /odata/Movies({id})` |
-| Calculator | OpenRPC / JSON-RPC | `POST /jsonrpc` (add, subtract, multiply, divide + `rpc.discover`) |
-| Clothes | gRPC | Ports `50051-50054` (hats, shoes, pants, shirts) with reflection |
-
-```bash
-cd mock-api && go run .
-# Listening on http://localhost:9999
-```
 
 ---
 
@@ -413,16 +394,14 @@ retries: 1
 | Flag | Default | Description |
 |---|---|---|
 | `--config` | `./config.yaml` | Path to config file (YAML or JSON, auto-detected) |
-| `--config-url` | | Config server URL (replaces `--config`) |
-| `--profile` | | Profile name when using `--config-url` |
-| `--transport` | `stdio` | `stdio`, `http`, or `sse` |
-| `--listen` | `:8080` | Listen address for HTTP transport |
+| `--transport` | `http` | `stdio` or `http` |
+| `--bind` | `localhost:8191` | Listen address for HTTP transport |
+| `--admin` | `true` | Enable Web UI and admin dashboard (HTTP only) |
 
-### Config server flags
+### Additional flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--bind` | `localhost:19190` | Network interface and port (e.g., localhost:19190 or 0.0.0.0:19190) |
 | `--storage` | `./profiles.enc.yaml` | Encrypted storage path |
 | `--auth-mode` | `bearer` | `bearer` or `none` |
 | `--key-env` | `SKYLINE_PROFILES_KEY` | Env var holding the 32-byte AES key |
@@ -510,11 +489,6 @@ skyline-mcp/
 │       ├── grpc/                     #      gRPC reflection parser
 │       ├── googleapi/                #      Google API Discovery parser
 │       └── jenkins/                  #      Jenkins object graph parser
-│
-├── mock-api/                         # ── Testing ────────────────────
-│   ├── server.go                     #    Mock APIs (all supported protocols)
-│   ├── server_test.go
-│   └── clothes.proto                 #    gRPC proto definition
 │
 ├── examples/                         # ── Examples ───────────────────
 │   ├── config.yaml.example           #    Full config with all API types

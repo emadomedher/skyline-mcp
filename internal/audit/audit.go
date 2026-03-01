@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,17 +33,21 @@ type Event struct {
 
 // Logger handles audit logging to SQLite
 type Logger struct {
-	db          *sql.DB
-	mu          sync.Mutex
-	batchSize   int
-	flushTicker *time.Ticker
-	buffer      []Event
-	bufferMu    sync.Mutex
-	hub         *Hub
+	db           *sql.DB
+	mu           sync.Mutex
+	batchSize    int
+	flushTicker  *time.Ticker
+	buffer       []Event
+	bufferMu     sync.Mutex
+	hub          *Hub
+	rotateAfter  time.Duration
+	rotateTicker *time.Ticker
 }
 
-// NewLogger creates a new audit logger
-func NewLogger(dbPath string) (*Logger, error) {
+// NewLogger creates a new audit logger.
+// rotateAfter controls how long audit events are retained. Events older than
+// this duration are periodically deleted. Pass 0 to disable rotation.
+func NewLogger(dbPath string, rotateAfter time.Duration) (*Logger, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -83,15 +89,22 @@ func NewLogger(dbPath string) (*Logger, error) {
 	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_api_name ON audit_events(api_name)`)
 
 	logger := &Logger{
-		db:        db,
-		batchSize: 100,
-		buffer:    make([]Event, 0, 100),
-		hub:       NewHub(),
+		db:          db,
+		batchSize:   100,
+		buffer:      make([]Event, 0, 100),
+		hub:         NewHub(),
+		rotateAfter: rotateAfter,
 	}
 
 	// Start background flusher (every 5 seconds)
 	logger.flushTicker = time.NewTicker(5 * time.Second)
 	go logger.backgroundFlush()
+
+	// Start background rotation if configured
+	if rotateAfter > 0 {
+		logger.rotateTicker = time.NewTicker(1 * time.Hour)
+		go logger.startRotation()
+	}
 
 	return logger, nil
 }
@@ -221,23 +234,48 @@ func (l *Logger) Flush() error {
 // backgroundFlush flushes the buffer periodically
 func (l *Logger) backgroundFlush() {
 	for range l.flushTicker.C {
-		_ = l.Flush()
+		if err := l.Flush(); err != nil {
+			slog.Error("audit flush failed", "error", err)
+		}
+	}
+}
+
+// startRotation periodically deletes audit events older than rotateAfter and
+// reclaims disk space via WAL checkpoint.
+func (l *Logger) startRotation() {
+	for range l.rotateTicker.C {
+		threshold := time.Now().Add(-l.rotateAfter)
+
+		l.mu.Lock()
+		result, err := l.db.Exec(`DELETE FROM audit_events WHERE timestamp < ?`, threshold)
+		if err != nil {
+			l.mu.Unlock()
+			slog.Error("audit log rotation failed", "error", err)
+			continue
+		}
+		count, _ := result.RowsAffected()
+		if count > 0 {
+			// Reclaim space in WAL mode
+			_, _ = l.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+			slog.Info("audit log rotated", "deleted", count, "older_than", threshold)
+		}
+		l.mu.Unlock()
 	}
 }
 
 // QueryOptions represents query parameters for retrieving audit events
 type QueryOptions struct {
-	Profile    string
-	EventType  string
-	APIName    string
-	ToolName   string
-	StartTime  time.Time
-	EndTime    time.Time
-	Success    *bool
-	Limit      int
-	Offset     int
-	OrderBy    string // "timestamp", "duration_ms"
-	OrderDir   string // "ASC", "DESC"
+	Profile   string
+	EventType string
+	APIName   string
+	ToolName  string
+	StartTime time.Time
+	EndTime   time.Time
+	Success   *bool
+	Limit     int
+	Offset    int
+	OrderBy   string // "timestamp", "duration_ms"
+	OrderDir  string // "ASC", "DESC"
 }
 
 // Query retrieves audit events based on filters
@@ -283,7 +321,17 @@ func (l *Logger) Query(opts QueryOptions) ([]Event, error) {
 		args = append(args, *opts.Success)
 	}
 
-	// Order by
+	// Order by — whitelist to prevent SQL injection
+	validOrderBy := map[string]bool{"timestamp": true, "duration_ms": true, "api_name": true, "tool_name": true, "status_code": true}
+	validOrderDir := map[string]bool{"ASC": true, "DESC": true}
+
+	if opts.OrderBy != "" && !validOrderBy[opts.OrderBy] {
+		opts.OrderBy = "timestamp" // safe default
+	}
+	if opts.OrderDir != "" && !validOrderDir[strings.ToUpper(opts.OrderDir)] {
+		opts.OrderDir = "DESC" // safe default
+	}
+
 	orderBy := "timestamp"
 	if opts.OrderBy != "" {
 		orderBy = opts.OrderBy
@@ -518,17 +566,20 @@ type Stats struct {
 
 // APIStats represents aggregated statistics for a single API or tool
 type APIStats struct {
-	Name       string  `json:"name"`
-	Calls      int64   `json:"calls"`
-	Errors     int64   `json:"errors"`
-	ErrorRate  float64 `json:"error_rate"`
-	AvgMs      int64   `json:"avg_ms"`
+	Name      string  `json:"name"`
+	Calls     int64   `json:"calls"`
+	Errors    int64   `json:"errors"`
+	ErrorRate float64 `json:"error_rate"`
+	AvgMs     int64   `json:"avg_ms"`
 }
 
 // Close closes the audit logger and flushes any remaining events
 func (l *Logger) Close() error {
 	if l.flushTicker != nil {
 		l.flushTicker.Stop()
+	}
+	if l.rotateTicker != nil {
+		l.rotateTicker.Stop()
 	}
 
 	// Final flush

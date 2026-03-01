@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -27,6 +28,7 @@ import (
 	"skyline-mcp/internal/redact"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/dynamicpb"
@@ -90,8 +92,19 @@ func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *slog
 		serviceMap[svc.Name] = cfgEntry
 	}
 
+	transport := &http.Transport{
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+
 	return &Executor{
-		client:    &http.Client{},
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   60 * time.Second,
+		},
 		logger:    logger,
 		redactor:  redactor,
 		services:  serviceMap,
@@ -869,9 +882,10 @@ func isRetryable(method string, statusCode int, err error) bool {
 }
 
 const (
-	retryBaseDelay = 500 * time.Millisecond
-	retryMaxDelay  = 10 * time.Second
-	retryAfterCap  = 30 * time.Second
+	retryBaseDelay  = 500 * time.Millisecond
+	retryMaxDelay   = 10 * time.Second
+	retryAfterCap   = 30 * time.Second
+	maxResponseSize = 50 << 20 // 50 MB — prevents OOM from unexpectedly large upstream responses
 )
 
 // retryDelay calculates the backoff delay for a given retry attempt.
@@ -940,7 +954,7 @@ func parseRetryAfter(value string) time.Duration {
 // parsed Retry-After header duration (0 if absent/unparseable).
 func normalizeResponse(resp *http.Response) (*Result, bool, time.Duration, error) {
 	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, false, 0, fmt.Errorf("read response: %w", err)
 	}
@@ -1329,7 +1343,17 @@ func (e *Executor) getGRPCConn(target string) (*grpc.ClientConn, error) {
 	if conn, ok := e.grpcConns[target]; ok {
 		return conn, nil
 	}
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	var creds credentials.TransportCredentials
+	if strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "grpcs://") {
+		creds = credentials.NewTLS(&tls.Config{})
+		target = strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "grpcs://")
+	} else {
+		creds = insecure.NewCredentials()
+		target = strings.TrimPrefix(target, "http://")
+	}
+
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial %s: %w", target, err)
 	}
@@ -1345,10 +1369,8 @@ func (e *Executor) executeGRPC(ctx context.Context, op *canonical.Operation, arg
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
-	// Strip scheme from target for gRPC dial.
+	// Pass full URL to getGRPCConn which handles scheme-based TLS selection.
 	target := cfg.BaseURL
-	target = strings.TrimPrefix(target, "http://")
-	target = strings.TrimPrefix(target, "https://")
 
 	conn, err := e.getGRPCConn(target)
 	if err != nil {

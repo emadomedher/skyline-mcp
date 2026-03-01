@@ -40,6 +40,7 @@ type StreamableHTTPServer struct {
 	auth           *config.AuthConfig
 	store          *streamableSessionStore
 	sessionHook    SessionHook
+	AllowedOrigins []string // CORS allowed origins; if contains "*", all origins are allowed
 	OAuthValidator func(token string) (profileToken string, ok bool)
 }
 
@@ -198,6 +199,24 @@ func (h *StreamableHTTPServer) cleanupLoop() {
 	}
 }
 
+// isOriginAllowed checks whether the given origin is permitted by the
+// configured AllowedOrigins list. If AllowedOrigins is empty or contains "*",
+// all origins are allowed (security is enforced via bearer token authentication).
+func (h *StreamableHTTPServer) isOriginAllowed(origin string) bool {
+	if len(h.AllowedOrigins) == 0 {
+		return true // no restrictions configured — allow all
+	}
+	for _, allowed := range h.AllowedOrigins {
+		if allowed == "*" {
+			return true
+		}
+		if strings.EqualFold(allowed, origin) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *StreamableHTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", h.handleMCP)
@@ -217,9 +236,7 @@ func (h *StreamableHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request)
 func (h *StreamableHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// Set CORS headers on all responses (not just OPTIONS)
 	origin := r.Header.Get("Origin")
-	if origin != "" {
-		// Allow all origins when origin header is present
-		// Security is enforced via bearer token authentication
+	if origin != "" && h.isOriginAllowed(origin) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")

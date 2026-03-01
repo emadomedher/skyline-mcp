@@ -77,8 +77,7 @@ type ProfilesSection struct {
 }
 
 type SecuritySection struct {
-	AllowedDomains []string    `yaml:"allowedDomains"`
-	CORS           *CORSConfig `yaml:"cors,omitempty"`
+	CORS *CORSConfig `yaml:"cors,omitempty"`
 }
 
 type CORSConfig struct {
@@ -120,9 +119,7 @@ func Default() *ServerConfig {
 			Storage:       "~/.skyline/profiles.enc.yaml",
 			EncryptionKey: "${SKYLINE_PROFILES_KEY}",
 		},
-		Security: SecuritySection{
-			AllowedDomains: []string{"*"},
-		},
+		Security: SecuritySection{},
 		Logging: LoggingSection{
 			Level:  "info",
 			Format: "json",
@@ -198,11 +195,6 @@ func (c *ServerConfig) ApplyDefaults() {
 	}
 	if c.Profiles.EncryptionKey == "" {
 		c.Profiles.EncryptionKey = "${SKYLINE_PROFILES_KEY}"
-	}
-
-	// Security defaults
-	if len(c.Security.AllowedDomains) == 0 {
-		c.Security.AllowedDomains = []string{"*"}
 	}
 
 	// Logging defaults
@@ -315,9 +307,6 @@ profiles:
 
 # Security
 security:
-  # Allowed domains for discovery mode (wildcard supported)
-  allowedDomains:
-    - "*"  # Allow all by default (can restrict in production)
   # cors:
   #   enabled: true
   #   origins: ["http://localhost:*"]

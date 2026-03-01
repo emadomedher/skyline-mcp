@@ -3,20 +3,19 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
-	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/logging"
 	"skyline-mcp/internal/redact"
 )
 
 func TestSSEInitializeFlow(t *testing.T) {
 	registry := &Registry{Tools: map[string]*Tool{}, Resources: map[string]*Resource{}}
-	logger := log.New(io.Discard, "", 0)
+	logger := logging.Discard()
 	server := NewServer(registry, nil, logger, redact.NewRedactor(), "test")
 	httpServer := NewHTTPServer(server, logger, &config.AuthConfig{Type: "bearer", Token: "dev-token"})
 
@@ -76,7 +75,7 @@ func TestSSEInitializeFlow(t *testing.T) {
 
 func TestSSEAuthRequired(t *testing.T) {
 	registry := &Registry{Tools: map[string]*Tool{}, Resources: map[string]*Resource{}}
-	logger := log.New(io.Discard, "", 0)
+	logger := logging.Discard()
 	server := NewServer(registry, nil, logger, redact.NewRedactor(), "test")
 	httpServer := NewHTTPServer(server, logger, &config.AuthConfig{Type: "bearer", Token: "dev-token"})
 

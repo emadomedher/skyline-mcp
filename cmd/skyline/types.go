@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sync"
 
 	"skyline-mcp/internal/audit"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/oauth"
+	"skyline-mcp/internal/ratelimit"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
 )
@@ -38,7 +39,7 @@ type server struct {
 	key            []byte
 	authMode       string
 	adminToken     string
-	logger         *log.Logger
+	logger         *slog.Logger
 	redactor       *redact.Redactor
 	auditLogger    *audit.Logger
 	metrics        *metrics.Collector
@@ -47,6 +48,7 @@ type server struct {
 	sessionTracker *mcp.SessionTracker
 	agentHub       *audit.GenericHub
 	oauthStore     *oauth.Store
+	detectLimiter  *ratelimit.Limiter
 }
 
 type upsertRequest struct {
@@ -116,4 +118,3 @@ type executeRequest struct {
 	ToolName  string         `json:"tool_name"`
 	Arguments map[string]any `json:"arguments"`
 }
-

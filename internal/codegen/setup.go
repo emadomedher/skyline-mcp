@@ -2,7 +2,7 @@ package codegen
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -12,14 +12,14 @@ import (
 
 // SetupCodeExecution sets up code execution for the MCP server
 // Returns the code executor if successful, or nil if code execution is not available
-func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.Executor, error) {
+func SetupCodeExecution(registry *mcp.Registry, logger *slog.Logger) (*executor.Executor, error) {
 	// Validate runtime (goja is always available since it's embedded)
 	if err := executor.ValidateRuntime(); err != nil {
-		logger.Printf("[CODE-EXEC] Runtime not available: %v (code execution disabled)", err)
+		logger.Debug("runtime not available, code execution disabled", "component", "codegen", "error", err)
 		return nil, nil // Not an error, just disabled
 	}
 
-	logger.Printf("[CODE-EXEC] goja runtime available, enabling code execution")
+	logger.Debug("goja runtime available, enabling code execution", "component", "codegen")
 
 	// Create workspace directory
 	workspaceDir := filepath.Join(os.TempDir(), "skyline-workspace")
@@ -29,18 +29,18 @@ func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.E
 
 	// Generate TypeScript code for each service
 	serviceFiles := make(map[string]map[string]string)
-	
+
 	// Convert map to slice
 	var tools []*mcp.Tool
 	for _, tool := range registry.Tools {
 		tools = append(tools, tool)
 	}
-	
+
 	// Group tools by service name (extract from tool name prefix)
 	toolsByService := groupToolsByService(tools)
-	
+
 	for serviceName, svcTools := range toolsByService {
-		logger.Printf("[CODE-EXEC] Generating TypeScript for service: %s (%d tools)", serviceName, len(svcTools))
+		logger.Debug("generating TypeScript for service", "component", "codegen", "service", serviceName, "tools", len(svcTools))
 		files, err := GenerateTypeScriptModule(serviceName, svcTools)
 		if err != nil {
 			return nil, fmt.Errorf("generate typescript for %s: %w", serviceName, err)
@@ -68,9 +68,7 @@ func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.E
 	interfaces := mcp.GetInterfacesList(registry)
 	exec.SetInterfaces(interfaces)
 
-	logger.Printf("[CODE-EXEC] Workspace ready at %s", workspaceDir)
-	logger.Printf("[CODE-EXEC] Available services: %v", interfaces)
-	logger.Printf("[CODE-EXEC] Code execution enabled (/execute endpoint)")
+	logger.Info("code execution workspace ready", "component", "codegen", "workspace", workspaceDir, "services", interfaces)
 
 	return exec, nil
 }
@@ -78,7 +76,7 @@ func SetupCodeExecution(registry *mcp.Registry, logger *log.Logger) (*executor.E
 // groupToolsByService groups tools by their service name (prefix before __)
 func groupToolsByService(tools []*mcp.Tool) map[string][]*mcp.Tool {
 	serviceMap := make(map[string][]*mcp.Tool)
-	
+
 	for _, tool := range tools {
 		// Extract service name from tool name
 		// Example: "nextcloud__files-get" → "nextcloud"
@@ -86,10 +84,10 @@ func groupToolsByService(tools []*mcp.Tool) map[string][]*mcp.Tool {
 		if idx := findDoubleUnderscore(tool.Name); idx >= 0 {
 			serviceName = tool.Name[:idx]
 		}
-		
+
 		serviceMap[serviceName] = append(serviceMap[serviceName], tool)
 	}
-	
+
 	return serviceMap
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +13,7 @@ import (
 
 	"skyline-mcp/internal/canonical"
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/logging"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/runtime"
 )
@@ -96,11 +96,11 @@ func TestExecutorSOAPWithAuthAndStaticHeaders(t *testing.T) {
 	auth := &config.AuthConfig{Type: "bearer", Token: "test-token"}
 	exec := newExecutor(t, server.URL, auth, 0)
 	op := &canonical.Operation{
-		ServiceName: "api",
-		Method:      "post",
-		Path:        "",
-		ID:          "ListPlants",
-		RequestBody: &canonical.RequestBody{Required: true, ContentType: "text/xml; charset=utf-8"},
+		ServiceName:   "api",
+		Method:        "post",
+		Path:          "",
+		ID:            "ListPlants",
+		RequestBody:   &canonical.RequestBody{Required: true, ContentType: "text/xml; charset=utf-8"},
 		StaticHeaders: map[string]string{"SOAPAction": "urn:ListPlants"},
 		SoapNamespace: "http://example.com/plants",
 	}
@@ -272,7 +272,7 @@ func newExecutor(t *testing.T, baseURL string, auth *config.AuthConfig, retries 
 	}
 
 	services := []*canonical.Service{{Name: "api", BaseURL: baseURL}}
-	logger := log.New(io.Discard, "", 0)
+	logger := logging.Discard()
 	redactor := redact.NewRedactor()
 	exec, err := runtime.NewExecutor(cfg, services, logger, redactor)
 	if err != nil {

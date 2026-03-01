@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +22,9 @@ func init() {
 		fmt.Fprintf(os.Stderr, "  --admin                     Enable Web UI and admin dashboard (default: true)\n")
 		fmt.Fprintf(os.Stderr, "  --bind <addr>               Network interface and port (default: localhost:8191)\n")
 		fmt.Fprintf(os.Stderr, "  --config <path>             Server config.yaml path (default: ~/.skyline/config.yaml)\n\n")
+		fmt.Fprintf(os.Stderr, "Logging:\n")
+		fmt.Fprintf(os.Stderr, "  --log-format <format>       Log output format: text, json (default: text)\n")
+		fmt.Fprintf(os.Stderr, "  --log-level <level>         Log level: debug, info, warn, error (default: info)\n\n")
 		fmt.Fprintf(os.Stderr, "Encryption & Profiles:\n")
 		fmt.Fprintf(os.Stderr, "  --validate [file]           Validate encrypted profiles file can be decrypted\n")
 		fmt.Fprintf(os.Stderr, "                              Default file: ~/.skyline/profiles.enc.yaml\n")
@@ -61,7 +64,7 @@ func init() {
 
 // runValidate validates that the encrypted profiles file can be decrypted with the provided key
 // Exit codes: 0 = valid, 1 = file not found, 2 = key missing, 3 = decryption failed
-func runValidate(storagePath, keyFlag, keyEnv string, logger *log.Logger) int {
+func runValidate(storagePath, keyFlag, keyEnv string, logger *slog.Logger) int {
 	// Expand storage path
 	profilesPath := storagePath
 	if profilesPath == "./profiles.enc.yaml" {
@@ -73,7 +76,7 @@ func runValidate(storagePath, keyFlag, keyEnv string, logger *log.Logger) int {
 
 	// Check if file exists
 	if !fileExists(profilesPath) {
-		logger.Printf("❌ Profiles file not found: %s", profilesPath)
+		logger.Error("profiles file not found", "path", profilesPath)
 		return 1
 	}
 
@@ -83,57 +86,58 @@ func runValidate(storagePath, keyFlag, keyEnv string, logger *log.Logger) int {
 		keyRaw = os.Getenv(keyEnv)
 	}
 	if keyRaw == "" {
-		logger.Printf("❌ Encryption key not provided")
-		logger.Printf("   Use --key flag or set %s environment variable", keyEnv)
+		logger.Error("encryption key not provided",
+			"hint", "use --key flag or set "+keyEnv+" environment variable")
 		return 2
 	}
 
 	// Decode key
 	key, err := decodeKey(keyRaw)
 	if err != nil {
-		logger.Printf("❌ Invalid encryption key: %v", err)
+		logger.Error("invalid encryption key", "error", err)
 		return 2
 	}
 
 	// Read encrypted file
 	data, err := os.ReadFile(profilesPath)
 	if err != nil {
-		logger.Printf("❌ Failed to read file: %v", err)
+		logger.Error("failed to read file", "error", err)
 		return 3
 	}
 
 	// Parse envelope
 	var env envelope
 	if err := yaml.Unmarshal(data, &env); err != nil {
-		logger.Printf("❌ Invalid file format: %v", err)
+		logger.Error("invalid file format", "error", err)
 		return 3
 	}
 
 	// Decrypt
 	plain, err := decrypt(env, key)
 	if err != nil {
-		logger.Printf("❌ Decryption failed: %v", err)
-		logger.Printf("   The key may be incorrect or the file may be corrupted")
+		logger.Error("decryption failed", "error", err,
+			"hint", "the key may be incorrect or the file may be corrupted")
 		return 3
 	}
 
 	// Validate it's proper YAML
 	var store profileStore
 	if err := yaml.Unmarshal(plain, &store); err != nil {
-		logger.Printf("❌ Invalid profiles data: %v", err)
+		logger.Error("invalid profiles data", "error", err)
 		return 3
 	}
 
-	logger.Printf("✅ Validation successful")
-	logger.Printf("   File: %s", profilesPath)
-	logger.Printf("   Profiles: %d", len(store.Profiles))
-	logger.Printf("   Key: %s (first 16 chars: %s...)", keyEnv, keyRaw[:16])
+	logger.Info("validation successful",
+		"path", profilesPath,
+		"profiles", len(store.Profiles),
+		"key_env", keyEnv,
+	)
 	return 0
 }
 
 // runInitProfiles creates a new encrypted profiles file with the provided key
 // Exit codes: 0 = success, 1 = file exists, 2 = key missing, 3 = encryption failed
-func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *log.Logger) int {
+func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *slog.Logger) int {
 	// Expand storage path
 	profilesPath := storagePath
 	if profilesPath == "./profiles.enc.yaml" {
@@ -145,8 +149,8 @@ func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *log.Logger) in
 
 	// Check if file already exists
 	if fileExists(profilesPath) {
-		logger.Printf("❌ Profiles file already exists: %s", profilesPath)
-		logger.Printf("   Delete it first if you want to start fresh")
+		logger.Error("profiles file already exists", "path", profilesPath,
+			"hint", "delete it first if you want to start fresh")
 		return 1
 	}
 
@@ -156,15 +160,15 @@ func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *log.Logger) in
 		keyRaw = os.Getenv(keyEnv)
 	}
 	if keyRaw == "" {
-		logger.Printf("❌ Encryption key not provided")
-		logger.Printf("   Use --key flag or set %s environment variable", keyEnv)
+		logger.Error("encryption key not provided",
+			"hint", "use --key flag or set "+keyEnv+" environment variable")
 		return 2
 	}
 
 	// Decode key
 	key, err := decodeKey(keyRaw)
 	if err != nil {
-		logger.Printf("❌ Invalid encryption key: %v", err)
+		logger.Error("invalid encryption key", "error", err)
 		return 2
 	}
 
@@ -176,41 +180,42 @@ func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *log.Logger) in
 	// Marshal to YAML
 	plain, err := yaml.Marshal(&store)
 	if err != nil {
-		logger.Printf("❌ Failed to marshal profiles: %v", err)
+		logger.Error("failed to marshal profiles", "error", err)
 		return 3
 	}
 
 	// Encrypt
 	env, err := encrypt(plain, key)
 	if err != nil {
-		logger.Printf("❌ Encryption failed: %v", err)
+		logger.Error("encryption failed", "error", err)
 		return 3
 	}
 
 	// Marshal envelope
 	envData, err := yaml.Marshal(env)
 	if err != nil {
-		logger.Printf("❌ Failed to marshal envelope: %v", err)
+		logger.Error("failed to marshal envelope", "error", err)
 		return 3
 	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(profilesPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		logger.Printf("❌ Failed to create directory: %v", err)
+		logger.Error("failed to create directory", "error", err)
 		return 3
 	}
 
 	// Write file
 	if err := os.WriteFile(profilesPath, envData, 0600); err != nil {
-		logger.Printf("❌ Failed to write file: %v", err)
+		logger.Error("failed to write file", "error", err)
 		return 3
 	}
 
-	logger.Printf("✅ Encrypted profiles file created")
-	logger.Printf("   File: %s", profilesPath)
-	logger.Printf("   Key: %s", keyEnv)
-	logger.Printf("   Profiles: 0 (empty)")
+	logger.Info("encrypted profiles file created",
+		"path", profilesPath,
+		"key_env", keyEnv,
+		"profiles", 0,
+	)
 	return 0
 }
 
@@ -245,16 +250,4 @@ func loadEnvFile(path string) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func setLogLevel(logger *log.Logger, level string) {
-	// Note: Go's standard logger doesn't have levels built-in
-	// This is a placeholder for future structured logging
-	// For now, we just log the configured level
-	switch strings.ToLower(level) {
-	case "debug", "info", "warn", "error":
-		// Valid levels - no action needed for now
-	default:
-		logger.Printf("Warning: unknown log level %q, using 'info'", level)
-	}
 }

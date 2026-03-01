@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,7 +23,7 @@ const SessionIDKey contextKey = "mcp-session-id"
 
 // SessionEvent describes an MCP session lifecycle event.
 type SessionEvent struct {
-	Type       string      `json:"type"`                  // "connected" | "disconnected"
+	Type       string      `json:"type"` // "connected" | "disconnected"
 	SessionID  string      `json:"session_id"`
 	Profile    string      `json:"profile,omitempty"`     // filled by caller
 	ClientInfo *ClientInfo `json:"client_info,omitempty"` // from initialize params
@@ -36,7 +36,7 @@ type SessionHook func(event SessionEvent)
 // Single /mcp endpoint for both POST (requests) and GET (notifications/subscriptions)
 type StreamableHTTPServer struct {
 	server         *Server
-	logger         *log.Logger
+	logger         *slog.Logger
 	auth           *config.AuthConfig
 	store          *streamableSessionStore
 	sessionHook    SessionHook
@@ -165,7 +165,7 @@ func (sess *streamableSession) replayFrom(lastEventID string) []*sseEvent {
 	return replay
 }
 
-func NewStreamableHTTPServer(server *Server, logger *log.Logger, auth *config.AuthConfig) *StreamableHTTPServer {
+func NewStreamableHTTPServer(server *Server, logger *slog.Logger, auth *config.AuthConfig) *StreamableHTTPServer {
 	s := &StreamableHTTPServer{
 		server: server,
 		logger: logger,
@@ -282,7 +282,7 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 	// Check for resumability
 	lastEventID := r.Header.Get("Last-Event-ID")
 	if lastEventID != "" {
-		h.logger.Printf("[streamable] resuming stream from event %s", lastEventID)
+		h.logger.Debug("resuming stream", "component", "streamable", "last_event_id", lastEventID)
 		// Replay missed events
 		replayEvents := sess.replayFrom(lastEventID)
 		for _, evt := range replayEvents {
@@ -297,12 +297,12 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	h.logger.Printf("[streamable] opened GET stream for session %s", sessionID)
+	h.logger.Debug("opened GET stream", "component", "streamable", "session_id", sessionID)
 
 	for {
 		select {
 		case <-r.Context().Done():
-			h.logger.Printf("[streamable] GET stream closed for session %s", sessionID)
+			h.logger.Debug("GET stream closed", "component", "streamable", "session_id", sessionID)
 			return
 
 		case <-ticker.C:
@@ -374,7 +374,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(responses); err != nil {
-			h.logger.Printf("[streamable] encode error: %v", err)
+			h.logger.Error("encode error", "component", "streamable", "error", err)
 		}
 		return
 	}
@@ -399,7 +399,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 			_ = json.Unmarshal(req.Params, &initParams)
 		}
 
-		h.logger.Printf("[streamable] created session %s (client=%v)", sessionID, initParams.ClientInfo)
+		h.logger.Info("session created", "component", "streamable", "session_id", sessionID, "client_info", initParams.ClientInfo)
 		if h.sessionHook != nil {
 			h.sessionHook(SessionEvent{
 				Type:       "connected",
@@ -419,7 +419,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Mcp-Session-Id", sessionID)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			h.logger.Printf("[streamable] encode error: %v", err)
+			h.logger.Error("encode error", "component", "streamable", "error", err)
 		}
 
 		// Start sending initial notifications on the session channel
@@ -445,7 +445,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 		// To implement: check if operation is long-running, then stream incremental updates
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			h.logger.Printf("[streamable] encode error: %v", err)
+			h.logger.Error("encode error", "component", "streamable", "error", err)
 		}
 		return
 	}
@@ -453,7 +453,7 @@ func (h *StreamableHTTPServer) handlePOST(w http.ResponseWriter, r *http.Request
 	// Return JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		h.logger.Printf("[streamable] encode error: %v", err)
+		h.logger.Error("encode error", "component", "streamable", "error", err)
 	}
 }
 
@@ -470,7 +470,7 @@ func (h *StreamableHTTPServer) handleDELETE(w http.ResponseWriter, r *http.Reque
 	}
 
 	if h.store.remove(sessionID) {
-		h.logger.Printf("[streamable] session %s terminated by client", sessionID)
+		h.logger.Info("session terminated by client", "component", "streamable", "session_id", sessionID)
 		if h.sessionHook != nil {
 			h.sessionHook(SessionEvent{Type: "disconnected", SessionID: sessionID})
 		}

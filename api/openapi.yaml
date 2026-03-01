@@ -1,0 +1,1791 @@
+openapi: 3.1.0
+info:
+  title: Skyline MCP Gateway API
+  description: >-
+    REST and MCP protocol API for the Skyline MCP Gateway server. Manages API
+    profiles, tool discovery, tool execution, credential verification, admin
+    observability, and OAuth 2.1 flows for ChatGPT MCP compatibility.
+  version: 0.9.16
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+
+servers:
+  - url: https://localhost:8191
+    description: Default local development server
+
+tags:
+  - name: health
+    description: Health check endpoint
+  - name: profiles
+    description: Profile CRUD and listing
+  - name: tools
+    description: Tool discovery and execution per profile
+  - name: detection
+    description: Auto-detect API spec formats at a given base URL
+  - name: verification
+    description: Credential verification against third-party services
+  - name: admin
+    description: Admin authentication, metrics, audit, stats, config, sessions, and live events
+  - name: oauth
+    description: Google OAuth consent flow helpers (start, callback, exchange)
+  - name: oauth2.1
+    description: OAuth 2.1 / RFC 9728 endpoints for ChatGPT MCP compatibility
+  - name: mcp
+    description: Streamable HTTP MCP protocol endpoint (JSON-RPC over HTTP)
+
+security: []
+
+paths:
+  # ──────────────────────────────────────────────
+  # Health
+  # ──────────────────────────────────────────────
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Health check
+      tags: [health]
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  # ──────────────────────────────────────────────
+  # Profiles
+  # ──────────────────────────────────────────────
+  /profiles:
+    get:
+      operationId: listProfiles
+      summary: List all profile names
+      tags: [profiles]
+      responses:
+        '200':
+          description: Array of profile names
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profiles]
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      type: string
+                    example: [petstore, slack]
+
+  /profiles/{name}:
+    parameters:
+      - $ref: '#/components/parameters/ProfileName'
+
+    get:
+      operationId: getProfile
+      summary: Get a profile's configuration
+      tags: [profiles]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      parameters:
+        - name: format
+          in: query
+          description: >-
+            Set to "json" to receive the parsed config as JSON instead of raw YAML.
+          required: false
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        '200':
+          description: Profile configuration
+          content:
+            text/yaml:
+              schema:
+                type: string
+                description: Raw YAML configuration (default format)
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  token:
+                    type: string
+                  config:
+                    $ref: '#/components/schemas/Config'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      operationId: upsertProfile
+      summary: Create or update a profile
+      tags: [profiles]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertRequest'
+      responses:
+        '200':
+          description: Profile saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Validation error (missing fields or invalid config)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      operationId: deleteProfile
+      summary: Delete a profile
+      tags: [profiles]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      responses:
+        '200':
+          description: Profile deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ──────────────────────────────────────────────
+  # Tools (per profile)
+  # ──────────────────────────────────────────────
+  /profiles/{name}/tools:
+    parameters:
+      - $ref: '#/components/parameters/ProfileName'
+
+    get:
+      operationId: listProfileTools
+      summary: List all MCP tools available in a profile
+      tags: [tools]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      responses:
+        '200':
+          description: List of tools with schemas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tools]
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToolInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /profiles/{name}/execute:
+    parameters:
+      - $ref: '#/components/parameters/ProfileName'
+
+    post:
+      operationId: executeTool
+      summary: Execute a tool by name
+      tags: [tools]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Tool execution result
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Upstream API response (shape varies by tool)
+        '400':
+          description: Missing or invalid tool_name / arguments
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Profile or tool not found
+        '500':
+          description: Execution error
+
+  # ──────────────────────────────────────────────
+  # MCP Protocol
+  # ──────────────────────────────────────────────
+  /profiles/{name}/mcp:
+    parameters:
+      - $ref: '#/components/parameters/ProfileName'
+
+    post:
+      operationId: mcpRequest
+      summary: Streamable HTTP MCP endpoint (JSON-RPC request)
+      description: >-
+        Accepts JSON-RPC 2.0 requests per the MCP Streamable HTTP transport spec.
+        Methods include initialize, tools/list, tools/call, ping, etc.
+        May return SSE stream (text/event-stream) or JSON depending on Accept header.
+      tags: [mcp]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      parameters:
+        - name: Mcp-Session-Id
+          in: header
+          description: MCP session identifier (returned after initialize)
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: JSON-RPC 2.0 request object
+              properties:
+                jsonrpc:
+                  type: string
+                  const: '2.0'
+                method:
+                  type: string
+                  example: tools/call
+                id:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                params:
+                  type: object
+              required: [jsonrpc, method]
+      responses:
+        '200':
+          description: JSON-RPC response or SSE stream
+          content:
+            application/json:
+              schema:
+                type: object
+                description: JSON-RPC 2.0 response
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream of JSON-RPC responses
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      operationId: mcpEventStream
+      summary: Open SSE stream for MCP notifications
+      tags: [mcp]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      parameters:
+        - name: Mcp-Session-Id
+          in: header
+          description: MCP session identifier
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      operationId: mcpDisconnect
+      summary: Terminate an MCP session
+      tags: [mcp]
+      security:
+        - ProfileToken: []
+        - AdminSession: []
+      parameters:
+        - name: Mcp-Session-Id
+          in: header
+          description: MCP session identifier
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session terminated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # Detection
+  # ──────────────────────────────────────────────
+  /detect:
+    post:
+      operationId: detectAPIs
+      summary: Auto-detect API spec formats at a base URL
+      description: >-
+        Probes common spec paths (OpenAPI, Swagger, GraphQL, WSDL, OData, etc.)
+        and returns which ones were found. Rate-limited to 5 requests per minute.
+      tags: [detection]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectRequest'
+      responses:
+        '200':
+          description: Detection results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectResponse'
+        '400':
+          description: Invalid request body or missing base_url
+        '429':
+          description: Rate limited
+
+  /test:
+    post:
+      operationId: testSpecURL
+      summary: Test reachability of a spec URL
+      tags: [detection]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestRequest'
+      responses:
+        '200':
+          description: Reachability test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestResponse'
+        '400':
+          description: Invalid request body or missing spec_url
+
+  /operations:
+    post:
+      operationId: listOperations
+      summary: Fetch and parse a spec, return its operations
+      tags: [detection]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperationsRequest'
+      responses:
+        '200':
+          description: Parsed operations list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationsResponse'
+        '400':
+          description: Invalid request body or missing spec_url
+
+  # ──────────────────────────────────────────────
+  # Verification
+  # ──────────────────────────────────────────────
+  /verify:
+    post:
+      operationId: verifyCredentials
+      summary: Verify credentials against a third-party service
+      description: >-
+        Proxies a credential verification request to Slack, GitLab, Jira, or Gmail.
+        Needed because browsers cannot call third-party APIs directly (CORS).
+      tags: [verification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
+        '400':
+          description: Invalid request or unsupported service
+
+  # ──────────────────────────────────────────────
+  # Admin
+  # ──────────────────────────────────────────────
+  /admin/auth:
+    get:
+      operationId: checkAdminSession
+      summary: Check if the current admin session cookie is valid
+      tags: [admin]
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: Session is valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      operationId: adminLogin
+      summary: Authenticate with admin token, receive session cookie
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: Admin token from config.yaml or server startup
+      responses:
+        '200':
+          description: Login successful; skyline_admin cookie is set
+          headers:
+            Set-Cookie:
+              description: >-
+                skyline_admin session cookie (Secure, HttpOnly, SameSite=Strict, 7-day max-age)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Invalid request body
+        '401':
+          description: Invalid admin token
+
+  /admin/metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus-compatible metrics
+      tags: [admin]
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/audit:
+    get:
+      operationId: getAuditLog
+      summary: Query audit log entries
+      tags: [admin]
+      security:
+        - AdminSession: []
+      parameters:
+        - name: profile
+          in: query
+          description: Filter by profile name
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          description: Filter by event type (execute, connect, disconnect, error)
+          schema:
+            type: string
+        - name: tool_name
+          in: query
+          description: Filter by tool name
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of events to return (default 100, max 1000)
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        '200':
+          description: Audit log events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, count]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+                  count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/stats:
+    get:
+      operationId: getStats
+      summary: Aggregated statistics (audit + metrics)
+      tags: [admin]
+      security:
+        - AdminSession: []
+      parameters:
+        - name: profile
+          in: query
+          description: Filter stats by profile name
+          schema:
+            type: string
+        - name: since
+          in: query
+          description: Start of time window (RFC 3339). Defaults to 24 hours ago.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Combined audit stats and metrics snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audit_stats:
+                    $ref: '#/components/schemas/AuditStats'
+                  metrics_snapshot:
+                    $ref: '#/components/schemas/MetricsSnapshot'
+                  period:
+                    type: object
+                    properties:
+                      since:
+                        type: string
+                        format: date-time
+                      until:
+                        type: string
+                        format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/config:
+    get:
+      operationId: getConfig
+      summary: Read server configuration (config.yaml)
+      tags: [admin]
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: Server configuration (raw YAML + parsed sections)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  raw:
+                    type: string
+                    description: Raw YAML content of config file
+                  server:
+                    type: object
+                    additionalProperties: true
+                  runtime:
+                    type: object
+                    additionalProperties: true
+                  audit:
+                    type: object
+                    additionalProperties: true
+                  profiles:
+                    type: object
+                    additionalProperties: true
+                  security:
+                    type: object
+                    additionalProperties: true
+                  logging:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      operationId: saveConfig
+      summary: Save server configuration (raw YAML body)
+      description: >-
+        Accepts raw YAML in the request body. Validates YAML syntax before saving.
+        Requires server restart for changes to take effect.
+      tags: [admin]
+      security:
+        - AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              description: Raw YAML content
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: Configuration saved successfully. Restart the server for changes to take effect.
+                  path:
+                    type: string
+        '400':
+          description: Invalid YAML syntax
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/sessions:
+    get:
+      operationId: getSessions
+      summary: List active MCP sessions
+      tags: [admin]
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: Active MCP sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/events:
+    get:
+      operationId: getEventStream
+      summary: Live Server-Sent Events stream (audit + agent events)
+      description: >-
+        Opens an SSE connection streaming real-time audit and agent events.
+        Sends "connected" on open, "audit"/"agent" for data, and "ping" keepalives every 30s.
+      tags: [admin]
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  Stream of SSE events. Event types: connected, audit, agent, ping.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # OAuth (Google consent flow helpers)
+  # ──────────────────────────────────────────────
+  /oauth/start:
+    post:
+      operationId: oauthStart
+      summary: Generate a Google OAuth consent URL
+      tags: [oauth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: Authorization URL to redirect user to
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_url:
+                    type: string
+                    format: uri
+                  redirect_uri:
+                    type: string
+                    format: uri
+        '400':
+          description: Missing client_id
+
+  /oauth/callback:
+    get:
+      operationId: oauthCallback
+      summary: OAuth redirect callback (renders HTML page)
+      description: >-
+        Receives the authorization code from Google's redirect and serves an
+        HTML page that posts the result to the parent window via postMessage.
+      tags: [oauth]
+      parameters:
+        - name: code
+          in: query
+          description: Authorization code from Google
+          schema:
+            type: string
+        - name: error
+          in: query
+          description: Error code from Google
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML page that relays the code to the parent window
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /oauth/exchange:
+    post:
+      operationId: oauthExchange
+      summary: Exchange an authorization code for tokens
+      tags: [oauth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+      responses:
+        '200':
+          description: Token exchange result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthExchangeResponse'
+
+  # ──────────────────────────────────────────────
+  # OAuth 2.1 (ChatGPT MCP compatibility)
+  # ──────────────────────────────────────────────
+  /.well-known/oauth-protected-resource:
+    get:
+      operationId: oauthProtectedResource
+      summary: RFC 9728 Protected Resource Metadata
+      tags: [oauth2.1]
+      responses:
+        '200':
+          description: Protected resource metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource:
+                    type: string
+                    format: uri
+                  authorization_servers:
+                    type: array
+                    items:
+                      type: string
+                      format: uri
+
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: oauthAuthorizationServer
+      summary: RFC 8414 Authorization Server Metadata
+      tags: [oauth2.1]
+      responses:
+        '200':
+          description: Authorization server metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issuer:
+                    type: string
+                    format: uri
+                  authorization_endpoint:
+                    type: string
+                    format: uri
+                  token_endpoint:
+                    type: string
+                    format: uri
+                  registration_endpoint:
+                    type: string
+                    format: uri
+                  response_types_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [code]
+                  grant_types_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [authorization_code]
+                  code_challenge_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [S256]
+                  token_endpoint_auth_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [client_secret_post]
+
+  /oauth/register:
+    post:
+      operationId: oauthRegister
+      summary: RFC 7591 Dynamic Client Registration
+      tags: [oauth2.1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirect_uris]
+              properties:
+                client_name:
+                  type: string
+                redirect_uris:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+      responses:
+        '201':
+          description: Client registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthClientRegistration'
+        '400':
+          description: Missing redirect_uris
+
+  /oauth/authorize:
+    get:
+      operationId: oauthAuthorizeGet
+      summary: Show OAuth consent page
+      tags: [oauth2.1]
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [S256]
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML consent page
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Invalid parameters
+
+    post:
+      operationId: oauthAuthorizePost
+      summary: Submit OAuth consent form (approve or deny)
+      tags: [oauth2.1]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                code_challenge:
+                  type: string
+                code_challenge_method:
+                  type: string
+                state:
+                  type: string
+                profile_name:
+                  type: string
+                  description: Skyline profile name for authentication
+                profile_token:
+                  type: string
+                  description: Skyline profile bearer token
+                action:
+                  type: string
+                  enum: [approve, deny]
+              required: [client_id, redirect_uri, code_challenge, code_challenge_method, profile_name, profile_token, action]
+      responses:
+        '302':
+          description: Redirect to redirect_uri with authorization code or error
+        '400':
+          description: Invalid parameters
+
+  /oauth/token:
+    post:
+      operationId: oauthToken
+      summary: Exchange authorization code for access token
+      tags: [oauth2.1]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, code, client_id, client_secret, code_verifier]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code]
+                code:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+                code_verifier:
+                  type: string
+                  description: PKCE code verifier
+                redirect_uri:
+                  type: string
+                  format: uri
+          application/json:
+            schema:
+              type: object
+              required: [grant_type, code, client_id, client_secret, code_verifier]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code]
+                code:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+                code_verifier:
+                  type: string
+                redirect_uri:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Access token response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: Bearer
+                  expires_in:
+                    type: integer
+                    example: 3600
+        '400':
+          description: OAuth error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+components:
+  # ──────────────────────────────────────────────
+  # Security Schemes
+  # ──────────────────────────────────────────────
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: skyline_admin
+      description: >-
+        Admin session cookie set by POST /admin/auth. Secure, HttpOnly,
+        SameSite=Strict, 7-day expiry.
+
+    ProfileToken:
+      type: http
+      scheme: bearer
+      description: >-
+        Per-profile bearer token. Each profile has its own token used for
+        authentication when accessing profile data, tools, and MCP endpoints.
+
+  # ──────────────────────────────────────────────
+  # Parameters
+  # ──────────────────────────────────────────────
+  parameters:
+    ProfileName:
+      name: name
+      in: path
+      required: true
+      description: Profile name
+      schema:
+        type: string
+
+  # ──────────────────────────────────────────────
+  # Reusable Responses
+  # ──────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: unauthorized
+
+    NotFound:
+      description: Resource not found
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: 404 page not found
+
+  # ──────────────────────────────────────────────
+  # Schemas
+  # ──────────────────────────────────────────────
+  schemas:
+    StatusOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+
+    # ── Profile / Config ──
+
+    UpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          description: >-
+            Bearer token for this profile. Required when creating a new profile.
+            Omit to keep the existing token on update.
+        config_yaml:
+          type: string
+          description: Profile configuration in YAML format
+        config_json:
+          description: Profile configuration in JSON format (alternative to config_yaml)
+          $ref: '#/components/schemas/Config'
+      description: >-
+        Exactly one of config_yaml or config_json must be provided.
+
+    Config:
+      type: object
+      description: Profile configuration defining one or more API connections
+      properties:
+        apis:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIConfig'
+        timeout_seconds:
+          type: integer
+          description: Global default timeout in seconds (default 10)
+        retries:
+          type: integer
+          description: Global default retry count
+        enable_code_execution:
+          type: boolean
+          description: Enable code execution optimization (default true)
+        max_response_bytes:
+          type: integer
+          description: Global max response size in bytes (default 51200)
+
+    APIConfig:
+      type: object
+      required: [name]
+      description: Configuration for a single API within a profile
+      properties:
+        name:
+          type: string
+          description: Unique name for this API
+        spec_url:
+          type: string
+          format: uri
+          description: URL to the API spec (OpenAPI, GraphQL, etc.)
+        spec_file:
+          type: string
+          description: Local path to the API spec file (mutually exclusive with spec_url)
+        spec_type:
+          type: string
+          description: >-
+            Explicit spec type hint (e.g. openapi, swagger2, graphql, wsdl,
+            odata, openrpc, asyncapi, postman, insomnia, raml, grpc)
+        base_url_override:
+          type: string
+          format: uri
+          description: Override the base URL extracted from the spec
+        auth:
+          $ref: '#/components/schemas/AuthConfig'
+        timeout_seconds:
+          type: integer
+          description: Per-API timeout override
+        retries:
+          type: integer
+          description: Per-API retry count override
+        jenkins:
+          $ref: '#/components/schemas/JenkinsConfig'
+        filter:
+          $ref: '#/components/schemas/OperationFilter'
+        optimization:
+          $ref: '#/components/schemas/GraphQLOptimization'
+        disable_provider_overrides:
+          type: boolean
+        max_response_bytes:
+          type: integer
+          description: Per-API max response size override
+        rate_limit_rpm:
+          type: integer
+          description: Max requests per minute (0 = unlimited)
+        rate_limit_rph:
+          type: integer
+          description: Max requests per hour (0 = unlimited)
+        rate_limit_rpd:
+          type: integer
+          description: Max requests per day (0 = unlimited)
+
+    AuthConfig:
+      type: object
+      required: [type]
+      description: Authentication configuration for an API
+      properties:
+        type:
+          type: string
+          enum: [bearer, basic, api-key, oauth2]
+        token:
+          type: string
+          description: Bearer token (required when type=bearer)
+        username:
+          type: string
+          description: Username (required when type=basic)
+        password:
+          type: string
+          description: Password (required when type=basic)
+        header:
+          type: string
+          description: Header name (required when type=api-key)
+        value:
+          type: string
+          description: Header value (required when type=api-key)
+        client_id:
+          type: string
+          description: OAuth 2.0 client ID (required when type=oauth2)
+        client_secret:
+          type: string
+          description: OAuth 2.0 client secret (required when type=oauth2)
+        refresh_token:
+          type: string
+          description: OAuth 2.0 refresh token (required when type=oauth2)
+        token_url:
+          type: string
+          format: uri
+          description: OAuth 2.0 token endpoint URL
+
+    JenkinsConfig:
+      type: object
+      properties:
+        allow_writes:
+          type: array
+          items:
+            type: object
+            required: [name, method, path]
+            properties:
+              name:
+                type: string
+              method:
+                type: string
+              path:
+                type: string
+              summary:
+                type: string
+
+    OperationFilter:
+      type: object
+      required: [mode]
+      description: Filter which operations from the spec are exposed as tools
+      properties:
+        mode:
+          type: string
+          enum: [allowlist, blocklist, type-based]
+        operations:
+          type: array
+          description: List of operation patterns (for allowlist/blocklist modes)
+          items:
+            $ref: '#/components/schemas/OperationPattern'
+        type_based:
+          $ref: '#/components/schemas/TypeBasedFilter'
+
+    OperationPattern:
+      type: object
+      description: Pattern to match operations by ID, method, or path (supports globs)
+      properties:
+        operation_id:
+          type: string
+          description: Glob pattern for operationId
+        method:
+          type: string
+          description: HTTP method or "*"
+        path:
+          type: string
+          description: Glob pattern for path
+        summary:
+          type: string
+          description: Optional documentation for this filter rule
+
+    TypeBasedFilter:
+      type: object
+      description: Filter operations by GraphQL type names
+      properties:
+        include_types:
+          type: array
+          items:
+            type: string
+        exclude_types:
+          type: array
+          items:
+            type: string
+
+    GraphQLOptimization:
+      type: object
+      description: GraphQL-specific optimization settings
+      properties:
+        enable_crud_grouping:
+          type: boolean
+          description: Group query/mutation by CRUD pattern (default true)
+        flatten_inputs:
+          type: boolean
+          description: Flatten nested input types
+        response_mode:
+          type: string
+          enum: [essential, full, auto]
+          description: Response field selection strategy
+        type_profiles:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/TypeProfile'
+
+    TypeProfile:
+      type: object
+      description: Per-type GraphQL optimization profile
+      properties:
+        group_mutations:
+          type: boolean
+        response_mode:
+          type: string
+          enum: [essential, full, auto]
+        response_fields:
+          type: array
+          items:
+            type: string
+
+    # ── Tools ──
+
+    ToolInfo:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+        output_schema:
+          type: object
+          additionalProperties: true
+
+    ExecuteRequest:
+      type: object
+      required: [tool_name]
+      properties:
+        tool_name:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+
+    # ── Detection ──
+
+    DetectRequest:
+      type: object
+      required: [base_url]
+      properties:
+        base_url:
+          type: string
+          format: uri
+          description: Base URL to probe for API specs
+        bearer_token:
+          type: string
+          description: Optional bearer token forwarded during probing
+
+    DetectResponse:
+      type: object
+      required: [base_url, online, detected]
+      properties:
+        base_url:
+          type: string
+        online:
+          type: boolean
+          description: True if at least one probe succeeded
+        detected:
+          type: array
+          items:
+            $ref: '#/components/schemas/DetectProbe'
+
+    DetectProbe:
+      type: object
+      required: [type, spec_url, method, status, found, endpoint]
+      properties:
+        type:
+          type: string
+          description: >-
+            Detected spec type (openapi, swagger2, graphql, wsdl, odata, ckan,
+            openrpc, asyncapi, insomnia, jira-rest)
+        spec_url:
+          type: string
+        method:
+          type: string
+        status:
+          type: integer
+          description: HTTP status code from the probe
+        found:
+          type: boolean
+        error:
+          type: string
+        endpoint:
+          type: string
+
+    TestRequest:
+      type: object
+      required: [spec_url]
+      properties:
+        spec_url:
+          type: string
+          format: uri
+
+    TestResponse:
+      type: object
+      required: [spec_url, online, status]
+      properties:
+        spec_url:
+          type: string
+        online:
+          type: boolean
+        status:
+          type: integer
+        error:
+          type: string
+
+    OperationsRequest:
+      type: object
+      properties:
+        spec_url:
+          type: string
+          format: uri
+          description: URL of the API spec to parse
+        spec_type:
+          type: string
+          description: Optional hint for the spec type
+        name:
+          type: string
+          description: >-
+            Well-known API name (e.g. slack, gitlab, jira) to resolve a spec URL automatically
+
+    OperationsResponse:
+      type: object
+      properties:
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperationInfo'
+        error:
+          type: string
+
+    OperationInfo:
+      type: object
+      required: [id, method, path, summary]
+      properties:
+        id:
+          type: string
+        method:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+
+    # ── Verification ──
+
+    VerifyRequest:
+      type: object
+      required: [service]
+      properties:
+        service:
+          type: string
+          enum: [slack, gitlab, jira, gmail]
+          description: Target service to verify credentials against
+        token:
+          type: string
+          description: API token or password (for slack, gitlab, jira)
+        base_url:
+          type: string
+          format: uri
+          description: Instance URL (for gitlab, jira)
+        email:
+          type: string
+          description: Email address (for jira basic auth)
+        access_token:
+          type: string
+          description: OAuth access token (for gmail)
+
+    VerifyResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+        email:
+          type: string
+          description: Returned for gmail verification on success
+
+    # ── Admin ──
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+        profile:
+          type: string
+        event_type:
+          type: string
+          enum: [execute, connect, disconnect, error]
+        api_name:
+          type: string
+        tool_name:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+        duration_ms:
+          type: integer
+          format: int64
+        status_code:
+          type: integer
+        success:
+          type: boolean
+        error_msg:
+          type: string
+        client_addr:
+          type: string
+        request_size:
+          type: integer
+          format: int64
+        response_size:
+          type: integer
+          format: int64
+
+    AuditStats:
+      type: object
+      description: Aggregated audit statistics
+      properties:
+        total_requests:
+          type: integer
+          format: int64
+        successful_requests:
+          type: integer
+          format: int64
+        failed_requests:
+          type: integer
+          format: int64
+        error_rate:
+          type: number
+          format: double
+        avg_duration_ms:
+          type: integer
+          format: int64
+        max_duration_ms:
+          type: integer
+          format: int64
+        min_duration_ms:
+          type: integer
+          format: int64
+        total_request_bytes:
+          type: integer
+          format: int64
+        total_response_bytes:
+          type: integer
+          format: int64
+        est_request_tokens:
+          type: integer
+          format: int64
+        est_response_tokens:
+          type: integer
+          format: int64
+        top_apis:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIStats'
+        top_tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIStats'
+        recent_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+
+    APIStats:
+      type: object
+      properties:
+        name:
+          type: string
+        calls:
+          type: integer
+          format: int64
+        errors:
+          type: integer
+          format: int64
+        error_rate:
+          type: number
+          format: double
+        avg_ms:
+          type: integer
+          format: int64
+
+    MetricsSnapshot:
+      type: object
+      properties:
+        total_requests:
+          type: integer
+          format: int64
+        success_requests:
+          type: integer
+          format: int64
+        failed_requests:
+          type: integer
+          format: int64
+        active_connections:
+          type: integer
+          format: int64
+        total_connections:
+          type: integer
+          format: int64
+        avg_duration_ms:
+          type: number
+          format: double
+        cache_hits:
+          type: integer
+          format: int64
+        cache_misses:
+          type: integer
+          format: int64
+        profile_requests:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        tool_requests:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        uptime_seconds:
+          type: number
+          format: double
+
+    SessionSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+        profile:
+          type: string
+        client_info:
+          $ref: '#/components/schemas/ClientInfo'
+        connected_at:
+          type: string
+          format: date-time
+        current_tool:
+          type: string
+        tool_started_at:
+          type: string
+          format: date-time
+        request_count:
+          type: integer
+          format: int64
+        error_count:
+          type: integer
+          format: int64
+        bytes_in:
+          type: integer
+          format: int64
+        bytes_out:
+          type: integer
+          format: int64
+
+    ClientInfo:
+      type: object
+      description: MCP client identity (from initialize handshake)
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+
+    # ── OAuth ──
+
+    OAuthStartRequest:
+      type: object
+      required: [client_id]
+      properties:
+        client_id:
+          type: string
+          description: Google OAuth client ID
+        redirect_uri:
+          type: string
+          format: uri
+          description: >-
+            Redirect URI. Defaults to https://{host}/oauth/callback
+        scopes:
+          type: string
+          description: >-
+            Space-separated OAuth scopes. Defaults to
+            https://www.googleapis.com/auth/gmail.modify
+
+    OAuthExchangeRequest:
+      type: object
+      required: [code, client_id, client_secret]
+      properties:
+        code:
+          type: string
+          description: Authorization code from Google
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+
+    OAuthExchangeResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        refresh_token:
+          type: string
+        access_token:
+          type: string
+        scope:
+          type: string
+        error:
+          type: string
+
+    OAuthClientRegistration:
+      type: object
+      description: Registered OAuth 2.1 client
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+          example: [authorization_code]
+        response_types:
+          type: array
+          items:
+            type: string
+          example: [code]
+        token_endpoint_auth_method:
+          type: string
+          example: client_secret_post
+
+    OAuthError:
+      type: object
+      properties:
+        error:
+          type: string
+          description: OAuth error code
+        error_description:
+          type: string

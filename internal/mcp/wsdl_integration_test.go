@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/logging"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/runtime"
 	"skyline-mcp/internal/spec"
@@ -75,7 +75,7 @@ func TestServerWSDLToolCall(t *testing.T) {
 		t.Fatalf("config validation failed: %v", err)
 	}
 
-	logger := log.New(io.Discard, "", 0)
+	logger := logging.Discard()
 	redactor := redact.NewRedactor()
 	services, err := spec.LoadServices(context.Background(), cfg, logger, redactor)
 	if err != nil {

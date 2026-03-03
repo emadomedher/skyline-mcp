@@ -49,6 +49,7 @@ func main() {
 	keyFlag := flag.String("key", "", "Encryption key (overrides env var)")
 	logFormat := flag.String("log-format", "text", "Log output format: text, json")
 	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
+	daemonFlag := flag.Bool("daemon", false, "Run as background daemon (internal, used by 'gateway start')")
 	flag.Parse()
 
 	logger := logging.Setup(*logFormat, *logLevel)
@@ -68,6 +69,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle gateway command (start, stop, restart, status)
+	if len(flag.Args()) > 0 && flag.Args()[0] == "gateway" {
+		if err := runGateway(logger, flag.Args()[1:]); err != nil {
+			slog.Error("gateway command failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Handle --validate flag
 	if *validateFlag {
 		exitCode := runValidate(*storagePath, *keyFlag, *keyEnv, logger)
@@ -78,6 +88,17 @@ func main() {
 	if *initProfilesFlag {
 		exitCode := runInitProfiles(*storagePath, *keyFlag, *keyEnv, logger)
 		os.Exit(exitCode)
+	}
+
+	// When running as daemon, auto-load the env file for encryption key
+	if *daemonFlag {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			envPath := filepath.Join(home, ".skyline", "skyline.env")
+			if fileExists(envPath) {
+				_ = loadEnvFile(envPath)
+			}
+		}
 	}
 
 	if *envFile != "" {
@@ -599,8 +620,14 @@ func main() {
 		"url", "https://"+listenAddr,
 	)
 
+	// Write PID file so 'skyline gateway stop/status' can find us
+	if err := writePID(); err != nil {
+		slog.Warn("could not write pid file", "error", err)
+	}
+
 	// Start graceful-shutdown listener in the background.
 	go shutdownOnSignal([]*http.Server{httpServer}, func() {
+		removePID()
 		auditLogger.Close()
 		slog.Debug("audit logger closed")
 	})

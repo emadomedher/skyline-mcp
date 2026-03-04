@@ -651,10 +651,10 @@ func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			w.Header().Set("Content-Security-Policy",
 				"default-src 'self'; "+
-					"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://code.iconify.design; "+
+					"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://code.iconify.design https://unpkg.com https://cdn.jsdelivr.net; "+
 					"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
 					"img-src 'self' data: https:; "+
-					"connect-src 'self' https://api.iconify.design; "+
+					"connect-src 'self' https://api.iconify.design https://unpkg.com https://cdn.jsdelivr.net; "+
 					"font-src 'self' https://fonts.gstatic.com")
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

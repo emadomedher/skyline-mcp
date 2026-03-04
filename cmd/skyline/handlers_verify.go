@@ -181,7 +181,7 @@ func (s *server) verifyGmail(w http.ResponseWriter, r *http.Request, client *htt
 		var profile struct {
 			EmailAddress string `json:"emailAddress"`
 		}
-		json.NewDecoder(resp.Body).Decode(&profile)
+		_ = json.NewDecoder(resp.Body).Decode(&profile)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": profile.EmailAddress})
 	case http.StatusUnauthorized, http.StatusForbidden:
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "auth_error"})

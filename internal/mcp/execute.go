@@ -49,7 +49,7 @@ func (s *Server) HandleExecute(w http.ResponseWriter, r *http.Request) {
 
 	// Return result
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // HandleInternalToolCall handles internal tool calls from executing code
@@ -76,7 +76,7 @@ func (s *Server) HandleInternalToolCall(w http.ResponseWriter, r *http.Request) 
 			Error: fmt.Sprintf("tool not found: %s", req.ToolName),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(result)
 		return
 	}
 	op := tool.Operation
@@ -88,7 +88,7 @@ func (s *Server) HandleInternalToolCall(w http.ResponseWriter, r *http.Request) 
 			Error: fmt.Sprintf("invalid arguments: %v", err),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(result)
 		return
 	}
 
@@ -99,7 +99,7 @@ func (s *Server) HandleInternalToolCall(w http.ResponseWriter, r *http.Request) 
 			Error: fmt.Sprintf("tool execution failed: %v", err),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(result)
 		return
 	}
 
@@ -108,7 +108,7 @@ func (s *Server) HandleInternalToolCall(w http.ResponseWriter, r *http.Request) 
 		Data: runtimeResult.Body,
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // HandleSearchTools handles POST /internal/search-tools requests
@@ -139,7 +139,7 @@ func (s *Server) HandleSearchTools(w http.ResponseWriter, r *http.Request) {
 
 	// Return results
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 // HandleAgentPrompt handles GET /agent-prompt requests

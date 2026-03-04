@@ -178,12 +178,12 @@ func runUpdate(logger *slog.Logger) error {
 	// Move new binary into place
 	if err := os.Rename(tmpPath, exePath); err != nil {
 		// Restore backup on failure
-		os.Rename(backupPath, exePath)
+		_ = os.Rename(backupPath, exePath)
 		return fmt.Errorf("install new binary: %w", err)
 	}
 
 	// Remove backup
-	os.Remove(backupPath)
+	_ = os.Remove(backupPath)
 
 	logger.Info("✅ successfully updated — restart skyline to use the new version", "version", release.TagName)
 

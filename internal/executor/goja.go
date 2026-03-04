@@ -134,7 +134,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 	registerConsole(vm, &stdout, &stderr)
 
 	// Register __callMCPTool (synchronous Go function called from JS)
-	vm.Set("__callMCPTool", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("__callMCPTool", func(call goja.FunctionCall) goja.Value {
 		toolName := call.Argument(0).String()
 		argsJSON := call.Argument(1).String()
 
@@ -162,7 +162,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 	})
 
 	// Register __searchTools
-	vm.Set("__searchTools", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("__searchTools", func(call goja.FunctionCall) goja.Value {
 		query := call.Argument(0).String()
 		detail := "name-and-description"
 		if len(call.Arguments) > 1 && !goja.IsUndefined(call.Argument(1)) {
@@ -178,7 +178,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 	})
 
 	// Set __interfaces
-	vm.Set("__interfaces", e.interfaces)
+	_ = vm.Set("__interfaces", e.interfaces)
 
 	// Register restricted fetch (localhost only)
 	registerFetch(vm, ctx)
@@ -217,25 +217,25 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 // registerConsole sets up console.log/warn/error on the goja runtime
 func registerConsole(vm *goja.Runtime, stdout, stderr *bytes.Buffer) {
 	console := vm.NewObject()
-	console.Set("log", func(call goja.FunctionCall) goja.Value {
+	_ = console.Set("log", func(call goja.FunctionCall) goja.Value {
 		stdout.WriteString(formatJSArgs(call) + "\n")
 		return goja.Undefined()
 	})
-	console.Set("warn", func(call goja.FunctionCall) goja.Value {
+	_ = console.Set("warn", func(call goja.FunctionCall) goja.Value {
 		stderr.WriteString(formatJSArgs(call) + "\n")
 		return goja.Undefined()
 	})
-	console.Set("error", func(call goja.FunctionCall) goja.Value {
+	_ = console.Set("error", func(call goja.FunctionCall) goja.Value {
 		stderr.WriteString(formatJSArgs(call) + "\n")
 		return goja.Undefined()
 	})
-	vm.Set("console", console)
+	_ = vm.Set("console", console)
 }
 
 // registerFetch sets up a restricted fetch function (localhost only).
 // Returns a synchronous response object with .text() and .json() methods.
 func registerFetch(vm *goja.Runtime, ctx context.Context) {
-	vm.Set("fetch", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("fetch", func(call goja.FunctionCall) goja.Value {
 		url := call.Argument(0).String()
 
 		// Security: restrict to localhost only
@@ -285,14 +285,14 @@ func registerFetch(vm *goja.Runtime, ctx context.Context) {
 		respBody, _ := io.ReadAll(resp.Body)
 
 		respObj := vm.NewObject()
-		respObj.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
-		respObj.Set("status", resp.StatusCode)
-		respObj.Set("statusText", http.StatusText(resp.StatusCode))
+		_ = respObj.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
+		_ = respObj.Set("status", resp.StatusCode)
+		_ = respObj.Set("statusText", http.StatusText(resp.StatusCode))
 		bodyStr := string(respBody)
-		respObj.Set("text", func(goja.FunctionCall) goja.Value {
+		_ = respObj.Set("text", func(goja.FunctionCall) goja.Value {
 			return vm.ToValue(bodyStr)
 		})
-		respObj.Set("json", func(goja.FunctionCall) goja.Value {
+		_ = respObj.Set("json", func(goja.FunctionCall) goja.Value {
 			var v any
 			if err := json.Unmarshal(respBody, &v); err != nil {
 				panic(vm.NewGoError(fmt.Errorf("invalid JSON response: %w", err)))
@@ -384,7 +384,7 @@ func (e *Executor) httpSearchTools(ctx context.Context, query, detail string) (a
 	defer resp.Body.Close()
 
 	var results []any
-	json.NewDecoder(resp.Body).Decode(&results)
+	_ = json.NewDecoder(resp.Body).Decode(&results)
 
 	return results, nil
 }

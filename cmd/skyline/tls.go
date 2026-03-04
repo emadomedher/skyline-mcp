@@ -220,9 +220,9 @@ func (l *tlsRedirectListener) Accept() (net.Conn, error) {
 
 		// Peek at first byte to distinguish TLS from plain HTTP
 		buf := make([]byte, 1)
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		n, err := conn.Read(buf)
-		conn.SetReadDeadline(time.Time{})
+		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil || n == 0 {
 			conn.Close()
 			continue
@@ -245,7 +245,7 @@ func (l *tlsRedirectListener) redirectHTTP(conn net.Conn, firstByte byte) {
 	line := []byte{firstByte}
 	one := make([]byte, 1)
 	for i := 0; i < 4096; i++ {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		n, err := conn.Read(one)
 		if err != nil || n == 0 {
 			break
@@ -265,7 +265,7 @@ func (l *tlsRedirectListener) redirectHTTP(conn net.Conn, firstByte byte) {
 
 	target := "https://" + l.httpsHost + path
 	resp := fmt.Sprintf("HTTP/1.1 301 Moved Permanently\r\nLocation: %s\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", target)
-	conn.Write([]byte(resp))
+	_, _ = conn.Write([]byte(resp))
 }
 
 // prefixConn wraps a net.Conn with bytes that have already been read,

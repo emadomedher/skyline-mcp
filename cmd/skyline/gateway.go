@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -67,7 +66,7 @@ func readPID() (int, bool, error) {
 	if err != nil {
 		return pid, false, nil
 	}
-	err = proc.Signal(syscall.Signal(0))
+	err = proc.Signal(signalZero)
 	if err != nil {
 		return pid, false, nil
 	}
@@ -118,9 +117,7 @@ func gatewayStart(logger *slog.Logger) error {
 	cmd.Dir = filepath.Dir(exePath)
 
 	// Detach from controlling terminal — the child runs independently.
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
+	setSysProcAttr(cmd)
 
 	// Redirect stdout/stderr to log file
 	home, _ := os.UserHomeDir()
@@ -176,14 +173,14 @@ func gatewayStop(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("find process: %w", err)
 	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := proc.Signal(sigTerm); err != nil {
 		return fmt.Errorf("send SIGTERM: %w", err)
 	}
 
 	// Wait up to 30 seconds for the process to exit
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
+		if err := proc.Signal(signalZero); err != nil {
 			// Process is gone
 			removePID()
 			logger.Info("skyline stopped", "pid", pid)
@@ -193,7 +190,7 @@ func gatewayStop(logger *slog.Logger) error {
 	}
 
 	// Force kill if still alive
-	_ = proc.Signal(syscall.SIGKILL)
+	_ = proc.Signal(sigKill)
 	removePID()
 	logger.Warn("skyline force-killed after timeout", "pid", pid)
 	return nil

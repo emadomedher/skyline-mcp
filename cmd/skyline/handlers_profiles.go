@@ -41,7 +41,7 @@ func (s *server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.mu.RUnlock()
-		writeJSON(w, http.StatusOK, map[string]any{"profiles": names})
+		writeJSON(w, http.StatusOK, map[string]any{"profiles": names, "default": defaultProfileName})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -175,6 +175,10 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodDelete:
+		if name == defaultProfileName {
+			http.Error(w, "the default profile cannot be deleted", http.StatusForbidden)
+			return
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		prof, ok := s.findProfile(name)

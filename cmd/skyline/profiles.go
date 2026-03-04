@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,27 @@ import (
 
 	"skyline-mcp/internal/config"
 )
+
+const defaultProfileName = "default"
+
+// generateProfileToken returns a random 32-character hex token.
+func generateProfileToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback should never happen, but don't panic
+		return "change-me-" + hex.EncodeToString(b[:4])
+	}
+	return hex.EncodeToString(b)
+}
+
+// newDefaultProfile creates the seed "default" profile with an empty config.
+func newDefaultProfile() profile {
+	return profile{
+		Name:       defaultProfileName,
+		Token:      generateProfileToken(),
+		ConfigYAML: "apis: []\n",
+	}
+}
 
 func (p profile) ToConfig() *config.Config {
 	var cfg config.Config
@@ -49,8 +72,10 @@ func (s *server) load() error {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.store = profileStore{}
-			return nil
+			s.store = profileStore{
+				Profiles: []profile{newDefaultProfile()},
+			}
+			return s.save()
 		}
 		return err
 	}
@@ -67,6 +92,12 @@ func (s *server) load() error {
 		return fmt.Errorf("parse store: %w", err)
 	}
 	s.store = store
+
+	// Ensure the default profile exists (migration for pre-existing stores)
+	if _, ok := s.findProfile(defaultProfileName); !ok {
+		s.store.Profiles = append([]profile{newDefaultProfile()}, s.store.Profiles...)
+		return s.save()
+	}
 	return nil
 }
 

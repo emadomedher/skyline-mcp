@@ -77,6 +77,11 @@ function inferKnownService(baseUrl, specUrl, specType) {
   return "";
 }
 
+function faviconUrl(website) {
+  try { return 'https://www.google.com/s2/favicons?domain=' + new URL(website).hostname + '&sz=32'; }
+  catch { return ''; }
+}
+
 const apiClient = {
   async listProfiles() {
     const res = await fetch("/profiles");
@@ -244,6 +249,7 @@ createApp({
   setup() {
     const profiles = ref([]);
     const activeProfile = ref("");
+    const defaultProfile = ref("default"); // Name of the undeletable default profile
     const originalProfileName = ref(""); // Track loaded name for rename detection
     const profileMetadata = ref({}); // Store API count and types for each profile
     const form = reactive({
@@ -273,10 +279,7 @@ createApp({
     const addedToast = ref(false);
     const addFlow = reactive({
       open: false,
-      step: "pick", // 'pick' | 'kubernetes' | 'gitlab' | 'jira' | 'slack' | 'gmail' | 'custom' | 'library'
-      kubeParsed: null,
-      kubeStatus: null,
-      kubeTutorial: false,
+      step: "pick", // 'pick' | 'custom' | 'library' | 'guided'
       apiName: "",
       instanceUrl: "",
       email: "",
@@ -287,12 +290,6 @@ createApp({
       detectResults: [],
       busy: false,
       error: "",
-      // Gmail OAuth fields
-      gmailClientId: "",
-      gmailClientSecret: "",
-      gmailScopes: "https://www.googleapis.com/auth/gmail.modify",
-      gmailTutorial: false,
-      oauthRedirectUri: "",
       // Library import fields
       libraryItems: [],
       libraryLoading: false,
@@ -327,6 +324,307 @@ createApp({
       showPassword: false,
       importApis: [],  // { name, spec_url, hasAuth, hasFilter, selected, importAuth, importFilter, conflicts, _raw }
     });
+    // Library URL (shared by inline search and modal)
+    const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles-slim.json";
+
+    // Persistent library cache (survives addFlow resets)
+    const libraryCache = ref([]);
+    const libraryLoaded = ref(false);
+    const libraryLoadError = ref("");
+
+    // Inline library search (for empty-state APIs tab)
+    const inlineSearch = ref("");
+    const inlineSearchFocused = ref(false);
+
+    const popularApiIds = ['slack', 'github', 'stripe', 'jira', 'gitlab', 'kubernetes', 'gmail', 'notion', 'discord', 'shopify'];
+
+    async function ensureLibraryLoaded() {
+      if (libraryLoaded.value) return;
+      libraryLoadError.value = "";
+      try {
+        const res = await fetch(LIBRARY_URL);
+        if (!res.ok) throw new Error(`Failed (${res.status})`);
+        const data = await res.json();
+        libraryCache.value = (data.profiles || []).map((p) => ({
+          id: p.id, title: p.t, subtitle: p.d || "",
+          category: p.c, authType: p.at,
+          specUrl: p.su || "", specType: p.st || "",
+          baseUrl: p.bu || "", website: p.w || "",
+          setup: p.s || null,
+        }));
+        libraryLoaded.value = true;
+      } catch (err) {
+        libraryLoadError.value = err.message;
+      }
+    }
+
+    const popularApis = computed(() => {
+      if (!libraryLoaded.value) return [];
+      return popularApiIds
+        .map(id => libraryCache.value.find(p => p.id === id))
+        .filter(Boolean);
+    });
+
+    const inlineSearchResults = computed(() => {
+      const q = inlineSearch.value.toLowerCase().trim();
+      if (!q || !libraryLoaded.value) return [];
+      const matches = libraryCache.value
+        .filter(p => p.title.toLowerCase().includes(q) || p.subtitle.toLowerCase().includes(q));
+      // Rank: exact title match first, then title starts-with, then title contains, then subtitle-only
+      matches.sort((a, b) => {
+        const at = a.title.toLowerCase(), bt = b.title.toLowerCase();
+        const aExact = at === q, bExact = bt === q;
+        if (aExact !== bExact) return aExact ? -1 : 1;
+        const aPrefix = at.startsWith(q), bPrefix = bt.startsWith(q);
+        if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+        const aTitle = at.includes(q), bTitle = bt.includes(q);
+        if (aTitle !== bTitle) return aTitle ? -1 : 1;
+        return 0;
+      });
+      return matches.slice(0, 12);
+    });
+
+    // Guided setup state (for library items with setup fields)
+    const guidedSetup = reactive({
+      item: null,        // the library item being configured
+      fields: {},        // field values keyed by field.key
+      busy: false,
+      error: '',
+      showTutorial: false,
+    });
+
+    function openGuidedSetup(item) {
+      guidedSetup.item = item;
+      guidedSetup.fields = {};
+      guidedSetup.busy = false;
+      guidedSetup.error = '';
+      guidedSetup.showTutorial = false;
+      // Pre-fill defaults
+      for (const f of item.setup.fields) {
+        guidedSetup.fields[f.key] = f.default || '';
+      }
+      // Open the modal if not open, switch to guided step
+      if (!addFlow.open) {
+        addFlow.open = true;
+      }
+      addFlow.step = 'guided';
+      inlineSearch.value = '';
+    }
+
+    async function submitGuidedSetup() {
+      const setup = guidedSetup.item.setup;
+      const item = guidedSetup.item;
+
+      // Validate required fields
+      for (const f of setup.fields) {
+        if (f.required && !guidedSetup.fields[f.key]?.trim()) {
+          guidedSetup.error = `${f.label} is required.`;
+          return;
+        }
+      }
+
+      guidedSetup.busy = true;
+      guidedSetup.error = '';
+
+      try {
+        // Verification step
+        if (setup.verify) {
+          if (setup.verify.method === 'detect') {
+            // Kubernetes-style: use /detect endpoint
+            const url = (guidedSetup.fields.instance_url || '').trim().replace(/\/$/, '');
+            const token = (guidedSetup.fields.token || '').trim();
+            const data = await apiClient.detect(url, token);
+            const found = (data.detected || []).find(p => p.found && p.status >= 200 && p.status < 300);
+            if (!found) {
+              const reachable = (data.detected || []).find(p => p.status > 0);
+              guidedSetup.error = !reachable && !data.online
+                ? 'Could not connect — check the URL.'
+                : 'Authentication failed — check your credentials.';
+              return;
+            }
+            // Store detected spec URL for later
+            guidedSetup._detectedSpecUrl = found.spec_url;
+            guidedSetup._detectedSpecType = found.type;
+          } else if (setup.flow === 'oauth2') {
+            // OAuth flow — handled separately
+            await runGuidedOAuth(setup, item);
+            return;
+          } else {
+            // Standard verify via /verify endpoint
+            const body = { service: setup.verify.service };
+            if (guidedSetup.fields.instance_url) body.base_url = guidedSetup.fields.instance_url.trim().replace(/\/$/, '');
+            if (guidedSetup.fields.token) body.token = guidedSetup.fields.token.trim();
+            if (guidedSetup.fields.email) body.email = guidedSetup.fields.email.trim();
+            const res = await fetch('/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              guidedSetup.error = data.error === 'auth_error'
+                ? 'Credentials rejected — check your token.'
+                : `Verification failed: ${data.error || 'could not connect'}`;
+              return;
+            }
+          }
+        }
+
+        // Build the API config from field targets
+        const api = blankApi();
+        api.name = item.title;
+        api.baseUrl = item.baseUrl || '';
+        api.specUrl = item.specUrl || '';
+        api.type = item.specType || '';
+        api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+
+        for (const f of setup.fields) {
+          const val = (guidedSetup.fields[f.key] || '').trim();
+          if (!val) continue;
+          switch (f.target) {
+            case 'base_url': api.baseUrl = val.replace(/\/$/, ''); break;
+            case 'auth.token': api.authType = item.authType || 'bearer'; api.bearerToken = val; break;
+            case 'auth.username': api.basicUser = val; break;
+            case 'auth.password': api.basicPass = val; break;
+            case 'auth.client_id': api.oauthClientId = val; break;
+            case 'auth.client_secret': api.oauthClientSecret = val; break;
+            case 'name': api.name = val; break;
+          }
+        }
+
+        // Handle Jira's Cloud vs Server auth logic
+        if (item.id === 'jira' && api.basicUser && guidedSetup.fields.token) {
+          const isCloud = api.baseUrl.includes('.atlassian.net');
+          if (isCloud) {
+            api.authType = 'basic';
+            api.basicPass = guidedSetup.fields.token.trim();
+          } else {
+            api.authType = 'bearer';
+            api.bearerToken = guidedSetup.fields.token.trim();
+            api.basicUser = '';
+          }
+        }
+
+        // Spec URL from template or detection
+        if (guidedSetup._detectedSpecUrl) {
+          api.specUrl = guidedSetup._detectedSpecUrl;
+          api.type = guidedSetup._detectedSpecType || api.type;
+        } else if (setup.specUrlTemplate && guidedSetup.fields.instance_url) {
+          api.specUrl = setup.specUrlTemplate.replace('{instance_url}', api.baseUrl);
+        }
+
+        api.detectedOnce = true;
+        addApiToProfile(api);
+      } catch (err) {
+        guidedSetup.error = 'Error: ' + err.message;
+      } finally {
+        guidedSetup.busy = false;
+      }
+    }
+
+    async function runGuidedOAuth(setup, item) {
+      // Gmail-style OAuth flow
+      const clientId = (guidedSetup.fields.client_id || '').trim();
+      const clientSecret = (guidedSetup.fields.client_secret || '').trim();
+      const scopes = setup.oauth?.scopes || '';
+
+      try {
+        // Step 1: Get OAuth URL
+        const startRes = await fetch('/oauth/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, scopes }),
+        });
+        const startData = await startRes.json();
+        if (!startData.auth_url) { guidedSetup.error = 'Failed to generate OAuth URL.'; return; }
+
+        // Step 2: Open popup
+        const popup = window.open(startData.auth_url, 'skyline-oauth', 'width=600,height=700,left=200,top=100');
+        if (!popup) { guidedSetup.error = 'Popup blocked — please allow popups.'; return; }
+
+        // Step 3: Listen for callback
+        const code = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => { window.removeEventListener('message', handler); reject(new Error('OAuth timed out.')); }, 300000);
+          function handler(event) {
+            if (event.origin !== window.location.origin) return;
+            if (event.data?.type !== 'skyline-oauth-callback') return;
+            clearTimeout(timeout);
+            window.removeEventListener('message', handler);
+            if (event.data.success && event.data.code) resolve(event.data.code);
+            else reject(new Error(event.data.error || 'OAuth failed.'));
+          }
+          window.addEventListener('message', handler);
+        });
+
+        // Step 4: Exchange code for tokens
+        const exchangeRes = await fetch('/oauth/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: startData.redirect_uri }),
+        });
+        const exchangeData = await exchangeRes.json();
+        if (!exchangeData.ok) { guidedSetup.error = `Token exchange failed: ${exchangeData.error}`; return; }
+
+        // Step 5: Verify
+        if (setup.verify) {
+          const verifyRes = await fetch('/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service: setup.verify.service, access_token: exchangeData.access_token }),
+          });
+          const verifyData = await verifyRes.json();
+          if (!verifyData.ok) { guidedSetup.error = `Verification failed: ${verifyData.error}`; return; }
+        }
+
+        // Step 6: Build API
+        const api = blankApi();
+        api.name = (guidedSetup.fields.name || '').trim() || item.title;
+        api.baseUrl = item.baseUrl;
+        api.specUrl = item.specUrl;
+        api.type = item.specType;
+        api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+        api.authType = 'oauth2';
+        api.oauthClientId = clientId;
+        api.oauthClientSecret = clientSecret;
+        api.oauthRefreshToken = exchangeData.refresh_token || '';
+        api.oauthConnected = true;
+        api.detectedOnce = true;
+        addApiToProfile(api);
+      } catch (err) {
+        guidedSetup.error = 'OAuth error: ' + err.message;
+      } finally {
+        guidedSetup.busy = false;
+      }
+    }
+
+    function addFromLibraryInline(item) {
+      // If this API has guided setup fields, open the guided flow
+      if (item.setup && item.setup.fields && item.setup.fields.length > 0) {
+        openGuidedSetup(item);
+        return;
+      }
+
+      const api = blankApi();
+      api.name = item.title;
+      api.baseUrl = item.baseUrl;
+      api.specUrl = item.specUrl;
+      api.type = item.specType;
+      api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+      if (item.authType === "bearer") api.authType = "bearer";
+      else if (item.authType === "basic") api.authType = "basic";
+      else if (item.authType === "oauth2") api.authType = "oauth2";
+      else if (item.authType === "api-key") api.authType = "api-key";
+      api.detectedOnce = true;
+      form.apis.push(api);
+      inlineSearch.value = "";
+      // Close the modal if it's open
+      if (addFlow.open) {
+        addFlow.open = false;
+      }
+      addedToast.value = true;
+      setTimeout(() => { addedToast.value = false; }, 1500);
+    }
+
     const showNewProfileModal = ref(false);
     const newProfileName = ref("");
     const newProfileError = ref("");
@@ -413,6 +711,12 @@ createApp({
       try {
         const data = await apiClient.listProfiles();
         profiles.value = data.profiles || [];
+        if (data.default) defaultProfile.value = data.default;
+
+        // Auto-select default profile if nothing is active
+        if (!activeProfile.value && profiles.value.includes(defaultProfile.value)) {
+          await loadProfile(defaultProfile.value);
+        }
 
         // Load metadata for all profiles
         for (const name of profiles.value) {
@@ -592,6 +896,9 @@ createApp({
           knownServices: Array.from(knownServices),
           apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService })),
         };
+
+        // Smart default tab: show APIs tab when profile has no APIs yet
+        profileTab.value = form.apis.length === 0 ? "apis" : "overview";
 
         await nextTick();
         isLoadingProfile = false;
@@ -1284,11 +1591,14 @@ createApp({
 
     function openAddFlow() {
       Object.assign(addFlow, {
-        open: true, step: "pick", kubeParsed: null, kubeStatus: null, kubeTutorial: false,
+        open: true, step: "pick",
         apiName: "", instanceUrl: "", email: "", token: "",
         customUrl: "", detecting: false, detectError: "", detectResults: [], busy: false, error: "",
         libraryItems: [], libraryLoading: false, libraryError: "", librarySearch: "", libraryCategory: "All",
       });
+      inlineSearch.value = "";
+      // Pre-load library so popular chips and search are ready
+      ensureLibraryLoaded();
     }
 
     function closeAddFlow() {
@@ -1298,30 +1608,7 @@ createApp({
     function pickService(svc) {
       addFlow.step = svc;
       addFlow.error = "";
-      if (svc === "gitlab" && !addFlow.instanceUrl) addFlow.instanceUrl = "https://gitlab.com";
       if (svc === "library") loadLibrary();
-    }
-
-    async function handleAddFlowKubeUpload(event) {
-      const file = event.target.files[0];
-      event.target.value = "";
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const parsed = parseKubeconfig(text);
-        addFlow.kubeParsed = parsed;
-        if (parsed.token) {
-          addFlow.kubeStatus = { type: "success", message: `Token extracted · Server: ${parsed.serverUrl}` };
-          if (!addFlow.apiName) addFlow.apiName = "Kubernetes";
-        } else if (parsed.hasClientCert) {
-          addFlow.kubeStatus = { type: "warn", message: "Client certificate auth found — use a service account token instead" };
-        } else {
-          addFlow.kubeStatus = { type: "error", message: "No token found in kubeconfig" };
-        }
-      } catch (err) {
-        addFlow.kubeStatus = { type: "error", message: "Parse failed: " + err.message };
-        addFlow.kubeParsed = null;
-      }
     }
 
     function addApiToProfile(api) {
@@ -1329,268 +1616,6 @@ createApp({
       closeAddFlow();
       addedToast.value = true;
       setTimeout(() => { addedToast.value = false; }, 1500);
-    }
-
-    async function addKubernetes() {
-      const url = (addFlow.instanceUrl.trim() || "https://localhost:6443").replace(/\/$/, "");
-      if (!addFlow.token.trim()) { addFlow.error = "Service account token is required."; return; }
-      addFlow.busy = true;
-      addFlow.error = "";
-      try {
-        const data = await apiClient.detect(url, addFlow.token.trim());
-        const kubeProbes = (data.detected || []).filter(
-          (p) => p.spec_url && (p.spec_url.endsWith("/openapi/v2") || p.spec_url.endsWith("/openapi/v3"))
-        );
-        // Any HTTP response means the cluster is reachable — distinguish by status
-        const ok       = kubeProbes.find((p) => p.found && p.status >= 200 && p.status < 300);
-        const reachable = kubeProbes.find((p) => p.status > 0); // got any HTTP response
-        const noConnect = !reachable && !data.online;
-        if (!ok) {
-          if (noConnect) {
-            addFlow.error = "Could not connect to cluster — check the URL.";
-          } else {
-            addFlow.error = "Token rejected by the cluster — check your service account token.";
-          }
-          return;
-        }
-        const api = blankApi();
-        api.name = addFlow.apiName.trim() || "Kubernetes";
-        api.baseUrl = url;
-        api.specUrl = ok.spec_url;
-        api.type = ok.type;
-        api.knownService = "kubernetes";
-        api.authType = "bearer";
-        api.bearerToken = addFlow.token.trim();
-        api.detectedOnce = true;
-        addApiToProfile(api);
-      } catch (err) {
-        addFlow.error = "Verification failed: " + err.message;
-      } finally {
-        addFlow.busy = false;
-      }
-    }
-
-    async function addGitLab() {
-      const instanceUrl = addFlow.instanceUrl.trim().replace(/\/$/, "");
-      if (!instanceUrl) { addFlow.error = "Instance URL is required."; return; }
-      if (!addFlow.token.trim()) { addFlow.error = "Personal Access Token is required."; return; }
-      addFlow.busy = true;
-      addFlow.error = "";
-      try {
-        const res = await fetch("/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service: "gitlab", base_url: instanceUrl, token: addFlow.token.trim() }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          addFlow.error = data.error === "auth_error"
-            ? "Token rejected by GitLab — check your Personal Access Token."
-            : `GitLab verification failed: ${data.error || "could not connect"}`;
-          return;
-        }
-      } catch (err) {
-        addFlow.error = "Could not reach GitLab: " + err.message;
-        return;
-      } finally {
-        addFlow.busy = false;
-      }
-      const api = blankApi();
-      api.name = addFlow.apiName.trim() || "GitLab";
-      api.baseUrl = instanceUrl;
-      api.specUrl = instanceUrl + "/api/openapi.json";
-      api.type = "openapi";
-      api.knownService = "gitlab";
-      api.authType = "bearer";
-      api.bearerToken = addFlow.token.trim();
-      api.detectedOnce = true;
-      addApiToProfile(api);
-    }
-
-    async function addJira() {
-      const instanceUrl = addFlow.instanceUrl.trim().replace(/\/$/, "");
-      if (!instanceUrl) { addFlow.error = "Instance URL is required."; return; }
-      if (!addFlow.token.trim()) { addFlow.error = "API token is required."; return; }
-      addFlow.busy = true;
-      addFlow.error = "";
-      try {
-        const res = await fetch("/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            service: "jira",
-            base_url: instanceUrl,
-            email: addFlow.email.trim(),
-            token: addFlow.token.trim(),
-          }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          addFlow.error = data.error === "auth_error"
-            ? "Credentials rejected by Jira — check your token."
-            : `Jira verification failed: ${data.error || "could not connect"}`;
-          return;
-        }
-      } catch (err) {
-        addFlow.error = "Could not reach Jira: " + err.message;
-        return;
-      } finally {
-        addFlow.busy = false;
-      }
-      const isCloud = instanceUrl.includes(".atlassian.net");
-      const api = blankApi();
-      api.name = addFlow.apiName.trim() || "Jira";
-      api.baseUrl = instanceUrl;
-      api.specUrl = isCloud
-        ? "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json"
-        : instanceUrl + "/rest/api/3/openapi.json";
-      api.type = isCloud ? "jira-rest" : "openapi";
-      api.knownService = "jira";
-      if (isCloud && addFlow.email.trim()) {
-        api.authType = "basic";
-        api.basicUser = addFlow.email.trim();
-        api.basicPass = addFlow.token.trim();
-      } else {
-        api.authType = "bearer";
-        api.bearerToken = addFlow.token.trim();
-      }
-      api.detectedOnce = true;
-      addApiToProfile(api);
-    }
-
-    async function addSlack() {
-      if (!addFlow.token.trim()) { addFlow.error = "Token is required."; return; }
-      addFlow.busy = true;
-      addFlow.error = "";
-      try {
-        const res = await fetch("/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service: "slack", token: addFlow.token.trim() }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          const msg = data.error;
-          addFlow.error = (msg === "invalid_auth" || msg === "not_authed" || msg === "token_revoked")
-            ? "Token rejected by Slack — check your token."
-            : `Slack verification failed: ${msg || "unknown error"}`;
-          return;
-        }
-      } catch (err) {
-        addFlow.error = "Could not reach Slack API: " + err.message;
-        return;
-      } finally {
-        addFlow.busy = false;
-      }
-      const tokenType = slackTokenType(addFlow.token);
-      const api = blankApi();
-      api.name = addFlow.apiName.trim() || (tokenType === "bot" ? "Slack Bot" : tokenType === "user" ? "Slack User" : "Slack");
-      api.baseUrl = "https://slack.com/api";
-      api.specUrl = "https://api.slack.com/specs/openapi/api_v2.json";
-      api.type = "openapi";
-      api.knownService = "slack";
-      api.authType = "bearer";
-      api.bearerToken = addFlow.token.trim();
-      api.detectedOnce = true;
-      addApiToProfile(api);
-    }
-
-    async function addGmail() {
-      if (!addFlow.gmailClientId.trim()) { addFlow.error = "Client ID is required."; return; }
-      if (!addFlow.gmailClientSecret.trim()) { addFlow.error = "Client Secret is required."; return; }
-      addFlow.busy = true;
-      addFlow.error = "";
-      try {
-        // Step 1: Get the OAuth URL from the backend
-        const startRes = await fetch("/oauth/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            client_id: addFlow.gmailClientId.trim(),
-            scopes: addFlow.gmailScopes,
-          }),
-        });
-        const startData = await startRes.json();
-        if (!startData.auth_url) { addFlow.error = "Failed to generate OAuth URL."; return; }
-        addFlow.oauthRedirectUri = startData.redirect_uri;
-
-        // Step 2: Open the OAuth popup
-        const popup = window.open(startData.auth_url, "skyline-oauth",
-          "width=600,height=700,left=200,top=100");
-        if (!popup) {
-          addFlow.error = "Popup blocked — please allow popups for this site and try again.";
-          return;
-        }
-
-        // Step 3: Listen for the callback message
-        const code = await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            window.removeEventListener("message", handler);
-            reject(new Error("OAuth timed out — close the popup and try again."));
-          }, 300000);
-          function handler(event) {
-            if (event.origin !== window.location.origin) return;
-            if (event.data?.type !== "skyline-oauth-callback") return;
-            clearTimeout(timeout);
-            window.removeEventListener("message", handler);
-            if (event.data.success && event.data.code) {
-              resolve(event.data.code);
-            } else {
-              reject(new Error(event.data.error || "OAuth authorization failed."));
-            }
-          }
-          window.addEventListener("message", handler);
-        });
-
-        // Step 4: Exchange the code for tokens
-        const exchangeRes = await fetch("/oauth/exchange", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code: code,
-            client_id: addFlow.gmailClientId.trim(),
-            client_secret: addFlow.gmailClientSecret.trim(),
-            redirect_uri: addFlow.oauthRedirectUri,
-          }),
-        });
-        const exchangeData = await exchangeRes.json();
-        if (!exchangeData.ok) {
-          addFlow.error = `Token exchange failed: ${exchangeData.error}`;
-          return;
-        }
-
-        // Step 5: Verify the connection
-        const verifyRes = await fetch("/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service: "gmail", access_token: exchangeData.access_token }),
-        });
-        const verifyData = await verifyRes.json();
-        if (!verifyData.ok) {
-          addFlow.error = `Gmail verification failed: ${verifyData.error}`;
-          return;
-        }
-
-        // Step 6: Create the API entry
-        const api = blankApi();
-        api.name = addFlow.apiName.trim() || "Gmail";
-        api.baseUrl = "https://gmail.googleapis.com";
-        api.specUrl = "https://gmail.googleapis.com/$discovery/rest?version=v1";
-        api.type = "google-discovery";
-        api.knownService = "gmail";
-        api.authType = "oauth2";
-        api.oauthClientId = addFlow.gmailClientId.trim();
-        api.oauthClientSecret = addFlow.gmailClientSecret.trim();
-        api.oauthRefreshToken = exchangeData.refresh_token;
-        api.oauthEmail = verifyData.email || "";
-        api.oauthConnected = true;
-        api.detectedOnce = true;
-        addApiToProfile(api);
-      } catch (err) {
-        addFlow.error = err.message;
-      } finally {
-        addFlow.busy = false;
-      }
     }
 
     async function runAddFlowDetect() {
@@ -1629,30 +1654,20 @@ createApp({
     }
 
     // ── Library import ──────────────────────────────────────────────────────
-    // Slim library endpoint — compact JSON with short keys (277 KB gzipped)
-    // Keys: id, t=title, d=description, c=category, at=authType, su=specUrl, st=specType, bu=baseUrl, w=website
-    const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles-slim.json";
 
     async function loadLibrary() {
-      if (addFlow.libraryItems.length > 0) return; // already loaded
+      // Use persistent cache if available
+      if (libraryLoaded.value) {
+        addFlow.libraryItems = libraryCache.value;
+        return;
+      }
+      if (addFlow.libraryItems.length > 0) return;
       addFlow.libraryLoading = true;
       addFlow.libraryError = "";
       try {
-        const res = await fetch(LIBRARY_URL);
-        if (!res.ok) throw new Error(`Failed to load library (${res.status})`);
-        const data = await res.json();
-        // Expand short keys to readable names for the UI
-        addFlow.libraryItems = (data.profiles || []).map((p) => ({
-          id: p.id,
-          title: p.t,
-          subtitle: p.d || "",
-          category: p.c,
-          authType: p.at,
-          specUrl: p.su || "",
-          specType: p.st || "",
-          baseUrl: p.bu || "",
-          website: p.w || "",
-        }));
+        await ensureLibraryLoaded();
+        if (libraryLoadError.value) throw new Error(libraryLoadError.value);
+        addFlow.libraryItems = libraryCache.value;
       } catch (err) {
         addFlow.libraryError = err.message;
       } finally {
@@ -1910,6 +1925,7 @@ createApp({
     return {
       profiles,
       activeProfile,
+      defaultProfile,
       profileMetadata,
       form,
       draft,
@@ -1965,12 +1981,6 @@ createApp({
       openAddFlow,
       closeAddFlow,
       pickService,
-      handleAddFlowKubeUpload,
-      addKubernetes,
-      addGitLab,
-      addJira,
-      addSlack,
-      addGmail,
       oauthRedirectHint,
       runAddFlowDetect,
       addFromDetectResult,
@@ -2011,6 +2021,19 @@ createApp({
       handleImportDecrypt,
       onImportTargetChange,
       runImport,
+      // Guided setup
+      guidedSetup,
+      openGuidedSetup,
+      submitGuidedSetup,
+      // Inline library search
+      faviconUrl,
+      inlineSearch,
+      inlineSearchFocused,
+      inlineSearchResults,
+      popularApis,
+      libraryLoaded,
+      ensureLibraryLoaded,
+      addFromLibraryInline,
     };
   },
   template: `
@@ -2052,6 +2075,7 @@ createApp({
               </button>
               <iconify-icon icon="mdi:folder-account" class="tree-profile-icon"></iconify-icon>
               <span class="tree-profile-name">{{ name }}</span>
+              <span v-if="name === defaultProfile" class="default-badge">default</span>
               <span v-if="profileMetadata[name]" class="profile-api-count">{{ profileMetadata[name].apiCount }}</span>
             </div>
             <!-- APIs nested under profile -->
@@ -2075,14 +2099,25 @@ createApp({
       <main class="panel">
         <!-- Welcome: no profiles exist -->
         <div v-if="!activeProfile && profiles.length === 0" class="welcome-screen">
-          <div class="welcome-content">
+           <div class="welcome-content" style="display:flex; flex-direction:column; align-items:center;">
             <img src="/ui/skyline-logo.svg" alt="Skyline" style="max-width: 200px; height: auto; margin-bottom: 24px; opacity: 0.8;">
             <h2 class="welcome-title">Welcome to Skyline</h2>
             <p class="welcome-subtitle">Create your first profile to start managing API connections for your MCP servers.</p>
-            <button class="primary welcome-cta" @click="openNewProfileModal">
-              <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-              Create Your First Profile
-            </button>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:0; width:260px;">
+              <button class="primary welcome-cta" @click="openNewProfileModal" style="width:100%; justify-content:center;">
+                <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
+                Create Your First Profile
+              </button>
+              <div style="display:flex; align-items:center; gap:12px; margin:14px 0; width:100%;">
+                <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
+                <span style="font-size:13px; color:var(--text-dim);">or</span>
+                <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
+              </div>
+              <button class="ghost welcome-cta" @click="openImportFlow" style="width:100%; justify-content:center;">
+                <iconify-icon icon="mdi:import"></iconify-icon>
+                Import Profile
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2584,8 +2619,20 @@ createApp({
                 </button>
               </div>
             </div>
-            <div v-if="form.apis.length === 0" style="text-align:center; padding:40px 20px; color:var(--text-dim); opacity:0.6;">
-              No APIs added yet
+            <div v-if="form.apis.length === 0" style="text-align:center; padding:60px 20px;">
+              <iconify-icon icon="mdi:api" style="font-size:48px; color:var(--text-dim); opacity:0.4; margin-bottom:16px; display:block;"></iconify-icon>
+              <div style="font-size:15px; font-weight:500; color:var(--text-muted); margin-bottom:8px;">No APIs added yet</div>
+              <div style="font-size:13px; color:var(--text-dim); margin-bottom:20px;">Connect your first API to start generating MCP tools.</div>
+              <div style="display:flex; gap:10px; justify-content:center;">
+                <button class="primary" @click="openAddFlow" style="padding:12px 24px; font-size:14px;">
+                  <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
+                  Add Your First API
+                </button>
+                <button class="ghost" @click="openImportFlow" style="padding:12px 24px; font-size:14px;">
+                  <iconify-icon icon="mdi:import"></iconify-icon>
+                  Import Profile
+                </button>
+              </div>
             </div>
             <div
               v-for="api in form.apis"
@@ -2722,7 +2769,7 @@ createApp({
 
             <div class="toolbar" style="margin-top:20px;">
               <button class="primary" :disabled="isBusy" @click="saveProfile()">Save Profile</button>
-              <button class="ghost" :disabled="isBusy || !form.profileName" @click="deleteProfile">Delete Profile</button>
+              <button v-if="activeProfile !== defaultProfile" class="ghost" :disabled="isBusy || !form.profileName" @click="deleteProfile">Delete Profile</button>
               <div v-if="status.message" class="status" style="margin-left:auto;">
                 <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
                 <span>{{ status.message }}</span>
@@ -2743,236 +2790,174 @@ createApp({
               <span>Add API</span>
             </div>
             <div class="modal-body">
-              <p style="color:var(--text-dim); margin:0 0 16px;">Select the type of API to add:</p>
-              <div class="service-picker-grid">
-                <button class="service-pick-btn" @click="pickService('kubernetes')">
-                  <iconify-icon icon="simple-icons:kubernetes" style="font-size:28px; color:#326ce5;"></iconify-icon>
-                  <span>Kubernetes</span>
-                </button>
-                <button class="service-pick-btn" @click="pickService('gitlab')">
-                  <iconify-icon icon="simple-icons:gitlab" style="font-size:28px; color:#fc6d26;"></iconify-icon>
-                  <span>GitLab</span>
-                </button>
-                <button class="service-pick-btn" @click="pickService('jira')">
-                  <iconify-icon icon="simple-icons:jira" style="font-size:28px; color:#0052cc;"></iconify-icon>
-                  <span>Jira</span>
-                </button>
-                <button class="service-pick-btn" @click="pickService('slack')">
-                  <iconify-icon icon="simple-icons:slack" style="font-size:28px; color:#E01E5A;"></iconify-icon>
-                  <span>Slack</span>
-                </button>
-                <button class="service-pick-btn" @click="pickService('gmail')">
-                  <iconify-icon icon="simple-icons:gmail" style="font-size:28px; color:#EA4335;"></iconify-icon>
-                  <span>Gmail</span>
-                </button>
-                <button class="service-pick-btn" @click="pickService('library')">
-                  <iconify-icon icon="mdi:bookshelf" style="font-size:28px; color:#8B5CF6;"></iconify-icon>
-                  <span>Browse Library</span>
-                </button>
-                <button class="service-pick-btn service-pick-custom" @click="pickService('custom')">
-                  <iconify-icon icon="mdi:cloud-search-outline" style="font-size:28px;"></iconify-icon>
-                  <span>Custom API</span>
-                </button>
+
+              <!-- Library search -->
+              <div style="margin-bottom:16px;">
+                <div style="display:flex; align-items:center; gap:8px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; transition:border-color .15s;" :style="inlineSearchFocused ? { borderColor: 'var(--blue)' } : {}">
+                  <iconify-icon icon="mdi:magnify" style="font-size:18px; color:var(--text-dim); flex-shrink:0;"></iconify-icon>
+                  <input
+                    v-model="inlineSearch"
+                    placeholder="Search 18,000+ APIs..."
+                    @focus="inlineSearchFocused = true; ensureLibraryLoaded()"
+                    @blur="inlineSearchFocused = false"
+                    style="flex:1; background:none; border:none; outline:none; color:var(--text); font-size:14px;"
+                  />
+                  <iconify-icon v-if="inlineSearch.trim()" icon="mdi:close-circle" style="font-size:16px; color:var(--text-dim); cursor:pointer; flex-shrink:0;" @click="inlineSearch = ''"></iconify-icon>
+                </div>
               </div>
+
+              <!-- Search results (inline, not dropdown) -->
+              <template v-if="inlineSearch.trim()">
+                <div v-if="inlineSearchResults.length > 0" style="max-height:320px; overflow-y:auto; margin-bottom:12px;">
+                  <div
+                    v-for="item in inlineSearchResults"
+                    :key="item.id"
+                    class="detect-result-item"
+                    @click="addFromLibraryInline(item)"
+                    style="cursor:pointer;"
+                  >
+                    <img
+                      v-if="item.website"
+                      :src="faviconUrl(item.website)"
+                      :alt="item.title"
+                      style="width:22px; height:22px; flex-shrink:0; object-fit:contain; border-radius:4px;"
+                      @error="$event.target.style.display='none'"
+                    />
+                    <span
+                      v-else
+                      style="width:22px; height:22px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-radius:4px; background:var(--bg-input); color:var(--text-dim); font-size:11px; font-weight:600;"
+                    >{{ item.title.trim().charAt(0).toUpperCase() }}</span>
+                    <div style="flex:1; min-width:0;">
+                      <div style="font-weight:500; font-size:13px;">{{ item.title }}</div>
+                      <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.subtitle }}</div>
+                    </div>
+                    <span style="font-size:10px; padding:2px 6px; border-radius:99px; background:var(--bg-input); color:var(--text-dim); border:1px solid var(--border); flex-shrink:0;">{{ item.category }}</span>
+                    <iconify-icon icon="mdi:plus-circle" style="color:var(--blue); flex-shrink:0;"></iconify-icon>
+                  </div>
+                </div>
+                <div v-else-if="libraryLoaded" style="padding:20px; text-align:center; color:var(--text-dim); font-size:13px;">
+                  No APIs found for "{{ inlineSearch }}"
+                </div>
+                <div v-else style="padding:20px; text-align:center; color:var(--text-dim); font-size:13px;">
+                  Loading library...
+                </div>
+                <!-- Browse full library link (always visible when searching) -->
+                <div style="text-align:center; margin-bottom:8px;">
+                  <button class="ghost" @click="pickService('library')" style="font-size:12px; padding:4px 8px; color:var(--blue);">
+                    Browse full library with categories
+                    <iconify-icon icon="mdi:arrow-right" style="font-size:14px; vertical-align:middle;"></iconify-icon>
+                  </button>
+                </div>
+              </template>
+
+              <!-- Default view: popular + services (when not searching) -->
+              <template v-else>
+                <!-- Popular quick-picks -->
+                <div v-if="popularApis.length > 0" style="margin-bottom:16px;">
+                  <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-dim); margin-bottom:8px; font-weight:600;">Popular</div>
+                  <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                    <button
+                      v-for="item in popularApis"
+                      :key="item.id"
+                      class="ghost"
+                      @click="addFromLibraryInline(item)"
+                      style="display:flex; align-items:center; gap:5px; padding:6px 10px; font-size:12px; border-radius:var(--radius);"
+                    >
+                      <img
+                        v-if="item.website"
+                      :src="faviconUrl(item.website)"
+                      :alt="item.title"
+                      style="width:14px; height:14px; object-fit:contain; border-radius:2px;"
+                        @error="$event.target.style.display='none'"
+                      />
+                      {{ item.title }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Browse full library link -->
+                <div style="text-align:right; margin-bottom:16px;">
+                  <button class="ghost" @click="pickService('library')" style="font-size:12px; padding:4px 8px; color:var(--blue);">
+                    Browse full library
+                    <iconify-icon icon="mdi:arrow-right" style="font-size:14px; vertical-align:middle;"></iconify-icon>
+                  </button>
+                </div>
+
+                <!-- Divider -->
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                  <div style="flex:1; height:1px; background:rgba(255,255,255,0.08);"></div>
+                  <span style="font-size:11px; color:var(--text-dim);">or configure manually</span>
+                  <div style="flex:1; height:1px; background:rgba(255,255,255,0.08);"></div>
+                </div>
+
+                <!-- Custom API button -->
+                <div class="service-picker-grid">
+                  <button class="service-pick-btn service-pick-custom" @click="pickService('custom')">
+                    <iconify-icon icon="mdi:cloud-search-outline" style="font-size:28px;"></iconify-icon>
+                    <span>Custom API</span>
+                  </button>
+                </div>
+              </template>
             </div>
             <div class="modal-footer">
               <button class="ghost" @click="closeAddFlow">Cancel</button>
             </div>
           </template>
 
-          <!-- Step: kubernetes -->
-          <template v-else-if="addFlow.step === 'kubernetes'">
+          <!-- Step: guided setup (library items with setup fields) -->
+          <template v-else-if="addFlow.step === 'guided' && guidedSetup.item">
             <div class="modal-header">
-              <iconify-icon icon="simple-icons:kubernetes" style="font-size:22px; color:#326ce5;"></iconify-icon>
-              <span>Add Kubernetes API</span>
+              <img
+                v-if="guidedSetup.item.website"
+                :src="faviconUrl(guidedSetup.item.website)"
+                style="width:22px; height:22px; object-fit:contain; border-radius:4px;"
+                @error="$event.target.style.display='none'"
+              />
+              <iconify-icon v-else icon="mdi:api" style="font-size:22px; color:var(--blue);"></iconify-icon>
+              <span>Add {{ guidedSetup.item.title }}</span>
             </div>
             <div class="modal-body">
-              <div style="margin-bottom:12px;">
-                <label>Cluster API URL</label>
-                <input v-model="addFlow.instanceUrl" placeholder="https://localhost:6443" />
-              </div>
-              <div style="margin-bottom:12px;">
-                <label>Service Account Token</label>
-                <input v-model="addFlow.token" type="password" placeholder="eyJhbGciOiJSUzI1NiIsImtpZCI6Ii..." />
-              </div>
-              <div style="margin-bottom:16px;">
-                <label>API Name</label>
-                <input v-model="addFlow.apiName" placeholder="Kubernetes" />
+              <div v-for="field in guidedSetup.item.setup.fields" :key="field.key" style="margin-bottom:12px;">
+                <label>{{ field.label }} <span v-if="field.required" style="color:var(--red);">*</span></label>
+                <input
+                  v-if="field.type === 'password'"
+                  type="password"
+                  v-model="guidedSetup.fields[field.key]"
+                  :placeholder="field.placeholder || ''"
+                />
+                <input
+                  v-else-if="field.type === 'url'"
+                  type="url"
+                  v-model="guidedSetup.fields[field.key]"
+                  :placeholder="field.placeholder || ''"
+                />
+                <input
+                  v-else
+                  type="text"
+                  v-model="guidedSetup.fields[field.key]"
+                  :placeholder="field.placeholder || ''"
+                />
               </div>
 
               <!-- Tutorial toggle -->
-              <div class="kube-tutorial-toggle" @click="addFlow.kubeTutorial = !addFlow.kubeTutorial">
-                <iconify-icon :icon="addFlow.kubeTutorial ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                <span>How to generate a service account token</span>
-              </div>
-              <div v-if="addFlow.kubeTutorial" class="kube-tutorial">
-                <p>Run these commands against your cluster:</p>
-                <pre># Create a dedicated service account
-kubectl create serviceaccount skyline -n default
-
-# Grant cluster-admin (or use a more restrictive role)
-kubectl create clusterrolebinding skyline \
-  --clusterrole=cluster-admin \
-  --serviceaccount=default:skyline
-
-# Generate a long-lived token (1 year)
-kubectl create token skyline --duration=8760h</pre>
-                <p>Copy the printed token and paste it above.</p>
-              </div>
-
-              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
-            </div>
-            <div class="modal-footer">
-              <button class="ghost" @click="pickService('pick')">Back</button>
-              <button class="primary" :disabled="addFlow.busy" @click="addKubernetes">
-                <iconify-icon icon="mdi:check"></iconify-icon>
-                {{ addFlow.busy ? 'Verifying…' : 'Add to Profile' }}
-              </button>
-            </div>
-          </template>
-
-          <!-- Step: gitlab -->
-          <template v-else-if="addFlow.step === 'gitlab'">
-            <div class="modal-header">
-              <iconify-icon icon="simple-icons:gitlab" style="font-size:22px; color:#fc6d26;"></iconify-icon>
-              <span>Add GitLab API</span>
-            </div>
-            <div class="modal-body">
-              <div style="margin-bottom:12px;">
-                <label>GitLab Instance URL</label>
-                <input v-model="addFlow.instanceUrl" placeholder="https://gitlab.com" />
-              </div>
-              <div style="margin-bottom:12px;">
-                <label>Personal Access Token <span style="color:var(--text-dim); font-size:11px;">(api scope required)</span></label>
-                <input v-model="addFlow.token" type="password" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" />
-              </div>
-              <div>
-                <label>API Name</label>
-                <input v-model="addFlow.apiName" placeholder="GitLab" />
-              </div>
-              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
-            </div>
-            <div class="modal-footer">
-              <button class="ghost" @click="pickService('pick')">Back</button>
-              <button class="primary" :disabled="addFlow.busy" @click="addGitLab">
-                <iconify-icon icon="mdi:check"></iconify-icon>
-                {{ addFlow.busy ? 'Verifying…' : 'Add to Profile' }}
-              </button>
-            </div>
-          </template>
-
-          <!-- Step: jira -->
-          <template v-else-if="addFlow.step === 'jira'">
-            <div class="modal-header">
-              <iconify-icon icon="simple-icons:jira" style="font-size:22px; color:#0052cc;"></iconify-icon>
-              <span>Add Jira API</span>
-            </div>
-            <div class="modal-body">
-              <div style="margin-bottom:12px;">
-                <label>Jira Instance URL</label>
-                <input v-model="addFlow.instanceUrl" placeholder="https://your-org.atlassian.net" />
-              </div>
-              <div v-if="addFlow.instanceUrl.includes('.atlassian.net')" style="margin-bottom:12px;">
-                <label>Email <span style="color:var(--text-dim); font-size:11px;">(Jira Cloud: used for Basic auth)</span></label>
-                <input v-model="addFlow.email" type="email" placeholder="user@example.com" />
-              </div>
-              <div style="margin-bottom:12px;">
-                <label>
-                  <span v-if="addFlow.instanceUrl.includes('.atlassian.net')">API Token</span>
-                  <span v-else>Personal Access Token</span>
-                </label>
-                <input v-model="addFlow.token" type="password" placeholder="Your token" />
-              </div>
-              <div>
-                <label>API Name</label>
-                <input v-model="addFlow.apiName" placeholder="Jira" />
-              </div>
-              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
-            </div>
-            <div class="modal-footer">
-              <button class="ghost" @click="pickService('pick')">Back</button>
-              <button class="primary" :disabled="addFlow.busy" @click="addJira">
-                <iconify-icon icon="mdi:check"></iconify-icon>
-                {{ addFlow.busy ? 'Verifying…' : 'Add to Profile' }}
-              </button>
-            </div>
-          </template>
-
-          <!-- Step: slack -->
-          <template v-else-if="addFlow.step === 'slack'">
-            <div class="modal-header">
-              <iconify-icon icon="simple-icons:slack" style="font-size:22px; color:#E01E5A;"></iconify-icon>
-              <span>Add Slack API</span>
-            </div>
-            <div class="modal-body">
-              <div style="margin-bottom:12px;">
-                <label>Bot Token or User Token</label>
-                <input v-model="addFlow.token" type="password" placeholder="xoxb-... or xoxp-..." />
-                <div style="margin-top:6px; font-size:12px; color:var(--text-dim);">
-                  <iconify-icon :icon="slackTokenType(addFlow.token) === 'user' ? 'mdi:account' : 'mdi:robot'" style="vertical-align:middle;"></iconify-icon>
-                  <span v-if="slackTokenType(addFlow.token) === 'bot'"> Bot token (xoxb-) detected</span>
-                  <span v-else-if="slackTokenType(addFlow.token) === 'user'"> User token (xoxp-) detected</span>
-                  <span v-else> Enter an xoxb- (bot) or xoxp- (user) token</span>
+              <div v-if="guidedSetup.item.setup.tutorial" style="margin-top:16px;">
+                <div
+                  @click="guidedSetup.showTutorial = !guidedSetup.showTutorial"
+                  style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--blue);"
+                >
+                  <iconify-icon :icon="guidedSetup.showTutorial ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
+                  <span>How to get credentials</span>
                 </div>
+                <div v-if="guidedSetup.showTutorial" style="margin-top:8px; padding:12px; background:var(--bg-input); border-radius:var(--radius); font-size:12px; line-height:1.6; color:var(--text-muted); white-space:pre-wrap;">{{ guidedSetup.item.setup.tutorial }}</div>
               </div>
-              <div>
-                <label>API Name</label>
-                <input v-model="addFlow.apiName" placeholder="Slack Bot" />
-              </div>
-              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
+
+              <div v-if="guidedSetup.error" class="modal-error" style="margin-top:12px;">{{ guidedSetup.error }}</div>
             </div>
             <div class="modal-footer">
-              <button class="ghost" @click="pickService('pick')">Back</button>
-              <button class="primary" :disabled="addFlow.busy" @click="addSlack">
-                <iconify-icon icon="mdi:check"></iconify-icon>
-                {{ addFlow.busy ? 'Verifying…' : 'Add to Profile' }}
-              </button>
-            </div>
-          </template>
-
-          <!-- Step: gmail -->
-          <template v-else-if="addFlow.step === 'gmail'">
-            <div class="modal-header">
-              <iconify-icon icon="simple-icons:gmail" style="font-size:22px; color:#EA4335;"></iconify-icon>
-              <span>Add Gmail API</span>
-            </div>
-            <div class="modal-body">
-              <div style="margin-bottom:12px;">
-                <label>Client ID <span style="color:var(--text-dim); font-size:11px;">(from Google Cloud Console)</span></label>
-                <input v-model="addFlow.gmailClientId" placeholder="123456789.apps.googleusercontent.com" />
-              </div>
-              <div style="margin-bottom:12px;">
-                <label>Client Secret</label>
-                <input v-model="addFlow.gmailClientSecret" type="password" placeholder="GOCSPX-..." />
-              </div>
-              <div style="margin-bottom:16px;">
-                <label>API Name</label>
-                <input v-model="addFlow.apiName" placeholder="Gmail" />
-              </div>
-
-              <!-- Tutorial toggle -->
-              <div class="kube-tutorial-toggle" @click="addFlow.gmailTutorial = !addFlow.gmailTutorial">
-                <iconify-icon :icon="addFlow.gmailTutorial ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                <span>How to create Google OAuth credentials</span>
-              </div>
-              <div v-if="addFlow.gmailTutorial" class="kube-tutorial">
-                <p>1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--blue);">Google Cloud Console &rarr; APIs &amp; Credentials</a></p>
-                <p>2. Create a new project (or select an existing one)</p>
-                <p>3. Enable the <strong>Gmail API</strong> in APIs &amp; Services &rarr; Library</p>
-                <p>4. Configure the <strong>OAuth consent screen</strong> (External, add your email as test user)</p>
-                <p>5. Go to <strong>Credentials</strong> &rarr; Create Credentials &rarr; <strong>OAuth client ID</strong></p>
-                <p>6. Application type: <strong>Web application</strong></p>
-                <p>7. Add Authorized redirect URI: <code style="background:var(--bg-alt); padding:2px 6px; border-radius:3px;">{{ oauthRedirectHint }}/oauth/callback</code></p>
-                <p>8. Copy the Client ID and Client Secret into the fields above</p>
-              </div>
-
-              <div v-if="addFlow.error" class="modal-error">{{ addFlow.error }}</div>
-            </div>
-            <div class="modal-footer">
-              <button class="ghost" @click="pickService('pick')">Back</button>
-              <button class="primary" :disabled="addFlow.busy" @click="addGmail">
-                <iconify-icon icon="mdi:check"></iconify-icon>
-                {{ addFlow.busy ? 'Connecting…' : 'Connect Gmail Account' }}
+              <button class="ghost" @click="addFlow.step = 'pick'">Back</button>
+              <button class="primary" :disabled="guidedSetup.busy" @click="submitGuidedSetup">
+                <iconify-icon v-if="guidedSetup.busy" icon="mdi:loading" style="animation:spin 1s linear infinite;"></iconify-icon>
+                {{ guidedSetup.busy ? 'Verifying...' : 'Add ' + guidedSetup.item.title }}
               </button>
             </div>
           </template>
@@ -3015,7 +3000,7 @@ kubectl create token skyline --duration=8760h</pre>
                 >
                   <img
                     v-if="item.website"
-                    :src="'https://www.google.com/s2/favicons?domain=' + new URL(item.website).hostname + '&sz=32'"
+                    :src="faviconUrl(item.website)"
                     :alt="item.title"
                     style="width:24px; height:24px; flex-shrink:0; object-fit:contain; border-radius:4px;"
                     @error="$event.target.style.display='none'"

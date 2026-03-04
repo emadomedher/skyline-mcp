@@ -654,7 +654,7 @@ func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 					"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://code.iconify.design https://unpkg.com https://cdn.jsdelivr.net; "+
 					"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
 					"img-src 'self' data: https:; "+
-					"connect-src 'self' https://api.iconify.design https://unpkg.com https://cdn.jsdelivr.net; "+
+					"connect-src 'self' https://api.iconify.design https://unpkg.com https://cdn.jsdelivr.net https://raw.githubusercontent.com; "+
 					"font-src 'self' https://fonts.gstatic.com")
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

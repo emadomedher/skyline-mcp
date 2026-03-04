@@ -178,9 +178,9 @@ func runInitProfiles(storagePath, keyFlag, keyEnv string, logger *slog.Logger) i
 		return 2
 	}
 
-	// Create empty profiles store
+	// Create profiles store seeded with a default profile
 	store := profileStore{
-		Profiles: []profile{},
+		Profiles: []profile{newDefaultProfile()},
 	}
 
 	// Marshal to YAML

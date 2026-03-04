@@ -193,6 +193,19 @@ body {
   white-space: nowrap;
 }
 
+.default-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .profile-types {
   display: flex;
   align-items: center;

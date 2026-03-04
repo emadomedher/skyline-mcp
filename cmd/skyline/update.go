@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -55,7 +59,7 @@ func runUpdate(logger *slog.Logger) error {
 	logger.Info("current version info", "version", currentVersion(), "binary", exePath)
 
 	// Check for latest release
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", githubAPIURL, nil)
@@ -82,47 +86,53 @@ func runUpdate(logger *slog.Logger) error {
 
 	// Check if update needed
 	if release.TagName == currentVersion() {
-		logger.Info("✅ already up to date")
+		logger.Info("already up to date")
 		return nil
 	}
 
-	logger.Info("🔄 update available", "current", currentVersion(), "latest", release.TagName)
+	logger.Info("update available", "current", currentVersion(), "latest", release.TagName)
 
-	// Determine platform binary name
-	var binaryName string
+	// Determine platform identifier
+	platformKey := runtime.GOOS + "-" + runtime.GOARCH
 	switch runtime.GOOS {
-	case "linux":
-		if runtime.GOARCH == "arm64" {
-			binaryName = "skyline-linux-arm64"
-		} else {
-			binaryName = "skyline-linux-amd64"
-		}
-	case "darwin":
-		if runtime.GOARCH == "arm64" {
-			binaryName = "skyline-darwin-arm64"
-		} else {
-			binaryName = "skyline-darwin-amd64"
-		}
+	case "linux", "darwin", "windows":
+		// supported
 	default:
 		return fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	// Find download URL
-	var downloadURL string
+	// Find download URL — try archive format first (new), then bare binary (old)
+	var downloadURL, assetName string
 	for _, asset := range release.Assets {
-		if asset.Name == binaryName {
+		// New format: skyline-v0.9.17-linux-amd64.tar.gz or .zip
+		if strings.Contains(asset.Name, platformKey) && (strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".zip")) {
 			downloadURL = asset.BrowserDownloadURL
+			assetName = asset.Name
 			break
+		}
+	}
+	if downloadURL == "" {
+		// Old format: skyline-linux-amd64 (bare binary)
+		bareName := "skyline-" + platformKey
+		if runtime.GOOS == "windows" {
+			bareName += ".exe"
+		}
+		for _, asset := range release.Assets {
+			if asset.Name == bareName {
+				downloadURL = asset.BrowserDownloadURL
+				assetName = asset.Name
+				break
+			}
 		}
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("no binary found for %s", binaryName)
+		return fmt.Errorf("no binary found for %s", platformKey)
 	}
 
-	logger.Info("downloading update", "binary", binaryName)
+	logger.Info("downloading update", "asset", assetName)
 
-	// Download new binary
+	// Download asset
 	req, err = http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("create download request: %w", err)
@@ -130,7 +140,7 @@ func runUpdate(logger *slog.Logger) error {
 
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("download binary: %w", err)
+		return fmt.Errorf("download: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -138,32 +148,54 @@ func runUpdate(logger *slog.Logger) error {
 		return fmt.Errorf("download failed: status %d", resp.StatusCode)
 	}
 
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "skyline-update-*")
+	// Download to temp file
+	tmpArchive, err := os.CreateTemp("", "skyline-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	tmpArchivePath := tmpArchive.Name()
+	defer os.Remove(tmpArchivePath)
 
-	// Download to temp file
-	written, err := io.Copy(tmpFile, resp.Body)
+	written, err := io.Copy(tmpArchive, resp.Body)
 	if err != nil {
-		tmpFile.Close()
+		tmpArchive.Close()
 		return fmt.Errorf("download: %w", err)
 	}
-	tmpFile.Close()
+	tmpArchive.Close()
 
 	logger.Info("download complete", "bytes", written)
 
-	// Make temp file executable
-	if err := os.Chmod(tmpPath, 0755); err != nil { //nolint:govet // intentional err shadow
-		return fmt.Errorf("chmod temp file: %w", err)
+	// Extract binary from archive (or use directly if bare binary)
+	var binaryPath string
+	if strings.HasSuffix(assetName, ".tar.gz") {
+		binaryPath, err = extractFromTarGz(tmpArchivePath, "skyline")
+		if err != nil {
+			return fmt.Errorf("extract from tar.gz: %w", err)
+		}
+		defer os.Remove(binaryPath)
+	} else if strings.HasSuffix(assetName, ".zip") {
+		binaryName := "skyline"
+		if runtime.GOOS == "windows" {
+			binaryName = "skyline.exe"
+		}
+		binaryPath, err = extractFromZip(tmpArchivePath, binaryName)
+		if err != nil {
+			return fmt.Errorf("extract from zip: %w", err)
+		}
+		defer os.Remove(binaryPath)
+	} else {
+		// Bare binary — use the downloaded file directly
+		binaryPath = tmpArchivePath
+	}
+
+	// Make binary executable
+	if err := os.Chmod(binaryPath, 0755); err != nil { //nolint:govet // intentional err shadow
+		return fmt.Errorf("chmod: %w", err)
 	}
 
 	// Verify new binary works
 	logger.Info("verifying new binary...")
-	cmd := exec.Command(tmpPath, "--version")
+	cmd := exec.Command(binaryPath, "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("verify binary: %w (output: %s)", err, output)
@@ -175,8 +207,8 @@ func runUpdate(logger *slog.Logger) error {
 		return fmt.Errorf("backup current binary: %w", err)
 	}
 
-	// Move new binary into place
-	if err := os.Rename(tmpPath, exePath); err != nil {
+	// Move new binary into place (copy if cross-device)
+	if err := moveFile(binaryPath, exePath); err != nil {
 		// Restore backup on failure
 		_ = os.Rename(backupPath, exePath)
 		return fmt.Errorf("install new binary: %w", err)
@@ -185,9 +217,117 @@ func runUpdate(logger *slog.Logger) error {
 	// Remove backup
 	_ = os.Remove(backupPath)
 
-	logger.Info("✅ successfully updated — restart skyline to use the new version", "version", release.TagName)
+	logger.Info("successfully updated — restart skyline to use the new version", "version", release.TagName)
 
 	return nil
+}
+
+// extractFromTarGz extracts a named file from a .tar.gz archive and returns
+// the path to the extracted file in a temp directory.
+func extractFromTarGz(archivePath, targetName string) (string, error) {
+	f, err := os.Open(archivePath) //nolint:gosec // path from our own temp file
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", fmt.Errorf("gzip reader: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("tar next: %w", err)
+		}
+
+		// Match by base name (the archive may have just "skyline" at the root)
+		if filepath.Base(hdr.Name) == targetName && hdr.Typeflag == tar.TypeReg {
+			tmpFile, err := os.CreateTemp("", "skyline-extracted-*")
+			if err != nil {
+				return "", err
+			}
+			// Limit extraction size to 200MB to prevent decompression bombs
+			limited := io.LimitReader(tr, 200*1024*1024)
+			if _, err := io.Copy(tmpFile, limited); err != nil { //nolint:gosec // size-limited above
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				return "", fmt.Errorf("extract: %w", err)
+			}
+			tmpFile.Close()
+			return tmpFile.Name(), nil
+		}
+	}
+	return "", fmt.Errorf("file %q not found in archive", targetName)
+}
+
+// extractFromZip extracts a named file from a .zip archive and returns
+// the path to the extracted file in a temp directory.
+func extractFromZip(archivePath, targetName string) (string, error) {
+	zr, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("open zip: %w", err)
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if filepath.Base(f.Name) == targetName {
+			rc, err := f.Open()
+			if err != nil {
+				return "", fmt.Errorf("open file in zip: %w", err)
+			}
+			defer rc.Close()
+
+			tmpFile, err := os.CreateTemp("", "skyline-extracted-*")
+			if err != nil {
+				return "", err
+			}
+			// Limit extraction size to 200MB to prevent decompression bombs
+			limited := io.LimitReader(rc, 200*1024*1024)
+			if _, err := io.Copy(tmpFile, limited); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				return "", fmt.Errorf("extract: %w", err)
+			}
+			tmpFile.Close()
+			return tmpFile.Name(), nil
+		}
+	}
+	return "", fmt.Errorf("file %q not found in archive", targetName)
+}
+
+// moveFile moves src to dst, falling back to copy+remove if rename fails
+// (e.g., across filesystem boundaries).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+
+	// Rename failed (likely cross-device) — fall back to copy
+	in, err := os.Open(src) //nolint:gosec // path from our own temp file
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	out.Close()
+
+	return os.Remove(src)
 }
 
 // showVersion prints version information

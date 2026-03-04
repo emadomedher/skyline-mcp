@@ -25,9 +25,9 @@ func TestParseToCanonical(t *testing.T) {
 			"widgets": map[string]any{
 				"methods": map[string]any{
 					"list": map[string]any{
-						"id":         "demo.widgets.list",
-						"path":       "v1/widgets",
-						"httpMethod": "GET",
+						"id":          "demo.widgets.list",
+						"path":        "v1/widgets",
+						"httpMethod":  "GET",
 						"description": "List widgets",
 						"parameters": map[string]any{
 							"pageSize": map[string]any{

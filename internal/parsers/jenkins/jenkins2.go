@@ -496,7 +496,7 @@ func getPipelineOperations(apiName string) []*canonical.Operation {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":       map[string]any{"type": "string", "description": "Pipeline name"},
+					"name":        map[string]any{"type": "string", "description": "Pipeline name"},
 					"jenkinsfile": map[string]any{"type": "string", "description": "Jenkinsfile content (Groovy script)"},
 				},
 				"required":             []string{"name", "jenkinsfile"},

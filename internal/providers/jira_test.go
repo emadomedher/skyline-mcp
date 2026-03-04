@@ -61,8 +61,8 @@ func TestJiraBlockPatterns(t *testing.T) {
 	patterns := overrides[0].BlockPatterns
 
 	tests := []struct {
-		name   string
-		op     *canonical.Operation
+		name    string
+		op      *canonical.Operation
 		blocked bool
 	}{
 		{

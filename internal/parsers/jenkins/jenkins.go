@@ -78,7 +78,7 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 	}
 
 	rootSchema := map[string]any{
-		"type": "object",
+		"type":        "object",
 		"description": "Jenkins root object. Use tree to list jobs, e.g. jobs[name,url,color].",
 		"properties": map[string]any{
 			"tree": map[string]any{
@@ -94,7 +94,7 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 	}
 
 	objectSchema := map[string]any{
-		"type": "object",
+		"type":        "object",
 		"description": "Jenkins object lookup. Provide a URL or path and optional tree/depth.",
 		"properties": map[string]any{
 			"url": map[string]any{
@@ -127,15 +127,15 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 			StaticHeaders: map[string]string{"Accept": "application/json"},
 		},
 		&canonical.Operation{
-			ServiceName:    apiName,
-			ID:             "getObject",
-			ToolName:       canonical.ToolName(apiName, "getObject"),
-			Method:         "get",
-			Path:           "/api/json",
-			Summary:        "Get a Jenkins object by URL/path (same host). Use tree to limit payload.",
-			Parameters:     queryParams,
-			InputSchema:    objectSchema,
-			StaticHeaders:  map[string]string{"Accept": "application/json"},
+			ServiceName:     apiName,
+			ID:              "getObject",
+			ToolName:        canonical.ToolName(apiName, "getObject"),
+			Method:          "get",
+			Path:            "/api/json",
+			Summary:         "Get a Jenkins object by URL/path (same host). Use tree to limit payload.",
+			Parameters:      queryParams,
+			InputSchema:     objectSchema,
+			StaticHeaders:   map[string]string{"Accept": "application/json"},
 			DynamicURLParam: "url",
 		},
 	)

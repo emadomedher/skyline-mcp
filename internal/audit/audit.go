@@ -188,7 +188,7 @@ func (l *Logger) Flush() error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO audit_events (
@@ -417,7 +417,7 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 			MIN(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as min_duration_ms,
 			COALESCE(SUM(request_size), 0) as total_request_bytes,
 			COALESCE(SUM(response_size), 0) as total_response_bytes
-		FROM audit_events ` + baseWhere
+		FROM audit_events ` + baseWhere //nolint:gosec // baseWhere is built from safe internal strings, not user input
 
 	var stats Stats
 	var avgDuration, minDuration sql.NullFloat64
@@ -455,10 +455,10 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 			COUNT(*) as calls,
 			SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors,
 			AVG(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as avg_ms
-		FROM audit_events ` + baseWhere + `
+		FROM audit_events ` + baseWhere + ` 
 		GROUP BY api_name
 		ORDER BY calls DESC
-		LIMIT 10`
+		LIMIT 10` //nolint:gosec // baseWhere is built from safe internal strings, not user input
 
 	rows, err := l.db.Query(topAPIsQuery, args...)
 	if err != nil {
@@ -468,8 +468,8 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	for rows.Next() {
 		var a APIStats
 		var avgMs sql.NullFloat64
-		if err := rows.Scan(&a.Name, &a.Calls, &a.Errors, &avgMs); err != nil {
-			return nil, fmt.Errorf("scan top api: %w", err)
+		if scanErr := rows.Scan(&a.Name, &a.Calls, &a.Errors, &avgMs); scanErr != nil {
+			return nil, fmt.Errorf("scan top api: %w", scanErr)
 		}
 		if avgMs.Valid {
 			a.AvgMs = int64(avgMs.Float64)
@@ -487,10 +487,10 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 			COUNT(*) as calls,
 			SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors,
 			AVG(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as avg_ms
-		FROM audit_events ` + baseWhere + `
+		FROM audit_events ` + baseWhere + ` 
 		GROUP BY tool_name
 		ORDER BY calls DESC
-		LIMIT 10`
+		LIMIT 10` //nolint:gosec // baseWhere is built from safe internal strings, not user input
 
 	rows2, err := l.db.Query(topToolsQuery, args...)
 	if err != nil {
@@ -517,9 +517,9 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 		SELECT id, timestamp, profile, event_type, api_name, tool_name, arguments,
 		       duration_ms, status_code, success, error_msg, client_addr,
 		       request_size, response_size
-		FROM audit_events ` + baseWhere + `
+		FROM audit_events ` + baseWhere + ` 
 		ORDER BY timestamp DESC
-		LIMIT 20`
+		LIMIT 20` //nolint:gosec // baseWhere is built from safe internal strings, not user input
 
 	rows3, err := l.db.Query(recentQuery, args...)
 	if err != nil {

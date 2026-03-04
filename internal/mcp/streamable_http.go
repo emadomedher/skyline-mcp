@@ -46,14 +46,13 @@ type StreamableHTTPServer struct {
 
 // streamableSession represents an active MCP session with event history for resumability
 type streamableSession struct {
-	id           string
-	ch           chan *sseEvent
-	createdAt    time.Time
-	lastUsed     time.Time
-	eventCounter uint64
-	events       []*sseEvent // Ring buffer for resumability
-	maxEvents    int
-	mu           sync.RWMutex
+	id        string
+	ch        chan *sseEvent
+	createdAt time.Time
+	lastUsed  time.Time
+	events    []*sseEvent // Ring buffer for resumability
+	maxEvents int
+	mu        sync.RWMutex
 }
 
 // sseEvent represents a single SSE event with ID for resumability
@@ -512,37 +511,6 @@ func (h *StreamableHTTPServer) sendInitialNotifications(sess *streamableSession)
 	// For now, this is a placeholder for future notification support
 }
 
-// sendNotification sends a notification to a specific session (for server-initiated messages)
-func (h *StreamableHTTPServer) sendNotification(sessionID string, method string, params interface{}) error {
-	sess := h.store.get(sessionID)
-	if sess == nil {
-		return fmt.Errorf("session not found")
-	}
-
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  method,
-		"params":  params,
-	}
-
-	data, err := json.Marshal(notification)
-	if err != nil {
-		return err
-	}
-
-	sess.eventCounter++
-	eventID := fmt.Sprintf("%s-%d", sessionID, sess.eventCounter)
-
-	event := &sseEvent{
-		id:   eventID,
-		name: "message",
-		data: data,
-	}
-
-	sess.addEvent(event)
-	return nil
-}
-
 // writeSSEWithID writes an SSE event with ID (for resumability)
 func (h *StreamableHTTPServer) writeSSEWithID(w io.Writer, eventName string, data []byte, id string) error {
 	bw := bufio.NewWriter(w)
@@ -581,39 +549,6 @@ func (h *StreamableHTTPServer) writeSSEWithID(w io.Writer, eventName string, dat
 	}
 
 	return bw.Flush()
-}
-
-// validateOriginString validates origin without needing *http.Request
-func validateOriginString(origin, requestHost string) bool {
-	if origin == "" {
-		return true
-	}
-
-	// Parse origin
-	if !strings.HasPrefix(origin, "http://") && !strings.HasPrefix(origin, "https://") {
-		return false
-	}
-
-	// Extract host from origin
-	originHost := strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://")
-	originHost = strings.Split(originHost, "/")[0]
-	originHost = strings.Split(originHost, ":")[0]
-
-	// Check localhost
-	switch strings.ToLower(originHost) {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-
-	// Check same origin
-	if requestHost != "" {
-		reqHost := strings.Split(requestHost, ":")[0]
-		if strings.EqualFold(reqHost, originHost) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // authorizeWithOAuthFallback checks bearer auth first, then falls back to OAuth token validation.

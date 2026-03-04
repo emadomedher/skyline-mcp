@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultGoogleTokenURL = "https://oauth2.googleapis.com/token"
+	defaultGoogleTokenURL = "https://oauth2.googleapis.com/token" //nolint:gosec // not actual credentials
 	tokenExpiryBuffer     = 5 * time.Minute
 )
 

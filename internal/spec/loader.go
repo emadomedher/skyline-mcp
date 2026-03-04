@@ -164,7 +164,7 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 				}
 			}
 
-			parsed, err := adapter.Parse(parseCtx, raw, api.Name, api.BaseURLOverride)
+			parsed, err := adapter.Parse(parseCtx, raw, api.Name, api.BaseURLOverride) //nolint:govet // intentional err shadow
 			if err != nil {
 				return nil, "", fmt.Errorf("%s parse: %w", adapter.Name(), err)
 			}

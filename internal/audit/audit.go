@@ -449,6 +449,7 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	stats.EstResponseTokens = stats.TotalResponseBytes / 4
 
 	// Top APIs by call count
+	//nolint:gosec // safe internal string
 	topAPIsQuery := `
 		SELECT
 			COALESCE(api_name, '(unknown)') as name,
@@ -481,6 +482,7 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	}
 
 	// Top tools by call count
+	//nolint:gosec // safe internal string
 	topToolsQuery := `
 		SELECT
 			COALESCE(tool_name, '(unknown)') as name,
@@ -500,7 +502,7 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	for rows2.Next() {
 		var a APIStats
 		var avgMs sql.NullFloat64
-		if err := rows2.Scan(&a.Name, &a.Calls, &a.Errors, &avgMs); err != nil {
+		if err := rows2.Scan(&a.Name, &a.Calls, &a.Errors, &avgMs); err != nil { //nolint:govet // intentional err shadow
 			return nil, fmt.Errorf("scan top tool: %w", err)
 		}
 		if avgMs.Valid {
@@ -513,6 +515,7 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	}
 
 	// Recent events (last 20)
+	//nolint:gosec // safe internal string
 	recentQuery := `
 		SELECT id, timestamp, profile, event_type, api_name, tool_name, arguments,
 		       duration_ms, status_code, success, error_msg, client_addr,

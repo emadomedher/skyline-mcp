@@ -99,7 +99,7 @@ func startTestGRPCServer(t *testing.T) (addr string, cleanup func()) {
 	if err != nil {
 		t.Fatalf("protodesc.NewFile: %v", err)
 	}
-	if err := localFiles.RegisterFile(fd); err != nil {
+	if err := localFiles.RegisterFile(fd); err != nil { //nolint:govet // intentional err shadow
 		t.Fatalf("RegisterFile: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func startTestGRPCServer(t *testing.T) (addr string, cleanup func()) {
 				MethodName: string(methodDescriptor.Name()),
 				Handler: func(_ any, _ context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
 					in := dynamicpb.NewMessage(methodDescriptor.Input())
-					if err := dec(in); err != nil {
+					if err := dec(in); err != nil { //nolint:govet // intentional err shadow
 						return nil, err
 					}
 					return dynamicpb.NewMessage(methodDescriptor.Output()), nil

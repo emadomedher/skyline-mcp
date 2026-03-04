@@ -113,7 +113,7 @@ func runValidate(storagePath, keyFlag, keyEnv string, logger *slog.Logger) int {
 
 	// Parse envelope
 	var env envelope
-	if err := yaml.Unmarshal(data, &env); err != nil {
+	if err := yaml.Unmarshal(data, &env); err != nil { //nolint:govet // intentional err shadow
 		logger.Error("invalid file format", "error", err)
 		return 3
 	}

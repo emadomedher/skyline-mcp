@@ -55,7 +55,7 @@ func (s *server) load() error {
 		return err
 	}
 	var env envelope
-	if err := yaml.Unmarshal(data, &env); err != nil {
+	if err := yaml.Unmarshal(data, &env); err != nil { //nolint:govet // intentional err shadow
 		return fmt.Errorf("parse storage: %w", err)
 	}
 	plain, err := decrypt(env, s.key)

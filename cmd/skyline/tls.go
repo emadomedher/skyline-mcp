@@ -65,7 +65,7 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *slog.Logger
 	}
 
 	// Generate new self-signed certificate
-	if err := os.MkdirAll(tlsDir, 0o700); err != nil {
+	if err := os.MkdirAll(tlsDir, 0o700); err != nil { //nolint:govet // intentional err shadow
 		return "", "", fmt.Errorf("create tls dir: %w", err)
 	}
 
@@ -114,7 +114,7 @@ func ensureTLSCert(certPath, keyPath string, hosts []string, logger *slog.Logger
 	if err != nil {
 		return "", "", fmt.Errorf("write cert: %w", err)
 	}
-	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
+	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil { //nolint:govet // intentional err shadow
 		certFile.Close()
 		return "", "", fmt.Errorf("encode cert: %w", err)
 	}

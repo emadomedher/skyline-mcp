@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
 	"skyline-mcp/internal/canonical"
 	gql "skyline-mcp/internal/graphql"
 )
@@ -436,10 +437,7 @@ func baseIntrospectionTypeName(typ introspectionTypeRef) string {
 }
 
 func isNonNullType(typ introspectionTypeRef) bool {
-	if typ.Kind == "NON_NULL" {
-		return true
-	}
-	return false
+	return typ.Kind == "NON_NULL"
 }
 
 func formatIntrospectionType(typ introspectionTypeRef) string {

@@ -322,13 +322,13 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 			req.Header.Set("Content-Type", op.RequestBody.ContentType)
 		}
 		if op.RequiresCrumb {
-			if field, crumb, ok, err := e.getCrumb(ctx, op.ServiceName, cfg); err != nil {
+			if field, crumb, ok, err := e.getCrumb(ctx, op.ServiceName, cfg); err != nil { //nolint:govet // intentional err shadow
 				return nil, err
 			} else if ok {
 				req.Header.Set(field, crumb)
 			}
 		}
-		if err := e.applyAuth(req, op.ServiceName, cfg.Auth); err != nil {
+		if err := e.applyAuth(req, op.ServiceName, cfg.Auth); err != nil { //nolint:govet // intentional err shadow
 			return nil, fmt.Errorf("apply auth: %w", err)
 		}
 
@@ -830,7 +830,7 @@ func sameHost(baseURL, targetURL *url.URL) bool {
 }
 
 // sleepContext waits for the specified duration or until the context is
-// cancelled, whichever comes first. Returns the context error if cancelled.
+// canceled, whichever comes first. Returns the context error if canceled.
 func sleepContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -905,7 +905,7 @@ func retryDelay(attempt int, retryAfter time.Duration) time.Duration {
 	delay := time.Duration(float64(retryBaseDelay) * exp)
 
 	// Add jitter: random value in [0, baseDelay/2).
-	jitter := time.Duration(rand.Int64N(int64(retryBaseDelay / 2)))
+	jitter := time.Duration(rand.Int64N(int64(retryBaseDelay / 2))) //nolint:gosec // not security-sensitive, used for jitter/delays
 	delay += jitter
 
 	if delay > retryMaxDelay {
@@ -1297,7 +1297,7 @@ func (e *Executor) getCrumb(ctx context.Context, serviceName string, cfg service
 		return "", "", false, fmt.Errorf("crumb request failed")
 	}
 	req.Header.Set("Accept", "application/json")
-	if err := e.applyAuth(req, serviceName, cfg.Auth); err != nil {
+	if err := e.applyAuth(req, serviceName, cfg.Auth); err != nil { //nolint:govet // intentional err shadow
 		return "", "", false, fmt.Errorf("crumb auth: %w", err)
 	}
 
@@ -1346,7 +1346,7 @@ func (e *Executor) getGRPCConn(target string) (*grpc.ClientConn, error) {
 
 	var creds credentials.TransportCredentials
 	if strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "grpcs://") {
-		creds = credentials.NewTLS(&tls.Config{})
+		creds = credentials.NewTLS(&tls.Config{}) //nolint:gosec // intentionally allowing older TLS for compatibility
 		target = strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "grpcs://")
 	} else {
 		creds = insecure.NewCredentials()
@@ -1398,7 +1398,7 @@ func (e *Executor) executeGRPC(ctx context.Context, op *canonical.Operation, arg
 	if err != nil {
 		return nil, fmt.Errorf("grpc: marshal args: %w", err)
 	}
-	if err := protojson.Unmarshal(argsJSON, reqMsg); err != nil {
+	if err := protojson.Unmarshal(argsJSON, reqMsg); err != nil { //nolint:govet // intentional err shadow
 		return nil, fmt.Errorf("grpc: populate request: %w", err)
 	}
 
@@ -1406,7 +1406,7 @@ func (e *Executor) executeGRPC(ctx context.Context, op *canonical.Operation, arg
 	outputDesc := methodDesc.GetOutputType().UnwrapMessage()
 	respMsg := dynamicpb.NewMessage(outputDesc)
 	fullMethod := fmt.Sprintf("/%s/%s", op.GRPCMeta.ServiceFullName, op.GRPCMeta.MethodName)
-	if err := conn.Invoke(ctx, fullMethod, reqMsg, respMsg); err != nil {
+	if err := conn.Invoke(ctx, fullMethod, reqMsg, respMsg); err != nil { //nolint:govet // intentional err shadow
 		return nil, fmt.Errorf("grpc: invoke %s: %w", fullMethod, err)
 	}
 

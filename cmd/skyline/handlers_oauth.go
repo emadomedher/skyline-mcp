@@ -10,7 +10,7 @@ import (
 
 const (
 	googleAuthEndpoint  = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleTokenEndpoint = "https://oauth2.googleapis.com/token"
+	googleTokenEndpoint = "https://oauth2.googleapis.com/token" //nolint:gosec // not actual credentials
 )
 
 // handleOAuthStart generates a Google OAuth consent URL for the frontend to open.

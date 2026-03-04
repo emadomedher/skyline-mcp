@@ -110,7 +110,7 @@ func (e *Executor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteRes
 
 	// Write to temp file for esbuild bundling (resolves imports from workspace)
 	codeFile := filepath.Join(e.workspaceDir, "user_code.ts")
-	if err := os.WriteFile(codeFile, []byte(wrappedCode), 0644); err != nil {
+	if err := os.WriteFile(codeFile, []byte(wrappedCode), 0600); err != nil {
 		return nil, fmt.Errorf("write code file: %w", err)
 	}
 	defer os.Remove(codeFile)
@@ -408,7 +408,7 @@ func (e *Executor) SetupWorkspace(serviceFiles map[string]map[string]string) err
 
 		for fileName, content := range files {
 			filePath := filepath.Join(serviceDir, fileName)
-			if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
 				return fmt.Errorf("write file %s: %w", filePath, err)
 			}
 		}

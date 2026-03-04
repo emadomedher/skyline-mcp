@@ -41,7 +41,7 @@ func TestSSEInitializeFlow(t *testing.T) {
 	var payload struct {
 		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(data, &payload); err != nil {
+	if err := json.Unmarshal(data, &payload); err != nil { //nolint:govet // intentional err shadow
 		t.Fatalf("endpoint payload: %v", err)
 	}
 	if payload.URL == "" {

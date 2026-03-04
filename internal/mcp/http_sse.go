@@ -38,8 +38,9 @@ func NewHTTPServer(server *Server, logger *slog.Logger, auth *config.AuthConfig)
 
 func (h *HTTPServer) Serve(ctx context.Context, addr string) error {
 	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: h.handler(),
+		Addr:              addr,
+		Handler:           h.handler(),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

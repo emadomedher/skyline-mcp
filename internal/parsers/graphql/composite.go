@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
 	"skyline-mcp/internal/canonical"
 	gql "skyline-mcp/internal/graphql"
 )

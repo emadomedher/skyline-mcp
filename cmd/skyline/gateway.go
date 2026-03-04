@@ -31,7 +31,7 @@ func writePID() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create pid directory: %w", err)
 	}
-	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644)
+	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0600)
 }
 
 // removePID removes the PID file.

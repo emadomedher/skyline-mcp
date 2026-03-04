@@ -2,7 +2,6 @@ package raml
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -248,10 +247,4 @@ func sanitizeName(name string) string {
 		result = strings.ReplaceAll(result, "__", "_")
 	}
 	return strings.Trim(result, "_")
-}
-
-// marshalForDebug is used for testing — convert a Service to JSON.
-func marshalForDebug(svc *canonical.Service) string {
-	b, _ := json.MarshalIndent(svc, "", "  ")
-	return string(b)
 }

@@ -74,7 +74,7 @@ func runUpdate(logger *slog.Logger) error {
 	}
 
 	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil { //nolint:govet // intentional err shadow
 		return fmt.Errorf("decode release info: %w", err)
 	}
 
@@ -157,7 +157,7 @@ func runUpdate(logger *slog.Logger) error {
 	logger.Info("download complete", "bytes", written)
 
 	// Make temp file executable
-	if err := os.Chmod(tmpPath, 0755); err != nil {
+	if err := os.Chmod(tmpPath, 0755); err != nil { //nolint:govet // intentional err shadow
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
 

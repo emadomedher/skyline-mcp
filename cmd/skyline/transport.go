@@ -99,7 +99,7 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 
 		// Handle MCP JSON-RPC over HTTP
 		var req mcp.RPCRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil { //nolint:govet // intentional err shadow
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -108,7 +108,7 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 		resp := mcpServer.HandleRequest(ctx, &req)
 
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
+		if err := json.NewEncoder(w).Encode(resp); err != nil { //nolint:govet // intentional err shadow
 			logger.Error("error encoding response", "error", err)
 		}
 	})

@@ -60,12 +60,8 @@ func decodeKey(raw string) ([]byte, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("empty key")
 	}
-	if strings.HasPrefix(raw, "base64:") {
-		raw = strings.TrimPrefix(raw, "base64:")
-	}
-	if strings.HasPrefix(raw, "hex:") {
-		raw = strings.TrimPrefix(raw, "hex:")
-	}
+	raw = strings.TrimPrefix(raw, "base64:")
+	raw = strings.TrimPrefix(raw, "hex:")
 	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) == 32 {
 		return decoded, nil
 	}

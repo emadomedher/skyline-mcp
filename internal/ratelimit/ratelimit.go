@@ -71,9 +71,9 @@ func (e *ErrRateLimited) Error() string {
 	return fmt.Sprintf("rate limited (%s: %d max) — retry after %s", e.Tier, e.Limit, e.RetryAfter.Truncate(time.Second))
 }
 
-// Wait blocks until a token is available or the context is cancelled.
+// Wait blocks until a token is available or the context is canceled.
 // Returns nil if the request is allowed, ErrRateLimited if the hourly or daily
-// quota is exhausted (cannot wait for window reset), or context error if cancelled.
+// quota is exhausted (cannot wait for window reset), or context error if canceled.
 func (l *Limiter) Wait(ctx context.Context) error {
 	// Fast path: no limits configured
 	if l.rpm == 0 && l.rph == 0 && l.rpd == 0 {

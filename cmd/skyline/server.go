@@ -200,14 +200,14 @@ func main() {
 
 		// Interactive mode - generate new key
 		key = make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
+		if _, err := rand.Read(key); err != nil { //nolint:govet // intentional err shadow
 			slog.Error("failed to generate encryption key", "error", err)
 			os.Exit(1)
 		}
 		keyHex := hex.EncodeToString(key)
 
 		// Determine skyline.env path
-		home, err := os.UserHomeDir()
+		home, err := os.UserHomeDir() //nolint:govet // intentional err shadow
 		if err != nil {
 			slog.Error("get home dir failed", "error", err)
 			os.Exit(1)
@@ -306,7 +306,7 @@ func main() {
 	serverConfigPath := *configPath
 	if serverConfigPath == "" {
 		// Default to ~/.skyline/config.yaml
-		home, err := os.UserHomeDir()
+		home, err := os.UserHomeDir() //nolint:govet // intentional err shadow
 		if err != nil {
 			slog.Error("get home dir failed", "error", err)
 			os.Exit(1)
@@ -322,7 +322,7 @@ func main() {
 	}
 
 	// Check if config file exists, if not create default
-	if _, err := os.Stat(serverConfigPath); os.IsNotExist(err) {
+	if _, err := os.Stat(serverConfigPath); os.IsNotExist(err) { //nolint:govet // intentional err shadow
 		slog.Info("config file not found, creating default", "path", serverConfigPath)
 		if err := serverconfig.GenerateDefault(serverConfigPath); err != nil {
 			slog.Warn("could not create default config", "error", err)
@@ -355,7 +355,7 @@ func main() {
 	}
 
 	// If the address has no port (e.g. "0.0.0.0"), append the default port
-	if _, _, err := net.SplitHostPort(listenAddr); err != nil {
+	if _, _, err := net.SplitHostPort(listenAddr); err != nil { //nolint:govet // intentional err shadow
 		_, defaultPort, _ := net.SplitHostPort(defaultBind)
 		listenAddr = listenAddr + ":" + defaultPort
 	}
@@ -387,7 +387,7 @@ func main() {
 	// Override storage path from config if not set via flag
 	profilesPath := *storagePath
 	if profilesPath == "./profiles.enc.yaml" && serverCfg.Profiles.Storage != "" {
-		expandedPath, err := serverconfig.ExpandPath(serverCfg.Profiles.Storage)
+		expandedPath, err := serverconfig.ExpandPath(serverCfg.Profiles.Storage) //nolint:govet // intentional err shadow
 		if err == nil {
 			profilesPath = expandedPath
 		}
@@ -399,7 +399,7 @@ func main() {
 	// Expand audit database path from config
 	auditDBPath := "./skyline-audit.db"
 	if serverCfg.Audit.Database != "" {
-		expandedPath, err := serverconfig.ExpandPath(serverCfg.Audit.Database)
+		expandedPath, err := serverconfig.ExpandPath(serverCfg.Audit.Database) //nolint:govet // intentional err shadow
 		if err == nil {
 			auditDBPath = expandedPath
 		}

@@ -410,10 +410,10 @@ func (l *Logger) GetStats(profile string, since time.Time) (*Stats, error) {
 	totalsQuery := `
 		SELECT
 			COUNT(*) as total_requests,
-			SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_requests,
-			SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_requests,
+			COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) as successful_requests,
+			COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) as failed_requests,
 			AVG(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as avg_duration_ms,
-			MAX(duration_ms) as max_duration_ms,
+			COALESCE(MAX(duration_ms), 0) as max_duration_ms,
 			MIN(CASE WHEN duration_ms > 0 THEN duration_ms ELSE NULL END) as min_duration_ms,
 			COALESCE(SUM(request_size), 0) as total_request_bytes,
 			COALESCE(SUM(response_size), 0) as total_response_bytes

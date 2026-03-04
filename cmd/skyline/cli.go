@@ -241,6 +241,7 @@ func loadEnvFile(path string) error {
 			continue
 		}
 		key := strings.TrimSpace(string(parts[0]))
+		key = strings.TrimPrefix(key, "export ")
 		val := strings.TrimSpace(string(parts[1]))
 		if key == "" {
 			continue

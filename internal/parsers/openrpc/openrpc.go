@@ -107,7 +107,7 @@ func buildOperation(apiName string, method Method) *canonical.Operation {
 
 	inputSchema := map[string]any{
 		"type":                 "object",
-		"properties":          properties,
+		"properties":           properties,
 		"additionalProperties": false,
 	}
 	if len(requiredFields) > 0 {
@@ -168,11 +168,11 @@ type Server struct {
 }
 
 type Method struct {
-	Name        string          `json:"name"`
-	Summary     string          `json:"summary"`
-	Description string          `json:"description"`
-	Params      []Param         `json:"params"`
-	Result      *MethodResult   `json:"result"`
+	Name        string        `json:"name"`
+	Summary     string        `json:"summary"`
+	Description string        `json:"description"`
+	Params      []Param       `json:"params"`
+	Result      *MethodResult `json:"result"`
 }
 
 type Param struct {

@@ -164,10 +164,10 @@ const (
 // WSDL model structs.
 
 type Definitions struct {
-	XMLName  xml.Name `xml:"definitions"`
-	TargetNamespace string `xml:"targetNamespace,attr"`
-	Services []Service `xml:"service"`
-	Bindings []Binding `xml:"binding"`
+	XMLName         xml.Name  `xml:"definitions"`
+	TargetNamespace string    `xml:"targetNamespace,attr"`
+	Services        []Service `xml:"service"`
+	Bindings        []Binding `xml:"binding"`
 }
 
 type Service struct {
@@ -189,7 +189,7 @@ type Address struct {
 type Binding struct {
 	Name        string             `xml:"name,attr"`
 	Type        string             `xml:"type,attr"`
-	SoapBinding SoapBinding         `xml:"binding"`
+	SoapBinding SoapBinding        `xml:"binding"`
 	Operations  []BindingOperation `xml:"operation"`
 }
 
@@ -205,7 +205,7 @@ type BindingOperation struct {
 }
 
 type SoapOperation struct {
-	XMLName   xml.Name `xml:"operation"`
-	SoapAction string  `xml:"soapAction,attr"`
-	Style     string  `xml:"style,attr"`
+	XMLName    xml.Name `xml:"operation"`
+	SoapAction string   `xml:"soapAction,attr"`
+	Style      string   `xml:"style,attr"`
 }

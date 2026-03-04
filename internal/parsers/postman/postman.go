@@ -184,7 +184,7 @@ func buildOperation(apiName string, item Item, prefix string) *canonical.Operati
 
 	inputSchema := map[string]any{
 		"type":                 "object",
-		"properties":          properties,
+		"properties":           properties,
 		"additionalProperties": false,
 	}
 	if len(requiredFields) > 0 {

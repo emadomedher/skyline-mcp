@@ -60,7 +60,7 @@ func SetupCodeExecution(registry *mcp.Registry, logger *slog.Logger) (*executor.
 	// Write shared client.ts at mcp/ level
 	clientCode := generateClientFile()
 	clientPath := filepath.Join(workspaceDir, "mcp", "client.ts")
-	if err := os.WriteFile(clientPath, []byte(clientCode), 0644); err != nil {
+	if err := os.WriteFile(clientPath, []byte(clientCode), 0600); err != nil {
 		return nil, fmt.Errorf("write client.ts: %w", err)
 	}
 

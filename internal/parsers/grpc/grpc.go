@@ -106,7 +106,7 @@ func buildGRPCOperation(apiName, serviceName, methodName string, inputMsg protor
 
 	inputSchema := map[string]any{
 		"type":                 "object",
-		"properties":          properties,
+		"properties":           properties,
 		"additionalProperties": false,
 	}
 	if len(requiredFields) > 0 {

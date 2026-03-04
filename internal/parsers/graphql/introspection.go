@@ -148,7 +148,7 @@ func ParseIntrospectionToCanonicalWithContext(ctx context.Context, raw []byte, a
 		// Use analyzer to detect patterns and generate composite tools for mutations
 		analyzer := gql.NewSchemaAnalyzer(astSchema)
 		patterns := analyzer.DetectCRUDPatterns()
-		
+
 		ops, err := generateCompositeTools(astSchema, apiName, baseURL, patterns)
 		if err != nil {
 			return nil, fmt.Errorf("graphql introspection: generate composite tools: %w", err)

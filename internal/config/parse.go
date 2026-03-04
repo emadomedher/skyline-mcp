@@ -12,11 +12,11 @@ import (
 // Auto-detects format: JSON if content starts with { or [, otherwise YAML.
 func LoadFromBytes(data []byte) (*Config, error) {
 	var cfg Config
-	
+
 	// Auto-detect format
 	trimmed := bytes.TrimSpace(data)
 	isJSON := len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
-	
+
 	var err error
 	if isJSON {
 		// Parse as JSON
@@ -31,7 +31,7 @@ func LoadFromBytes(data []byte) (*Config, error) {
 			return nil, fmt.Errorf("parse config (YAML): %w", err)
 		}
 	}
-	
+
 	if err := cfg.ExpandEnv(); err != nil {
 		return nil, err
 	}
@@ -51,11 +51,11 @@ func ValidateYAML(data []byte) error {
 // ValidateConfig parses YAML or JSON config bytes, applies defaults, and validates without env expansion.
 func ValidateConfig(data []byte) error {
 	var cfg Config
-	
+
 	// Auto-detect format
 	trimmed := bytes.TrimSpace(data)
 	isJSON := len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
-	
+
 	var err error
 	if isJSON {
 		err = json.Unmarshal(data, &cfg)
@@ -68,7 +68,7 @@ func ValidateConfig(data []byte) error {
 			return fmt.Errorf("parse config (YAML): %w", err)
 		}
 	}
-	
+
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return err

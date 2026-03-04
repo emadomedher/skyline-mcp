@@ -128,23 +128,23 @@ func (c *Collector) PrometheusFormat() string {
 	var output string
 
 	// Total requests
-	output += fmt.Sprintf("# HELP skyline_requests_total Total number of requests\n")
-	output += fmt.Sprintf("# TYPE skyline_requests_total counter\n")
+	output += "# HELP skyline_requests_total Total number of requests\n"
+	output += "# TYPE skyline_requests_total counter\n"
 	output += fmt.Sprintf("skyline_requests_total %d\n\n", c.totalRequests.Load())
 
 	// Successful requests
-	output += fmt.Sprintf("# HELP skyline_requests_success_total Total number of successful requests\n")
-	output += fmt.Sprintf("# TYPE skyline_requests_success_total counter\n")
+	output += "# HELP skyline_requests_success_total Total number of successful requests\n"
+	output += "# TYPE skyline_requests_success_total counter\n"
 	output += fmt.Sprintf("skyline_requests_success_total %d\n\n", c.successRequests.Load())
 
 	// Failed requests
-	output += fmt.Sprintf("# HELP skyline_requests_failed_total Total number of failed requests\n")
-	output += fmt.Sprintf("# TYPE skyline_requests_failed_total counter\n")
+	output += "# HELP skyline_requests_failed_total Total number of failed requests\n"
+	output += "# TYPE skyline_requests_failed_total counter\n"
 	output += fmt.Sprintf("skyline_requests_failed_total %d\n\n", c.failedRequests.Load())
 
 	// Per-profile requests
-	output += fmt.Sprintf("# HELP skyline_requests_by_profile_total Total number of requests per profile\n")
-	output += fmt.Sprintf("# TYPE skyline_requests_by_profile_total counter\n")
+	output += "# HELP skyline_requests_by_profile_total Total number of requests per profile\n"
+	output += "# TYPE skyline_requests_by_profile_total counter\n"
 	c.profileMu.RLock()
 	for profile, counter := range c.profileRequests {
 		output += fmt.Sprintf("skyline_requests_by_profile_total{profile=\"%s\"} %d\n", profile, counter.Load())
@@ -153,8 +153,8 @@ func (c *Collector) PrometheusFormat() string {
 	output += "\n"
 
 	// Per-tool requests
-	output += fmt.Sprintf("# HELP skyline_requests_by_tool_total Total number of requests per tool\n")
-	output += fmt.Sprintf("# TYPE skyline_requests_by_tool_total counter\n")
+	output += "# HELP skyline_requests_by_tool_total Total number of requests per tool\n"
+	output += "# TYPE skyline_requests_by_tool_total counter\n"
 	c.toolMu.RLock()
 	for tool, counter := range c.toolRequests {
 		output += fmt.Sprintf("skyline_requests_by_tool_total{tool=\"%s\"} %d\n", tool, counter.Load())
@@ -163,18 +163,18 @@ func (c *Collector) PrometheusFormat() string {
 	output += "\n"
 
 	// Active connections
-	output += fmt.Sprintf("# HELP skyline_connections_active Number of active MCP connections\n")
-	output += fmt.Sprintf("# TYPE skyline_connections_active gauge\n")
+	output += "# HELP skyline_connections_active Number of active MCP connections\n"
+	output += "# TYPE skyline_connections_active gauge\n"
 	output += fmt.Sprintf("skyline_connections_active %d\n\n", c.activeConnections.Load())
 
 	// Total connections
-	output += fmt.Sprintf("# HELP skyline_connections_total Total number of MCP connections\n")
-	output += fmt.Sprintf("# TYPE skyline_connections_total counter\n")
+	output += "# HELP skyline_connections_total Total number of MCP connections\n"
+	output += "# TYPE skyline_connections_total counter\n"
 	output += fmt.Sprintf("skyline_connections_total %d\n\n", c.totalConnections.Load())
 
 	// Duration histogram
-	output += fmt.Sprintf("# HELP skyline_request_duration_milliseconds Request duration in milliseconds\n")
-	output += fmt.Sprintf("# TYPE skyline_request_duration_milliseconds histogram\n")
+	output += "# HELP skyline_request_duration_milliseconds Request duration in milliseconds\n"
+	output += "# TYPE skyline_request_duration_milliseconds histogram\n"
 	c.durationMu.RLock()
 	cumulativeCount := int64(0)
 	for _, bucket := range []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000} {
@@ -189,18 +189,18 @@ func (c *Collector) PrometheusFormat() string {
 	output += fmt.Sprintf("skyline_request_duration_milliseconds_count %d\n\n", c.durationCount.Load())
 
 	// Cache
-	output += fmt.Sprintf("# HELP skyline_cache_hits_total Total number of cache hits\n")
-	output += fmt.Sprintf("# TYPE skyline_cache_hits_total counter\n")
+	output += "# HELP skyline_cache_hits_total Total number of cache hits\n"
+	output += "# TYPE skyline_cache_hits_total counter\n"
 	output += fmt.Sprintf("skyline_cache_hits_total %d\n\n", c.cacheHits.Load())
 
-	output += fmt.Sprintf("# HELP skyline_cache_misses_total Total number of cache misses\n")
-	output += fmt.Sprintf("# TYPE skyline_cache_misses_total counter\n")
+	output += "# HELP skyline_cache_misses_total Total number of cache misses\n"
+	output += "# TYPE skyline_cache_misses_total counter\n"
 	output += fmt.Sprintf("skyline_cache_misses_total %d\n\n", c.cacheMisses.Load())
 
 	// Uptime
 	uptime := time.Since(c.startTime).Seconds()
-	output += fmt.Sprintf("# HELP skyline_uptime_seconds Uptime in seconds\n")
-	output += fmt.Sprintf("# TYPE skyline_uptime_seconds counter\n")
+	output += "# HELP skyline_uptime_seconds Uptime in seconds\n"
+	output += "# TYPE skyline_uptime_seconds counter\n"
 	output += fmt.Sprintf("skyline_uptime_seconds %.0f\n\n", uptime)
 
 	return output

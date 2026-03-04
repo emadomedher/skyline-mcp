@@ -68,13 +68,13 @@ func ParseToCanonical(ctx context.Context, raw []byte, apiName, baseURLOverride 
 		// Use analyzer to detect patterns and generate composite tools for mutations
 		analyzer := gql.NewSchemaAnalyzer(schema)
 		patterns := analyzer.DetectCRUDPatterns()
-		
+
 		ops, err := generateCompositeTools(schema, apiName, baseURL, patterns)
 		if err != nil {
 			return nil, fmt.Errorf("graphql: generate composite tools: %w", err)
 		}
 		service.Operations = ops
-		
+
 		// CRITICAL FIX: Also include ALL query operations (reads are just as important!)
 		if schema.Query != nil {
 			if err := appendGraphQLOps(service, schema, schema.Query, "query"); err != nil {

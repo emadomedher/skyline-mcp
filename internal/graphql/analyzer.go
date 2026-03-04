@@ -19,13 +19,13 @@ func NewSchemaAnalyzer(schema *ast.Schema) *SchemaAnalyzer {
 
 // CRUDPattern represents a group of related CRUD operations on a type
 type CRUDPattern struct {
-	BaseType    string                   // e.g., "Issue"
-	Create      *ast.FieldDefinition     // createIssue
-	Update      *ast.FieldDefinition     // updateIssue
-	Delete      *ast.FieldDefinition     // deleteIssue
-	SetOps      []*ast.FieldDefinition   // issueSetLabels, issueSetAssignees, etc.
-	QuerySingle *ast.FieldDefinition     // issue(id)
-	QueryList   *ast.FieldDefinition     // issues(filter)
+	BaseType    string                 // e.g., "Issue"
+	Create      *ast.FieldDefinition   // createIssue
+	Update      *ast.FieldDefinition   // updateIssue
+	Delete      *ast.FieldDefinition   // deleteIssue
+	SetOps      []*ast.FieldDefinition // issueSetLabels, issueSetAssignees, etc.
+	QuerySingle *ast.FieldDefinition   // issue(id)
+	QueryList   *ast.FieldDefinition   // issues(filter)
 }
 
 // DetectCRUDPatterns analyzes mutations and queries to find CRUD patterns
@@ -82,7 +82,7 @@ func (a *SchemaAnalyzer) DetectCRUDPatterns() []*CRUDPattern {
 
 			if patterns[baseType] != nil {
 				pattern := patterns[baseType]
-				
+
 				// Singular query: issue(id: ID!)
 				if isSingularQuery(field) {
 					pattern.QuerySingle = field
@@ -157,12 +157,12 @@ func (a *SchemaAnalyzer) extractBaseType(fieldName string, returnType *ast.Type)
 // GetTypesByCategory groups types by their kind
 func (a *SchemaAnalyzer) GetTypesByCategory() map[string][]string {
 	categories := map[string][]string{
-		"object":      {},
-		"input":       {},
-		"enum":        {},
-		"scalar":      {},
-		"interface":   {},
-		"union":       {},
+		"object":    {},
+		"input":     {},
+		"enum":      {},
+		"scalar":    {},
+		"interface": {},
+		"union":     {},
 	}
 
 	for name, typeDef := range a.schema.Types {

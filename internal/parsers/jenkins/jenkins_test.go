@@ -53,7 +53,7 @@ func TestParseToCanonical(t *testing.T) {
 		}
 	}
 	if !foundGetRoot || !foundListJobs || !foundTriggerBuild {
-		t.Fatalf("missing expected operations: getRoot=%v, listJobs=%v, triggerBuild=%v", 
+		t.Fatalf("missing expected operations: getRoot=%v, listJobs=%v, triggerBuild=%v",
 			foundGetRoot, foundListJobs, foundTriggerBuild)
 	}
 }

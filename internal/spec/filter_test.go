@@ -144,9 +144,9 @@ func TestOperationMatches(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "empty patterns",
+			name:     "empty patterns",
 			patterns: []config.OperationPattern{},
-			want: false,
+			want:     false,
 		},
 	}
 
@@ -241,8 +241,8 @@ func TestFilterOperations_MethodAndPath(t *testing.T) {
 	filter := &config.OperationFilterEnhanced{
 		Mode: "blocklist",
 		Operations: []config.OperationPattern{
-			{Method: "DELETE"},               // Block all DELETE
-			{Path: "/admin/**"},              // Block all admin paths
+			{Method: "DELETE"},  // Block all DELETE
+			{Path: "/admin/**"}, // Block all admin paths
 		},
 	}
 

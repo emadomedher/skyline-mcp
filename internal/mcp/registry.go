@@ -78,9 +78,9 @@ func outputSchema(bodySchema map[string]any) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"status": map[string]any{"type": "integer"},
+			"status":       map[string]any{"type": "integer"},
 			"content_type": map[string]any{"type": "string"},
-			"body": body,
+			"body":         body,
 		},
 		"required": []string{"status", "content_type", "body"},
 	}
@@ -189,10 +189,10 @@ func buildAnnotations(op *canonical.Operation) map[string]any {
 	}
 
 	return map[string]any{
-		"readOnlyHint":     readOnly,
-		"destructiveHint":  destructive,
-		"idempotentHint":   idempotent,
-		"openWorldHint":    true,
+		"readOnlyHint":    readOnly,
+		"destructiveHint": destructive,
+		"idempotentHint":  idempotent,
+		"openWorldHint":   true,
 	}
 }
 

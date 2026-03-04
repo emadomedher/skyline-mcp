@@ -105,7 +105,7 @@ func generateToolFunction(tool *mcp.Tool, funcName string) (string, error) {
 		if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(props) > 0 {
 			hasInput = true
 			b.WriteString(fmt.Sprintf("export interface %sInput {\n", capitalize(funcName)))
-			
+
 			// Get required fields
 			required := []string{}
 			if req, ok := tool.InputSchema["required"].([]interface{}); ok {
@@ -115,7 +115,7 @@ func generateToolFunction(tool *mcp.Tool, funcName string) (string, error) {
 					}
 				}
 			}
-			
+
 			for propName, propDef := range props {
 				isRequired := contains(required, propName)
 				optional := ""
@@ -154,7 +154,7 @@ func jsonSchemaDefToTypeScript(propDef interface{}) string {
 	if !ok {
 		return "any"
 	}
-	
+
 	typeStr, _ := propMap["type"].(string)
 	switch typeStr {
 	case "string":

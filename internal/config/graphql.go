@@ -2,10 +2,10 @@ package config
 
 // GraphQLOptimization holds configuration for GraphQL-specific optimizations
 type GraphQLOptimization struct {
-	EnableCRUDGrouping bool                      `json:"enable_crud_grouping,omitempty" yaml:"enable_crud_grouping,omitempty"`
-	FlattenInputs      bool                      `json:"flatten_inputs,omitempty" yaml:"flatten_inputs,omitempty"`
-	ResponseMode       string                    `json:"response_mode,omitempty" yaml:"response_mode,omitempty"` // "essential", "full", "auto"
-	TypeProfiles       map[string]*TypeProfile   `json:"type_profiles,omitempty" yaml:"type_profiles,omitempty"`
+	EnableCRUDGrouping bool                    `json:"enable_crud_grouping,omitempty" yaml:"enable_crud_grouping,omitempty"`
+	FlattenInputs      bool                    `json:"flatten_inputs,omitempty" yaml:"flatten_inputs,omitempty"`
+	ResponseMode       string                  `json:"response_mode,omitempty" yaml:"response_mode,omitempty"` // "essential", "full", "auto"
+	TypeProfiles       map[string]*TypeProfile `json:"type_profiles,omitempty" yaml:"type_profiles,omitempty"`
 }
 
 // TypeProfile defines behavior for a specific GraphQL type
@@ -23,7 +23,7 @@ type TypeBasedFilter struct {
 
 // OperationFilterEnhanced supports allowlist, blocklist, and type-based filtering modes.
 type OperationFilterEnhanced struct {
-	Mode           string            `json:"mode" yaml:"mode"` // "allowlist", "blocklist", "type-based"
-	Operations     []OperationPattern `json:"operations,omitempty" yaml:"operations,omitempty"`
-	TypeBased      *TypeBasedFilter   `json:"type_based,omitempty" yaml:"type_based,omitempty"`
+	Mode       string             `json:"mode" yaml:"mode"` // "allowlist", "blocklist", "type-based"
+	Operations []OperationPattern `json:"operations,omitempty" yaml:"operations,omitempty"`
+	TypeBased  *TypeBasedFilter   `json:"type_based,omitempty" yaml:"type_based,omitempty"`
 }

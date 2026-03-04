@@ -89,7 +89,7 @@ func buildEntitySetOperations(apiName, setName string, et EntityType) []*canonic
 
 	bodySchema := map[string]any{
 		"type":                 "object",
-		"properties":          properties,
+		"properties":           properties,
 		"additionalProperties": false,
 	}
 	if len(required) > 0 {

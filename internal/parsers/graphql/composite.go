@@ -169,11 +169,11 @@ func buildCompositeOperation(schema *ast.Schema, apiName, baseURL string, patter
 			OperationType: "mutation",
 			FieldName:     baseTypeLower + "_composite", // Placeholder - orchestration will handle
 			Composite: &canonical.GraphQLComposite{
-				Pattern:  pattern.BaseType,
-				Create:   fieldToOpRef(pattern.Create),
-				Update:   fieldToOpRef(pattern.Update),
-				Delete:   fieldToOpRef(pattern.Delete),
-				SetOps:   fieldsToOpRefs(pattern.SetOps),
+				Pattern: pattern.BaseType,
+				Create:  fieldToOpRef(pattern.Create),
+				Update:  fieldToOpRef(pattern.Update),
+				Delete:  fieldToOpRef(pattern.Delete),
+				SetOps:  fieldsToOpRefs(pattern.SetOps),
 			},
 		},
 	}
@@ -186,7 +186,7 @@ func fieldToOpRef(field *ast.FieldDefinition) *canonical.GraphQLOpRef {
 	if field == nil {
 		return nil
 	}
-	
+
 	// Extract input type from first argument (typically 'input')
 	inputType := ""
 	for _, arg := range field.Arguments {
@@ -195,7 +195,7 @@ func fieldToOpRef(field *ast.FieldDefinition) *canonical.GraphQLOpRef {
 			break
 		}
 	}
-	
+
 	return &canonical.GraphQLOpRef{
 		Name:      field.Name,
 		Type:      "mutation",

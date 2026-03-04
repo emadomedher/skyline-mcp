@@ -110,28 +110,71 @@ else
   echo "   Mode: Pre-built binary"
   echo ""
   
-  EXT=""
-  if [ "$OS" = "windows" ]; then EXT=".exe"; fi
-  BINARY="skyline-${OS}-${ARCH}${EXT}"
-  URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${BINARY}"
+  # Determine archive name — new releases use .tar.gz / .zip archives
+  if [ "$OS" = "windows" ]; then
+    ARCHIVE_EXT=".zip"
+  else
+    ARCHIVE_EXT=".tar.gz"
+  fi
+
+  # Fetch the latest release tag from GitHub API
+  LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/emadomedher/skyline-mcp/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+  if [ -z "$LATEST_TAG" ]; then
+    echo "❌ Could not determine latest release version"
+    exit 1
+  fi
+
+  ARCHIVE="skyline-${LATEST_TAG}-${OS}-${ARCH}${ARCHIVE_EXT}"
+  URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${ARCHIVE}"
+
+  # Fall back to bare binary name for older releases
+  BARE_BINARY="skyline-${OS}-${ARCH}"
+  if [ "$OS" = "windows" ]; then BARE_BINARY="${BARE_BINARY}.exe"; fi
+  BARE_URL="https://github.com/emadomedher/skyline-mcp/releases/latest/download/${BARE_BINARY}"
 
   echo "📥 Downloading from GitHub releases..."
 
-  # Download skyline binary
-  LOCAL_NAME="skyline${EXT}"
+  DOWNLOADED=""
+  # Try archive format first (new releases)
   if command -v curl &> /dev/null; then
-    if ! curl -fsSL "$URL" -o "$LOCAL_NAME"; then
-      echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
-      exit 1
+    if curl -fsSL "$URL" -o "$ARCHIVE" 2>/dev/null; then
+      DOWNLOADED="archive"
+    elif curl -fsSL "$BARE_URL" -o "$BARE_BINARY" 2>/dev/null; then
+      DOWNLOADED="bare"
     fi
   elif command -v wget &> /dev/null; then
-    if ! wget -q "$URL" -O "$LOCAL_NAME"; then
-      echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
-      exit 1
+    if wget -q "$URL" -O "$ARCHIVE" 2>/dev/null; then
+      DOWNLOADED="archive"
+    elif wget -q "$BARE_URL" -O "$BARE_BINARY" 2>/dev/null; then
+      DOWNLOADED="bare"
     fi
   else
     echo "❌ curl or wget required"
     exit 1
+  fi
+
+  if [ -z "$DOWNLOADED" ]; then
+    echo "❌ Download failed. Check release exists for ${OS}-${ARCH}"
+    exit 1
+  fi
+
+  # Extract binary from archive or use bare binary directly
+  if [ "$DOWNLOADED" = "archive" ]; then
+    if [ "$ARCHIVE_EXT" = ".tar.gz" ]; then
+      tar xzf "$ARCHIVE"
+      rm -f "$ARCHIVE"
+    else
+      unzip -o "$ARCHIVE" >/dev/null
+      rm -f "$ARCHIVE"
+    fi
+    LOCAL_NAME="skyline"
+    if [ "$OS" = "windows" ]; then LOCAL_NAME="skyline.exe"; fi
+  else
+    LOCAL_NAME="$BARE_BINARY"
+    if [ "$OS" != "windows" ]; then
+      mv "$BARE_BINARY" skyline
+      LOCAL_NAME="skyline"
+    fi
   fi
 
   chmod +x "$LOCAL_NAME"

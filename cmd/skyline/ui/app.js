@@ -1291,9 +1291,15 @@ const skylineApp = createApp({
     // Toggle a profile on/off (killswitch). Loads profile if not active, then saves.
     async function toggleProfileEnabled(name, event) {
       if (event) event.stopPropagation();
+      const apiCount = profileMetadata.value[name]?.apiCount || 0;
+      const currentlyEnabled = !profileMetadata.value[name]?.disabled;
+      // Block enabling an empty profile
+      if (!currentlyEnabled && apiCount === 0) {
+        showKillswitchToast('Add an API before enabling this profile');
+        return;
+      }
       // If enabling->disabling and agents are connected, ask for confirmation
       const connectedCount = profileMetadata.value[name]?.connectedCount || 0;
-      const currentlyEnabled = !profileMetadata.value[name]?.disabled;
       if (currentlyEnabled && connectedCount > 0) {
         const confirmed = confirm(
           connectedCount + ' agent' + (connectedCount !== 1 ? 's are' : ' is') +
@@ -1483,7 +1489,9 @@ const skylineApp = createApp({
           delete profileMetadata.value[originalProfileName.value];
         }
 
-        await refreshProfiles();
+        // Skip refreshProfiles on silent saves (killswitch toggles) to avoid
+        // a race where stale server data briefly overwrites the optimistic UI state.
+        if (!silent) await refreshProfiles();
         originalProfileName.value = form.profileName;
         activeProfile.value = form.profileName;
 
@@ -1495,7 +1503,9 @@ const skylineApp = createApp({
           else if (api.type) apiTypes.add(api.type);
         }
         profileMetadata.value[form.profileName] = {
+          ...profileMetadata.value[form.profileName],
           apiCount: form.apis.length,
+          disabled: !!form.profileDisabled,
           types: Array.from(apiTypes),
           knownServices: Array.from(knownServices),
           apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService })),
@@ -2426,7 +2436,7 @@ const skylineApp = createApp({
                 <iconify-icon icon="mdi:cog-outline" style="font-size:14px;"></iconify-icon> Settings
               </button>
               <div class="profile-action-sep"></div>
-              <button class="profile-action-item danger" @click="profileActionsOpen = null; profileSettingsModal = name">
+              <button class="profile-action-item danger" :disabled="profileMetadata[name]?.apiCount > 0" :title="profileMetadata[name]?.apiCount > 0 ? 'Remove all APIs before deleting this profile' : 'Delete profile'" @click="profileActionsOpen = null; profileSettingsModal = name">
                 <iconify-icon icon="mdi:delete-outline" style="font-size:14px;"></iconify-icon> Delete
               </button>
             </div>
@@ -2435,9 +2445,9 @@ const skylineApp = createApp({
           <div class="killswitch-wrap" @click.stop>
             <button
               class="killswitch"
-              :class="{ 'killswitch-on': !profileMetadata[name]?.disabled, 'killswitch-off': profileMetadata[name]?.disabled }"
+              :class="{ 'killswitch-on': !profileMetadata[name]?.disabled && profileMetadata[name]?.apiCount > 0, 'killswitch-off': profileMetadata[name]?.disabled || !profileMetadata[name]?.apiCount }"
               @click="toggleProfileEnabled(name, $event)"
-              :title="profileMetadata[name]?.disabled ? 'Profile disabled — click to enable' : 'Profile enabled — click to disable'"
+              :title="!profileMetadata[name]?.apiCount ? 'No APIs — add an API to enable this profile' : (profileMetadata[name]?.disabled ? 'Profile disabled — click to enable' : 'Profile enabled — click to disable')"
             >
               <span class="killswitch-thumb"></span>
             </button>
@@ -2450,7 +2460,7 @@ const skylineApp = createApp({
           <!-- Disabled profile overlay -->
           <div v-if="form.profileDisabled" class="profile-disabled-overlay">
             <iconify-icon icon="mdi:power-off" style="font-size:20px; color:var(--text-dim);"></iconify-icon>
-            <span>Profile disabled — all APIs inactive. Enable the toggle to restore access.</span>
+            <span>This profile is disabled. Agents connecting to it will be rejected until you turn it back on.</span>
           </div>
 
           <!-- Add API (first) -->
@@ -2530,10 +2540,10 @@ const skylineApp = createApp({
               <button class="ghost small" @click="configModalApiId = api.id" title="Configure API">
                 <iconify-icon icon="mdi:cog-outline" style="font-size:13px;"></iconify-icon> Config
               </button>
-              <button class="ghost small" :class="{ active: api.filterMode }" @click="filterModalApiId = api.id; toggleFilterConfig(api)" title="Operation Filter">
+              <button class="ghost small" :class="{ active: api.filterMode }" @click="filterModalApiId = api.id; toggleFilterConfig(api)" title="Operations Permissions">
                 <iconify-icon icon="mdi:filter-variant" style="font-size:13px;"></iconify-icon>
                 <span v-if="api.filterMode" style="color:var(--blue);">{{ api.filterOperations.length }} ops</span>
-                <span v-else>Filter</span>
+                <span v-else>Permissions</span>
               </button>
               <!-- On-demand Test button -->
               <button
@@ -3249,7 +3259,7 @@ const skylineApp = createApp({
             </div>
           </div>
           <div class="modal-footer">
-            <button v-if="activeProfile !== defaultProfile" class="ghost" style="color:var(--red);" :disabled="isBusy" @click="deleteProfile().then(() => { if (!activeProfile) profileSettingsModal = '' })">Delete</button>
+            <button v-if="activeProfile !== defaultProfile" class="ghost" style="color:var(--red);" :disabled="isBusy || (profileMetadata[profileSettingsModal]?.apiCount > 0)" :title="profileMetadata[profileSettingsModal]?.apiCount > 0 ? 'Remove all APIs before deleting this profile' : 'Delete profile'" @click="deleteProfile().then(() => { if (!activeProfile) profileSettingsModal = '' })">Delete</button>
             <button class="primary" :disabled="isBusy" @click="saveProfile(); profileSettingsModal = ''">Save</button>
           </div>
         </div>
@@ -3421,7 +3431,7 @@ const skylineApp = createApp({
         <div class="modal-card" style="max-width:640px; width:95%;">
           <div class="modal-header">
             <iconify-icon icon="mdi:filter-variant" style="font-size:20px; color:var(--blue);"></iconify-icon>
-            <span>Operation Filter — {{ filterModalApi.name || filterModalApi.specUrl }}</span>
+            <span>Operations Permissions — {{ filterModalApi.name || filterModalApi.specUrl }}</span>
           </div>
           <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
             <div v-if="filterModalApi.filterLoading" class="loading-state" style="padding:30px; text-align:center;">

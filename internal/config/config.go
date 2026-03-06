@@ -31,6 +31,28 @@ type APIConfig struct {
 	RateLimitRPM *int `json:"rate_limit_rpm,omitempty" yaml:"rate_limit_rpm,omitempty"` // Max requests per minute
 	RateLimitRPH *int `json:"rate_limit_rph,omitempty" yaml:"rate_limit_rph,omitempty"` // Max requests per hour
 	RateLimitRPD *int `json:"rate_limit_rpd,omitempty" yaml:"rate_limit_rpd,omitempty"` // Max requests per day
+	// Email protocol configuration (spec_type: "email")
+	Email *EmailConfig `json:"email,omitempty" yaml:"email,omitempty"`
+}
+
+// EmailConfig holds SMTP/IMAP/POP3 connection settings for email APIs.
+type EmailConfig struct {
+	Address  string `json:"address" yaml:"address"`   // User's email address (also used as SMTP from)
+	Password string `json:"password" yaml:"password"` // Email password or app password
+	// SMTP (send)
+	SMTPHost string `json:"smtp_host,omitempty" yaml:"smtp_host,omitempty"`
+	SMTPPort int    `json:"smtp_port,omitempty" yaml:"smtp_port,omitempty"` // 587 (STARTTLS) or 465 (SSL)
+	SMTPTLS  string `json:"smtp_tls,omitempty" yaml:"smtp_tls,omitempty"`   // "starttls" (default), "ssl", "none"
+	// IMAP (read — preferred)
+	IMAPHost string `json:"imap_host,omitempty" yaml:"imap_host,omitempty"`
+	IMAPPort int    `json:"imap_port,omitempty" yaml:"imap_port,omitempty"` // 993 (SSL)
+	// POP3 (read — fallback)
+	POP3Host string `json:"pop3_host,omitempty" yaml:"pop3_host,omitempty"`
+	POP3Port int    `json:"pop3_port,omitempty" yaml:"pop3_port,omitempty"` // 995 (SSL)
+	// Connection mode
+	ConnectionMode string `json:"connection_mode,omitempty" yaml:"connection_mode,omitempty"` // "basic" (default), "persistent"
+	// Polling (basic mode only; persistent uses IDLE)
+	PollIntervalSeconds int `json:"poll_interval_seconds,omitempty" yaml:"poll_interval_seconds,omitempty"` // 0 = disabled
 }
 
 type AuthConfig struct {
@@ -106,6 +128,17 @@ func (c *Config) Validate() error {
 		}
 		if api.SpecType == "grpc" && api.BaseURLOverride == "" {
 			return fmt.Errorf("apis[%d]: base_url_override is required for grpc", i)
+		}
+		if api.SpecType == "email" {
+			if api.Email == nil {
+				return fmt.Errorf("apis[%d]: email config is required for spec_type email", i)
+			}
+			if api.Email.Address == "" {
+				return fmt.Errorf("apis[%d]: email.address is required", i)
+			}
+			if api.Email.Password == "" {
+				return fmt.Errorf("apis[%d]: email.password is required", i)
+			}
 		}
 		if api.SpecURL != "" && api.SpecFile != "" {
 			return fmt.Errorf("apis[%d]: spec_url and spec_file are mutually exclusive", i)
@@ -260,6 +293,10 @@ func validateMethodPattern(method string) error {
 func (c *Config) Secrets() []string {
 	var secrets []string
 	for _, api := range c.APIs {
+		// Email password
+		if api.Email != nil && api.Email.Password != "" {
+			secrets = append(secrets, api.Email.Password)
+		}
 		if api.Auth == nil {
 			continue
 		}

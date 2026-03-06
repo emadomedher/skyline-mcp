@@ -46,13 +46,14 @@ type StreamableHTTPServer struct {
 
 // streamableSession represents an active MCP session with event history for resumability
 type streamableSession struct {
-	id        string
-	ch        chan *sseEvent
-	createdAt time.Time
-	lastUsed  time.Time
-	events    []*sseEvent // Ring buffer for resumability
-	maxEvents int
-	mu        sync.RWMutex
+	id            string
+	ch            chan *sseEvent
+	createdAt     time.Time
+	lastUsed      time.Time
+	events        []*sseEvent // Ring buffer for resumability
+	maxEvents     int
+	subscriptions map[string]bool // URIs this session is subscribed to
+	mu            sync.RWMutex
 }
 
 // sseEvent represents a single SSE event with ID for resumability
@@ -78,12 +79,13 @@ func (s *streamableSessionStore) create(id string) *streamableSession {
 	defer s.mu.Unlock()
 
 	sess := &streamableSession{
-		id:        id,
-		ch:        make(chan *sseEvent, 128),
-		createdAt: time.Now(),
-		lastUsed:  time.Now(),
-		maxEvents: 100, // Keep last 100 events for resumability
-		events:    make([]*sseEvent, 0, 100),
+		id:            id,
+		ch:            make(chan *sseEvent, 128),
+		createdAt:     time.Now(),
+		lastUsed:      time.Now(),
+		maxEvents:     100, // Keep last 100 events for resumability
+		events:        make([]*sseEvent, 0, 100),
+		subscriptions: make(map[string]bool),
 	}
 	s.sessions[id] = sess
 	return sess
@@ -108,6 +110,20 @@ func (s *streamableSessionStore) remove(id string) bool {
 		return true
 	}
 	return false
+}
+
+// subscribedSessions returns all sessions subscribed to the given URI.
+func (s *streamableSessionStore) subscribedSessions(uri string) []*streamableSession {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*streamableSession
+	for _, sess := range s.sessions {
+		if sess.isSubscribed(uri) {
+			result = append(result, sess)
+		}
+	}
+	return result
 }
 
 func (s *streamableSessionStore) cleanup(maxAge time.Duration) []string {
@@ -142,6 +158,27 @@ func (sess *streamableSession) addEvent(event *sseEvent) {
 	default:
 		// Channel full, log but don't block
 	}
+}
+
+// subscribe adds a resource URI to this session's subscriptions.
+func (sess *streamableSession) subscribe(uri string) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	sess.subscriptions[uri] = true
+}
+
+// unsubscribe removes a resource URI from this session's subscriptions.
+func (sess *streamableSession) unsubscribe(uri string) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	delete(sess.subscriptions, uri)
+}
+
+// isSubscribed checks if this session is subscribed to a resource URI.
+func (sess *streamableSession) isSubscribed(uri string) bool {
+	sess.mu.RLock()
+	defer sess.mu.RUnlock()
+	return sess.subscriptions[uri]
 }
 
 func (sess *streamableSession) replayFrom(lastEventID string) []*sseEvent {
@@ -289,11 +326,27 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Set SSE headers
+	// Use ResponseController to override the server's WriteTimeout for this
+	// long-lived SSE connection. Without this, the server's default WriteTimeout
+	// (e.g. 15s) would kill the stream.
+	rc := http.NewResponseController(w)
+
+	// Set SSE headers (omit Connection for HTTP/2 — it's a hop-by-hop header)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	if !r.ProtoAtLeast(2, 0) {
+		w.Header().Set("Connection", "keep-alive")
+	}
 	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	// Write an initial SSE comment + flush to force headers out to the client
+	_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	if _, err := io.WriteString(w, ": connected\n\n"); err != nil {
+		h.logger.Warn("SSE GET: failed to write initial comment", "error", err, "session_id", sessionID)
+		return
+	}
+	flusher.Flush()
 
 	// Check for resumability
 	lastEventID := r.Header.Get("Last-Event-ID")
@@ -302,6 +355,7 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 		// Replay missed events
 		replayEvents := sess.replayFrom(lastEventID)
 		for _, evt := range replayEvents {
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			if err := h.writeSSEWithID(w, evt.name, evt.data, evt.id); err != nil {
 				return
 			}
@@ -313,16 +367,17 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	h.logger.Debug("opened GET stream", "component", "streamable", "session_id", sessionID)
+	h.logger.Info("SSE GET stream opened", "session_id", sessionID)
 
 	for {
 		select {
 		case <-r.Context().Done():
-			h.logger.Debug("GET stream closed", "component", "streamable", "session_id", sessionID)
+			h.logger.Info("SSE GET stream closed", "session_id", sessionID)
 			return
 
 		case <-ticker.C:
-			// Send heartbeat comment (no event, just keeps connection alive)
+			// Send heartbeat comment (keeps connection alive + resets write deadline)
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
 				return
 			}
@@ -330,6 +385,7 @@ func (h *StreamableHTTPServer) handleGET(w http.ResponseWriter, r *http.Request)
 
 		case event := <-sess.ch:
 			// Send notification/request from server
+			_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			if err := h.writeSSEWithID(w, event.name, event.data, event.id); err != nil {
 				return
 			}
@@ -502,6 +558,67 @@ func (h *StreamableHTTPServer) handleOPTIONS(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
 	w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// NotifyResourceUpdated pushes a notifications/resources/updated event to all
+// sessions subscribed to the given URI. This is the main entry point for
+// wiring external events (e.g. IDLE new-email) into MCP resource subscriptions.
+func (h *StreamableHTTPServer) NotifyResourceUpdated(uri string) {
+	sessions := h.store.subscribedSessions(uri)
+	if len(sessions) == 0 {
+		return
+	}
+
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/resources/updated",
+		"params": map[string]any{
+			"uri": uri,
+		},
+	}
+	data, err := json.Marshal(notification)
+	if err != nil {
+		h.logger.Error("failed to marshal resource notification", "error", err, "uri", uri)
+		return
+	}
+
+	eventID := fmt.Sprintf("notify-%d", time.Now().UnixNano())
+	event := &sseEvent{
+		id:   eventID,
+		name: "message",
+		data: data,
+	}
+
+	for _, sess := range sessions {
+		sess.addEvent(event)
+	}
+
+	h.logger.Debug("pushed resource update notification",
+		"uri", uri,
+		"sessions", len(sessions),
+	)
+}
+
+// SubscribeSession subscribes a session to a resource URI.
+func (h *StreamableHTTPServer) SubscribeSession(sessionID, uri string) bool {
+	sess := h.store.get(sessionID)
+	if sess == nil {
+		return false
+	}
+	sess.subscribe(uri)
+	h.logger.Debug("session subscribed to resource", "session_id", sessionID, "uri", uri)
+	return true
+}
+
+// UnsubscribeSession unsubscribes a session from a resource URI.
+func (h *StreamableHTTPServer) UnsubscribeSession(sessionID, uri string) bool {
+	sess := h.store.get(sessionID)
+	if sess == nil {
+		return false
+	}
+	sess.unsubscribe(uri)
+	h.logger.Debug("session unsubscribed from resource", "session_id", sessionID, "uri", uri)
+	return true
 }
 
 // sendInitialNotifications sends any initial server notifications after session creation

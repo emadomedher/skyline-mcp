@@ -44,7 +44,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
+        margin-bottom: 16px;
       }
 
       .logo-section {
@@ -67,7 +67,13 @@
         background-clip: text;
       }
 
-      .header-actions { display: flex; gap: 12px; }
+      .header-actions { display: flex; gap: 12px; align-items: center; }
+      .btn-icon {
+        background: none; border: 1px solid #334155; border-radius: 8px;
+        padding: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        color: #94A3B8; transition: all 0.15s;
+      }
+      .btn-icon:hover { border-color: #475569; color: #F1F5F9; background: rgba(51,65,85,0.3); }
 
       .btn {
         background: #F97316;
@@ -101,40 +107,8 @@
       }
 
       /* Nav Tabs */
-      .nav-tabs {
-        display: flex;
-        gap: 4px;
-        border-bottom: 1px solid rgba(51, 65, 85, 0.8);
-      }
-
-      .nav-tab {
-        padding: 12px 24px;
-        background: none;
-        border: none;
-        font-size: 14px;
-        font-weight: 600;
-        color: #64748B;
-        cursor: pointer;
-        transition: all 0.2s;
-        border-bottom: 2px solid transparent;
-        position: relative;
-        top: 1px;
-        font-family: inherit;
-      }
-
-      .nav-tab:hover { color: #0EA5E9; }
-      .nav-tab.active { color: #0EA5E9; border-bottom-color: #0EA5E9; }
-
-      /* Pages */
-      .page { display: none; }
-      .page.active { display: block; }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-      }
+      /* Layout */
+      /* one-pager — no page hide/show */
 
       .card {
         background: rgba(30, 41, 59, 0.6);
@@ -153,21 +127,6 @@
         letter-spacing: 0.5px;
       }
 
-      .metric {
-        font-size: 36px;
-        font-weight: 700;
-        color: #F1F5F9;
-        margin-bottom: 4px;
-      }
-
-      .metric-label {
-        font-size: 13px;
-        color: #64748B;
-      }
-
-      .metric.success { color: #10B981; }
-      .metric.error { color: #EF4444; }
-      .metric.info { color: #0EA5E9; }
 
       /* Tables */
       .table-container { overflow-x: auto; }
@@ -625,6 +584,74 @@
         margin-top: 12px;
         min-height: 20px;
       }
+
+      /* Settings modal */
+      .settings-modal-card {
+        background: rgba(30, 41, 59, 0.98);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 16px;
+        width: 100%;
+        max-width: 560px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+      }
+      .settings-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 24px;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+      }
+      .settings-modal-body {
+        padding: 24px;
+        overflow-y: auto;
+        flex: 1;
+      }
+      .settings-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        padding: 16px 24px;
+        border-top: 1px solid rgba(51, 65, 85, 0.6);
+      }
+      #stats-bar {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        padding-top: 14px;
+        border-top: 1px solid rgba(51, 65, 85, 0.5);
+      }
+      .stats-bar-item {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
+        padding: 0 20px;
+        white-space: nowrap;
+      }
+      .stats-bar-item:first-child { padding-left: 0; }
+      .stats-bar-item:last-child  { padding-right: 0; }
+      .stats-bar-value {
+        font-size: 15px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: #F1F5F9;
+      }
+      .stats-bar-value.success { color: #10B981; }
+      .stats-bar-value.error   { color: #EF4444; }
+      .stats-bar-value.info    { color: #38BDF8; }
+      .stats-bar-label {
+        font-size: 11px;
+        color: #475569;
+      }
+      .stats-bar-sep {
+        width: 1px;
+        height: 16px;
+        background: rgba(51, 65, 85, 0.8);
+        flex-shrink: 0;
+        align-self: center;
+      }
     </style>
   </head>
   <body>
@@ -638,17 +665,95 @@
           <div class="header-actions">
             <button class="btn-secondary btn" onclick="window.open('https://skyline.projex.cc/docs', '_blank')">Docs</button>
             <button class="btn" onclick="loadDashboard()">Refresh</button>
+            <button class="btn-icon" onclick="openSettingsModal()" title="Server Settings">
+              <iconify-icon icon="mdi:cog-outline" style="font-size:20px;"></iconify-icon>
+            </button>
           </div>
         </div>
-        <div class="nav-tabs">
-          <button class="nav-tab active" onclick="showPage('dashboard')">Dashboard</button>
-          <button class="nav-tab" onclick="showPage('profiles')">Profiles</button>
-          <button class="nav-tab" onclick="showPage('settings')">Settings</button>
+          <!-- no nav tabs — single page -->
+          <!-- Stats bar inside header -->
+          <div id="stats-bar">
+            <div class="stats-bar-item">
+              <span class="stats-bar-value" id="hdr-totalRequests">-</span>
+              <span class="stats-bar-label">Requests</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value success" id="hdr-successRate">-</span>
+              <span class="stats-bar-label">Success</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value error" id="hdr-errorRate">-</span>
+              <span class="stats-bar-label">Errors</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value" id="hdr-avgDuration">-</span>
+              <span class="stats-bar-label">Avg Duration</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value info" id="hdr-activeConnections">-</span>
+              <span class="stats-bar-label">Connections</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value" id="hdr-uptime">-</span>
+              <span class="stats-bar-label">Uptime</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value info" id="hdr-tokensIn">-</span>
+              <span class="stats-bar-label">Tokens In</span>
+            </div>
+            <div class="stats-bar-sep"></div>
+            <div class="stats-bar-item">
+              <span class="stats-bar-value info" id="hdr-tokensOut">-</span>
+              <span class="stats-bar-label">Tokens Out</span>
+            </div>
+          </div>
+        </div>
+
+      <!-- Summary banner + Active Agents (before profiles) -->
+      <div id="pre-profiles-section" style="display:none; margin-bottom:24px;">
+        <div style="display:flex; gap:20px; align-items:center; margin-bottom:16px; padding:14px 20px; background:rgba(30,41,59,0.4); border:1px solid rgba(51,65,85,0.6); border-radius:10px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="summaryDot" class="feed-dot disconnected" style="animation:none;"></span>
+            <span id="summaryStatus" style="font-size:13px; color:#64748B;">No active connections</span>
+          </div>
+          <span style="color:#334155;">&middot;</span>
+          <span id="summaryProfiles" style="font-size:14px; font-weight:600; color:#CBD5E1;">0 Profiles</span>
+          <span style="color:#334155;">&middot;</span>
+          <span id="summaryTools" style="font-size:14px; color:#94A3B8;">0 Tools</span>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+            <iconify-icon icon="mdi:filter-variant" style="font-size:16px; color:#64748B;"></iconify-icon>
+            <select id="profileFilter" onchange="onProfileFilterChange()" style="background:rgba(15,23,42,0.8); border:1px solid rgba(51,65,85,0.8); border-radius:8px; color:#CBD5E1; padding:4px 8px; font-size:12px; cursor:pointer;">
+              <option value="">All profiles</option>
+            </select>
+          </div>
+        </div>
+        <div class="agents-section">
+          <div class="agents-header">
+            <h2>Active Agents</h2>
+            <span class="agents-count" id="agentsCount">0 connected</span>
+          </div>
+          <div id="agentsGrid" class="agents-grid">
+            <div class="agents-empty">
+              <span class="empty-dot"></span>
+              No agents connected
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Dashboard -->
-      <div id="dashboard-page" class="page active">
+      <!-- Profiles section -->
+      <div id="profiles-section">
+        <div id="app"></div>
+      </div>
+
+      <!-- Dashboard section -->
+      <div id="dashboard-section" style="margin-top:24px;">
         <div id="loading" class="card loading">
           <div class="spinner"></div>
           <div>Loading metrics...</div>
@@ -670,75 +775,6 @@
         </div>
 
         <div id="content" style="display: none;">
-          <!-- Summary banner -->
-          <div style="display:flex; gap:20px; align-items:center; margin-bottom:24px; padding:14px 20px; background:rgba(30,41,59,0.4); border:1px solid rgba(51,65,85,0.6); border-radius:10px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span id="summaryDot" class="feed-dot disconnected" style="animation:none;"></span>
-              <span id="summaryStatus" style="font-size:13px; color:#64748B;">No active connections</span>
-            </div>
-            <span style="color:#334155;">&middot;</span>
-            <span id="summaryProfiles" style="font-size:14px; font-weight:600; color:#CBD5E1;">0 Profiles</span>
-            <span style="color:#334155;">&middot;</span>
-            <span id="summaryTools" style="font-size:14px; color:#94A3B8;">0 Tools</span>
-          </div>
-
-          <!-- Active Agents -->
-          <div class="agents-section">
-            <div class="agents-header">
-              <h2>Active Agents</h2>
-              <span class="agents-count" id="agentsCount">0 connected</span>
-            </div>
-            <div id="agentsGrid" class="agents-grid">
-              <div class="agents-empty">
-                <span class="empty-dot"></span>
-                No agents connected
-              </div>
-            </div>
-          </div>
-
-          <div class="grid">
-            <div class="card">
-              <h2>Total Requests</h2>
-              <div class="metric" id="totalRequests">-</div>
-              <div class="metric-label">Since startup</div>
-            </div>
-            <div class="card">
-              <h2>Success Rate</h2>
-              <div class="metric success" id="successRate">-</div>
-              <div class="metric-label">Successful executions</div>
-            </div>
-            <div class="card">
-              <h2>Error Rate</h2>
-              <div class="metric error" id="errorRate">-</div>
-              <div class="metric-label">Failed executions</div>
-            </div>
-            <div class="card">
-              <h2>Avg Duration</h2>
-              <div class="metric info" id="avgDuration">-</div>
-              <div class="metric-label">Milliseconds</div>
-            </div>
-            <div class="card">
-              <h2>Connections</h2>
-              <div class="metric info" id="activeConnections">-</div>
-              <div class="metric-label">Active MCP sessions</div>
-            </div>
-            <div class="card">
-              <h2>Uptime</h2>
-              <div class="metric" id="uptime">-</div>
-              <div class="metric-label">Hours</div>
-            </div>
-            <div class="card">
-              <h2>Est. Tokens In</h2>
-              <div class="metric info" id="estTokensIn">-</div>
-              <div class="metric-label">Request tokens (~bytes/4)</div>
-            </div>
-            <div class="card">
-              <h2>Est. Tokens Out</h2>
-              <div class="metric info" id="estTokensOut">-</div>
-              <div class="metric-label">Response tokens (~bytes/4)</div>
-            </div>
-          </div>
-
           <!-- Top Tools & APIs -->
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
             <div class="card">
@@ -801,15 +837,22 @@
         </div>
       </div>
 
-      <!-- Profiles -->
-      <div id="profiles-page" class="page">
-        <div id="app"></div>
-      </div>
 
-      <!-- Settings -->
-      <div id="settings-page" class="page">
-        <div class="card">
-          <h2>Server Configuration</h2>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settings-modal" class="login-overlay" style="display:none;">
+      <div class="settings-modal-card">
+        <div class="settings-modal-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <iconify-icon icon="mdi:cog-outline" style="font-size:20px; color:#0EA5E9;"></iconify-icon>
+            <span style="font-size:16px; font-weight:700; color:#F1F5F9;">Server Settings</span>
+          </div>
+          <button class="btn-icon" onclick="closeSettingsModal()" title="Close" style="color:#94A3B8;">
+            <iconify-icon icon="mdi:close" style="font-size:20px;"></iconify-icon>
+          </button>
+        </div>
+        <div class="settings-modal-body">
           <div id="settingsAlert"></div>
 
           <div class="settings-section">
@@ -874,11 +917,10 @@
               <div class="form-help">Direct YAML editing. Changes require server restart.</div>
             </div>
           </div>
-
-          <div class="settings-actions">
-            <button class="btn" onclick="saveSettings()">Save Settings</button>
-            <button class="btn-secondary btn" onclick="loadSettings()">Reset</button>
-          </div>
+        </div>
+        <div class="settings-modal-footer">
+          <button class="btn-secondary btn" onclick="loadSettings()">Reset</button>
+          <button class="btn" onclick="saveSettings()">Save Settings</button>
         </div>
       </div>
     </div>
@@ -946,19 +988,34 @@
       // ── Navigation ────────────────────────────────────────────────────────────
 
       function showPage(pageName) {
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-        document.getElementById(pageName + '-page').classList.add('active');
-        const tabMap = { dashboard: 0, profiles: 1, settings: 2 };
-        const tabs = document.querySelectorAll('.nav-tab');
-        if (tabs[tabMap[pageName]]) tabs[tabMap[pageName]].classList.add('active');
-        if (pageName === 'dashboard') loadDashboard();
-        else if (pageName === 'settings') loadSettings();
+        // One-pager — just scroll to the section
+        if (pageName === 'profiles') {
+          document.getElementById('profiles-section').scrollIntoView({ behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          loadDashboard();
+        }
+      }
+
+      function openSettingsModal() {
+        loadSettings();
+        document.getElementById('settings-modal').style.display = 'flex';
+      }
+
+      function closeSettingsModal() {
+        document.getElementById('settings-modal').style.display = 'none';
       }
 
       // ── Dashboard ─────────────────────────────────────────────────────────────
 
       let dashboardActivated = false;
+      let dashboardProfileFilter = '';
+      let dashboardProfiles = [];
+
+      function onProfileFilterChange() {
+        dashboardProfileFilter = document.getElementById('profileFilter').value;
+        loadDashboard(true);
+      }
 
       async function loadDashboard(isAutoRefresh = false) {
         const loadingEl = document.getElementById('loading');
@@ -986,6 +1043,24 @@
             return;
           }
 
+          // Populate profile filter dropdown (preserve current selection)
+          dashboardProfiles = profileNames;
+          const filterEl = document.getElementById('profileFilter');
+          const currentFilter = dashboardProfileFilter;
+          filterEl.innerHTML = '<option value="">All profiles</option>';
+          profileNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            if (name === currentFilter) opt.selected = true;
+            filterEl.appendChild(opt);
+          });
+
+          // Build stats/audit URLs with optional profile filter
+          const profileParam = dashboardProfileFilter ? `&profile=${encodeURIComponent(dashboardProfileFilter)}` : '';
+          const statsUrl = `/admin/stats?_=1${profileParam}`;
+          const auditUrl = `/admin/audit?limit=50${profileParam}`;
+
           // Fetch tools per profile + stats + audit in parallel
           const toolsPromises = profileNames.map(name =>
             fetch(`/profiles/${encodeURIComponent(name)}/tools`)
@@ -995,8 +1070,8 @@
           );
 
           const results = await Promise.all([
-            fetch('/admin/stats'),
-            fetch('/admin/audit?limit=50'),
+            fetch(statsUrl),
+            fetch(auditUrl),
             ...toolsPromises,
           ]);
 
@@ -1046,22 +1121,15 @@
             document.getElementById('summaryStatus').style.color = '#64748B';
           }
 
-          // Metrics grid
-          document.getElementById('totalRequests').textContent = total.toLocaleString();
-          document.getElementById('successRate').textContent =
-            total > 0 ? ((metrics.success_requests / total) * 100).toFixed(1) + '%' : '0%';
-          document.getElementById('errorRate').textContent =
-            total > 0 ? ((metrics.failed_requests / total) * 100).toFixed(1) + '%' : '0%';
-          document.getElementById('avgDuration').textContent =
-            metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '0ms';
-          document.getElementById('activeConnections').textContent = connections;
-          document.getElementById('uptime').textContent =
-            metrics.uptime_seconds ? (metrics.uptime_seconds / 3600).toFixed(1) + 'h' : '0h';
-
-          document.getElementById('estTokensIn').textContent =
-            auditStats.est_request_tokens ? auditStats.est_request_tokens.toLocaleString() : '0';
-          document.getElementById('estTokensOut').textContent =
-            auditStats.est_response_tokens ? auditStats.est_response_tokens.toLocaleString() : '0';
+          // Header stats bar
+          document.getElementById('hdr-totalRequests').textContent    = total.toLocaleString();
+          document.getElementById('hdr-successRate').textContent      = total > 0 ? ((metrics.success_requests / total) * 100).toFixed(1) + '%' : '0%';
+          document.getElementById('hdr-errorRate').textContent        = total > 0 ? ((metrics.failed_requests  / total) * 100).toFixed(1) + '%' : '0%';
+          document.getElementById('hdr-avgDuration').textContent      = metrics.avg_duration_ms ? Math.round(metrics.avg_duration_ms) + 'ms' : '0ms';
+          document.getElementById('hdr-activeConnections').textContent = connections;
+          document.getElementById('hdr-uptime').textContent           = metrics.uptime_seconds ? (metrics.uptime_seconds / 3600).toFixed(1) + 'h' : '0h';
+          document.getElementById('hdr-tokensIn').textContent         = auditStats.est_request_tokens  ? auditStats.est_request_tokens.toLocaleString()  : '0';
+          document.getElementById('hdr-tokensOut').textContent        = auditStats.est_response_tokens ? auditStats.est_response_tokens.toLocaleString() : '0';
 
           // Top Tools & APIs
           renderTopTable('topToolsTable', auditStats.top_tools || [],
@@ -1107,6 +1175,8 @@
 
           loadingEl.style.display = 'none';
           contentEl.style.display = 'block';
+          const preProfilesEl = document.getElementById('pre-profiles-section');
+          if (preProfilesEl) preProfilesEl.style.display = 'block';
 
           // Load active sessions for agent monitoring
           loadSessions();
@@ -1452,9 +1522,7 @@
         }
       });
       setInterval(() => {
-        if (document.getElementById('dashboard-page').classList.contains('active')) {
-          fetch('/admin/auth').then(r => { if (r.ok) loadDashboard(true); });
-        }
+        fetch('/admin/auth').then(r => { if (r.ok) loadDashboard(true); });
       }, 10000);
     </script>
   </body>

@@ -28,6 +28,7 @@ type Resource struct {
 	MimeType    string
 	Description string
 	ToolName    string
+	DefaultArgs map[string]any // Default arguments for resources/read (merged under client args)
 }
 
 type Registry struct {

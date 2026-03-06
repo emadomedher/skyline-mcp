@@ -226,6 +226,25 @@ func buildRESTComposite(group []*canonical.Operation, apiName, resourceKey strin
 				}
 			}
 		}
+		// Include InputSchema properties (for protocol handlers like email/Jenkins
+		// that define schemas directly without Parameters or RequestBody)
+		if len(op.Parameters) == 0 && op.RequestBody == nil && op.InputSchema != nil {
+			if props, ok := op.InputSchema["properties"].(map[string]any); ok {
+				for name, schema := range props {
+					if seenParams[name] {
+						continue
+					}
+					mergedParams = append(mergedParams, canonical.Parameter{
+						Name:     name,
+						In:       "body",
+						Required: false,
+						Schema:   toStringMap(schema),
+					})
+					properties[name] = schema
+					seenParams[name] = true
+				}
+			}
+		}
 	}
 
 	// Build description listing all available actions
@@ -267,6 +286,11 @@ func buildRESTComposite(group []*canonical.Operation, apiName, resourceKey strin
 
 // computeActionName determines the action name for an operation in a composite group.
 func computeActionName(op *canonical.Operation) string {
+	// Explicit action hint takes priority (used by protocol handlers like email)
+	if op.ActionHint != "" {
+		return op.ActionHint
+	}
+
 	path := strings.Trim(op.Path, "/")
 	segments := strings.Split(path, "/")
 	lastSeg := ""

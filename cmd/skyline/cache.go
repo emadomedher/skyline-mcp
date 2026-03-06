@@ -7,8 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"skyline-mcp/internal/canonical"
+	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/email"
 	"skyline-mcp/internal/mcp"
+	"skyline-mcp/internal/polling"
 	"skyline-mcp/internal/runtime"
 	"skyline-mcp/internal/spec"
 )
@@ -120,10 +125,97 @@ func (s *server) buildRegistryCache(ctx context.Context, prof profile) (*registr
 		return nil, false, fmt.Errorf("create executor: %w", err)
 	}
 
+	// Register email protocol handler if any email-type APIs exist.
+	registerEmailProtocol(executor, cfg, s.logger, s.emailPersistent)
+
+	// Register email inbox resources for persistent-mode accounts
+	registerEmailResources(registry, cfg)
+
+	// Register email inbox polling for APIs with poll_interval_seconds > 0.
+	if s.pollEngine != nil {
+		registerEmailPolling(s.pollEngine, cfg, s.logger)
+	}
+
 	return &registryCache{
 		registry:  registry,
 		executor:  executor,
 		services:  services,
 		createdAt: time.Now(),
 	}, false, nil
+}
+
+// registerEmailPolling sets up poll jobs for email APIs with polling enabled.
+func registerEmailPolling(engine *polling.Engine, cfg *config.Config, logger *slog.Logger) {
+	for _, api := range cfg.APIs {
+		if api.SpecType != "email" || api.Email == nil {
+			continue
+		}
+		if api.Email.PollIntervalSeconds <= 0 {
+			continue
+		}
+		emailCfg := email.ConfigFromAPIConfig(api.Email)
+		if emailCfg.ReadProtocol() == "" {
+			continue // no IMAP/POP3 configured
+		}
+		source := polling.NewEmailInboxSource(emailCfg, logger)
+		interval := time.Duration(api.Email.PollIntervalSeconds) * time.Second
+		engine.Register(source, interval)
+		logger.Info("email polling enabled", "api", api.Name, "address", api.Email.Address, "interval", interval)
+	}
+}
+
+// registerEmailResources adds email inbox resources to the MCP registry
+// for email APIs, enabling resource subscriptions for new-email notifications.
+func registerEmailResources(registry *mcp.Registry, cfg *config.Config) {
+	for _, api := range cfg.APIs {
+		if api.SpecType != "email" || api.Email == nil {
+			continue
+		}
+		emailCfg := email.ConfigFromAPIConfig(api.Email)
+		if emailCfg.ReadProtocol() != "imap" {
+			continue
+		}
+		uri := email.InboxURI(api.Name)
+		// Find the actual tool name (may be renamed by CRUD grouping)
+		listToolName := api.Name + "__list_emails"
+		if _, ok := registry.Tools[listToolName]; !ok {
+			// CRUD grouping renamed it — look for a messages_manage composite
+			if _, ok := registry.Tools[api.Name+"__messages_manage"]; ok {
+				listToolName = api.Name + "__messages_manage"
+			}
+		}
+		registry.Resources[uri] = &mcp.Resource{
+			URI:         uri,
+			Name:        api.Name + " inbox",
+			MimeType:    "application/json",
+			Description: "Email inbox for " + emailCfg.Address + " — subscribe for new email notifications",
+			ToolName:    listToolName,
+			DefaultArgs: map[string]any{"action": "list", "folder": "INBOX", "limit": 20},
+		}
+	}
+}
+
+// registerEmailProtocol registers the email protocol handler on an executor
+// for any email-type APIs in the config. Shared by cache and transport paths.
+func registerEmailProtocol(executor *runtime.Executor, cfg *config.Config, logger *slog.Logger, pm *email.PersistentManager) {
+	emailConfigs := map[string]*email.EmailConfig{}
+	for _, api := range cfg.APIs {
+		if api.SpecType == "email" && api.Email != nil {
+			emailConfigs[api.Name] = email.ConfigFromAPIConfig(api.Email)
+		}
+	}
+	if len(emailConfigs) > 0 {
+		executor.RegisterProtocol("email", func(ctx context.Context, op *canonical.Operation, args map[string]any) (*runtime.Result, error) {
+			emailCfg, ok := emailConfigs[op.ServiceName]
+			if !ok {
+				return nil, fmt.Errorf("no email config for service %s", op.ServiceName)
+			}
+			// Use connection pool from persistent manager if available
+			var pool *email.IMAPPool
+			if pm != nil {
+				pool = pm.GetPool(op.ServiceName)
+			}
+			return email.ExecuteEmailTool(ctx, op, args, emailCfg, logger, pool)
+		})
+	}
 }

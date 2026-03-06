@@ -46,6 +46,10 @@ type Executor interface {
 	Execute(ctx context.Context, op *canonical.Operation, args map[string]any) (*runtime.Result, error)
 }
 
+// SubscribeHook is called when a client subscribes or unsubscribes to a resource.
+// subscribe=true for subscribe, false for unsubscribe. Returns true if successful.
+type SubscribeHook func(sessionID, uri string, subscribe bool) bool
+
 type Server struct {
 	registry          *Registry
 	executor          Executor    // Runtime executor for tool calls
@@ -55,6 +59,7 @@ type Server struct {
 	redactor          *redact.Redactor
 	toolCallHook      ToolCallHook      // Optional hook for audit/metrics on tool calls
 	toolCallStartHook ToolCallStartHook // Optional hook fired before tool execution
+	subscribeHook     SubscribeHook     // Optional hook for resource subscriptions
 	maxResponseBytes  int               // Default max response size in bytes (0 = no limit)
 	maxResponseByAPI  map[string]int    // Per-API max response bytes (overrides default)
 }
@@ -85,6 +90,11 @@ func (s *Server) SetToolCallHook(hook ToolCallHook) {
 // SetToolCallStartHook sets a callback that fires before tool execution begins.
 func (s *Server) SetToolCallStartHook(hook ToolCallStartHook) {
 	s.toolCallStartHook = hook
+}
+
+// SetSubscribeHook sets a callback for resource subscribe/unsubscribe requests.
+func (s *Server) SetSubscribeHook(hook SubscribeHook) {
+	s.subscribeHook = hook
 }
 
 // SetMaxResponseBytes sets the default maximum response size for tool call results.
@@ -139,7 +149,7 @@ func (s *Server) handleRequest(ctx context.Context, req *rpcRequest) *rpcRespons
 			"protocolVersion": protocolVersion,
 			"capabilities": map[string]any{
 				"tools":     map[string]any{"list": true, "call": true},
-				"resources": map[string]any{"list": true, "read": true},
+				"resources": map[string]any{"list": true, "read": true, "subscribe": true},
 			},
 			"serverInfo": map[string]any{
 				"name":    "Skyline MCP",
@@ -154,6 +164,10 @@ func (s *Server) handleRequest(ctx context.Context, req *rpcRequest) *rpcRespons
 		return s.handleListResources(req.ID)
 	case "resources/read":
 		return s.handleReadResource(ctx, req.ID, req.Params)
+	case "resources/subscribe":
+		return s.handleSubscribe(ctx, req.ID, req.Params, true)
+	case "resources/unsubscribe":
+		return s.handleSubscribe(ctx, req.ID, req.Params, false)
 	case "resources/templates/list", "resources/templates":
 		return s.handleListResourceTemplates(req.ID)
 	case "ping":
@@ -286,6 +300,34 @@ func (s *Server) handleCallTool(ctx context.Context, id json.RawMessage, params 
 	})
 }
 
+func (s *Server) handleSubscribe(ctx context.Context, id json.RawMessage, params json.RawMessage, subscribe bool) *rpcResponse {
+	var payload struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return rpcErrorResponse(id, -32602, "invalid params", nil)
+	}
+	if payload.URI == "" {
+		return rpcErrorResponse(id, -32602, "missing uri", nil)
+	}
+
+	if s.subscribeHook == nil {
+		// No subscribe hook configured — accept but no-op
+		return rpcSuccess(id, map[string]any{})
+	}
+
+	sessionID, _ := ctx.Value(SessionIDKey).(string)
+	if sessionID == "" {
+		return rpcErrorResponse(id, -32600, "no session", nil)
+	}
+
+	if ok := s.subscribeHook(sessionID, payload.URI, subscribe); !ok {
+		return rpcErrorResponse(id, -32600, "session not found", nil)
+	}
+
+	return rpcSuccess(id, map[string]any{})
+}
+
 func (s *Server) handleListResourceTemplates(id json.RawMessage) *rpcResponse {
 	templates := s.registry.BuildResourceTemplates()
 	return rpcSuccess(id, map[string]any{"resourceTemplates": templates})
@@ -310,6 +352,17 @@ func (s *Server) handleReadResource(ctx context.Context, id json.RawMessage, par
 	args := payload.Arguments
 	if args == nil {
 		args = map[string]any{}
+	}
+	// Merge default args (resource defaults, then client overrides)
+	if res.DefaultArgs != nil {
+		merged := make(map[string]any, len(res.DefaultArgs)+len(args))
+		for k, v := range res.DefaultArgs {
+			merged[k] = v
+		}
+		for k, v := range args {
+			merged[k] = v
+		}
+		args = merged
 	}
 	if tool.Validator != nil {
 		if err := tool.Validator.Validate(args); err != nil {

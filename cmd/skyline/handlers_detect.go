@@ -261,6 +261,13 @@ func (s *server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Email has no spec URL — return hardcoded tool operations
+	if req.SpecType == "email" {
+		ops := emailOperations()
+		writeJSON(w, http.StatusOK, operationsResponse{Operations: ops})
+		return
+	}
+
 	specURL := strings.TrimSpace(req.SpecURL)
 
 	// Resolve well-known spec URLs (Slack, GitLab, Jira, etc.)

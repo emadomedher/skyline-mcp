@@ -83,6 +83,7 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 	if err != nil {
 		return fmt.Errorf("create executor: %w", err)
 	}
+	registerEmailProtocol(executor, cfg, logger, nil)
 
 	// Create MCP server
 	mcpServer := mcp.NewServer(registry, executor, logger, redactor, Version)
@@ -154,11 +155,13 @@ func runHTTPWithConfig(configPathArg, listenAddr string, enableAdmin bool, logge
 
 	// HTTP server config
 	httpServer := &http.Server{
-		Addr:         listenAddr,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ErrorLog:          tlsHandshakeErrorLog(),
 	}
 
 	logger.Info("✅ Server initialized successfully", "protocol", "HTTPS", "mcp_endpoint", "https://"+listenAddr+"/mcp/v1", "health_check", "https://"+listenAddr+"/healthz")
@@ -244,6 +247,7 @@ func runSTDIO(configPathArg string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create executor: %w", err)
 	}
+	registerEmailProtocol(executor, cfg, logger, nil)
 
 	// Create MCP server
 	mcpServer := mcp.NewServer(registry, executor, logger, redactor, Version)

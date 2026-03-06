@@ -1503,6 +1503,67 @@ iconify-icon {
 .api-card-list { padding: 12px 16px; }
 .api-card-list .api-header { margin-bottom: 0; }
 
+/* ── Inline expandable API cards ─────────────────────────────────────────── */
+
+.api-card-inline {
+  padding: 0;
+  transition: border-color 0.15s;
+}
+
+.api-card-inline .api-header {
+  padding: 12px 16px;
+  margin-bottom: 0;
+}
+
+.api-card-inline.expanded {
+  border-color: var(--blue-border);
+}
+
+.api-card-inline.expanded .api-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.api-expanded {
+  padding: 16px;
+}
+
+.api-inline-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.advanced-toggle:hover {
+  color: var(--text);
+}
+
+.advanced-content {
+  padding-top: 4px;
+}
+
+.api-inline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 /* ── Stats ────────────────────────────────────────────────────────────────── */
 
 .stats-grid {
@@ -1598,33 +1659,371 @@ iconify-icon {
 .event-api { font-size: 12px; }
 .event-dur { font-size: 12px; flex-shrink: 0; }
 
-/* ── Settings tab: MCP connect section ───────────────────────────────────── */
+/* ── Connect Modal ────────────────────────────────────────────────────────── */
 
-.connect-section {
-  margin-top: 20px;
-  margin-bottom: 4px;
+.connect-modal {
+  max-width: 520px;
+  width: 95%;
 }
 
-.connect-section-heading {
+.connect-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+}
+
+.connect-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.connect-tab:hover {
+  color: var(--text-secondary);
+}
+
+.connect-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--blue);
+}
+
+.connect-tab-content {
+  padding: 16px 20px 20px;
+}
+
+.connect-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px 0;
+  line-height: 1.5;
+}
+
+.connect-hint code {
+  font-size: 11px;
+  background: var(--bg-input);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.connect-snippet {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.connect-copy {
+  margin-top: 8px;
+  font-size: 11px !important;
+  padding: 3px 8px !important;
+}
+
+.connect-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--blue-border);
+  background: var(--blue-muted);
+  color: var(--blue);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.connect-btn:hover {
+  background: rgba(14, 165, 233, 0.25);
+  border-color: var(--blue);
+}
+
+/* ── Gear Popover ─────────────────────────────────────────────────────────── */
+
+.gear-btn {
+  color: var(--text-dim);
+  transition: color 0.15s;
+}
+
+.gear-btn:hover {
+  color: var(--text);
+}
+
+.gear-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 100;
+}
+
+.gear-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gear-popover-body {
+  padding: 14px;
+}
+
+/* ── Unified Search Bar ──────────────────────────────────────────────────── */
+
+.unified-search-bar {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.unified-search-input {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  transition: border-color 0.15s;
 }
 
-.connect-panel {
-  margin-bottom: 2px;
+.unified-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 50;
+  overflow: hidden;
 }
+
+.unified-url-detect {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Legacy connect section (kept for compatibility) ─────────────────────── */
 
 .tutorial-actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 6px;
+}
+
+/* ── Profile Accordion Layout ────────────────────────────────────────────── */
+
+.profiles-section {
+  width: 100%;
+  padding: 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+/* Profile accordion card */
+.profile-accordion {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+
+.profile-accordion:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.profile-accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+
+.profile-accordion-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.profile-accordion-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.profile-accordion-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.profile-accordion-actions .connect-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--blue);
+}
+
+.profile-accordion-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 14px 14px;
+}
+
+/* Profile stats badges */
+.profile-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.profile-stat-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.profile-stat-badge.stat-connected {
+  color: var(--green);
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.profile-stat-badge.stat-requests {
+  cursor: default;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-sep {
+  color: var(--border);
+  margin: 0 1px;
+}
+
+.stat-total  { color: var(--text); }
+.stat-success { color: var(--green); }
+.stat-failed  { color: var(--red); }
+
+/* API rows inside accordion */
+.api-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+  margin-bottom: 4px;
+}
+
+.api-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+
+.api-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.api-row-type {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.api-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Add API row */
+.add-api-row {
+  position: relative;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.unified-search-compact {
+  padding: 6px 10px !important;
+  font-size: 12px;
+}
+
+/* Profile status bar */
+.profile-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
 }

@@ -23,6 +23,7 @@ const typeIcons = {
   postman: "simple-icons:postman",
   openrpc: "mdi:code-json",
   grpc: "mdi:server-network",
+  email: "mdi:email-outline",
   "jira-rest": "simple-icons:jira",
   asyncapi: "simple-icons:asyncapi",
   raml: "mdi:code-braces",
@@ -39,6 +40,7 @@ const typeLabels = {
   postman: "Postman Collection",
   openrpc: "OpenRPC (JSON-RPC)",
   grpc: "gRPC",
+  email: "Email (SMTP/IMAP)",
   "jira-rest": "Jira REST",
   asyncapi: "AsyncAPI",
   raml: "RAML",
@@ -78,7 +80,7 @@ function inferKnownService(baseUrl, specUrl, specType) {
 }
 
 function faviconUrl(website) {
-  try { return 'https://www.google.com/s2/favicons?domain=' + new URL(website).hostname + '&sz=32'; }
+  try { return 'https://icons.duckduckgo.com/ip3/' + new URL(website).hostname + '.ico'; }
   catch { return ''; }
 }
 
@@ -242,6 +244,20 @@ function blankApi() {
     oauthRefreshToken: "",
     oauthEmail: "",
     oauthConnected: false,
+    // Email protocol (spec_type: "email")
+    emailAddress: "",
+    emailPassword: "",
+    emailSmtpHost: "",
+    emailSmtpPort: "",
+    emailSmtpTls: "starttls",
+    emailImapHost: "",
+    emailImapPort: "",
+    emailPop3Host: "",
+    emailPop3Port: "",
+    emailConnectionMode: "basic",
+    emailProvider: "",
+    // UI state for inline expansion
+    showAdvanced: false,
   };
 }
 
@@ -327,39 +343,79 @@ createApp({
     // Library URL (shared by inline search and modal)
     const LIBRARY_URL = "https://raw.githubusercontent.com/emadomedher/skyline-api-library/main/profiles-slim.json";
 
+    // Built-in protocols — always available, even when library cannot be fetched.
+    const builtinProfiles = [
+      {
+        id: 'email-generic', title: 'Email (Generic)',
+        subtitle: 'Send and read email via SMTP/IMAP with any provider',
+        category: 'Communication', authType: 'none',
+        specUrl: '', specType: 'email', baseUrl: '',
+        website: 'https://skylinemcp.com',
+        setup: {
+          fields: [
+            { key: 'email', label: 'Email Address', type: 'text', placeholder: 'you@example.com', required: true },
+            { key: 'password', label: 'Password / App Password', type: 'password', placeholder: 'Your email password or app-specific password', required: true },
+            { key: 'name', label: 'API Name', type: 'text', placeholder: 'email', default: 'email', target: 'name' },
+          ],
+          tutorial: '1. Enter your email address and password\n2. For Gmail: Go to myaccount.google.com/apppasswords and generate an App Password\n3. For Outlook: Enable IMAP in Settings > Mail > Sync email\n4. For Yahoo: Generate an App Password in Account Security settings\n5. Skyline auto-detects your provider and fills in server settings\n6. For custom/corporate email, you may need to enter server details manually',
+        },
+        _builtin: true,
+      },
+      {
+        id: 'custom-api', title: 'Custom API',
+        subtitle: 'Paste a URL and auto-detect any OpenAPI/REST/GraphQL endpoint',
+        category: 'Custom', authType: 'none',
+        specUrl: '', specType: '', baseUrl: '',
+        website: '',
+        _builtin: true,
+        _custom: true,
+      },
+    ];
+
     // Persistent library cache (survives addFlow resets)
-    const libraryCache = ref([]);
+    const libraryCache = ref([...builtinProfiles]);
     const libraryLoaded = ref(false);
+    const libraryLoading = ref(false);
     const libraryLoadError = ref("");
 
     // Inline library search (for empty-state APIs tab)
     const inlineSearch = ref("");
     const inlineSearchFocused = ref(false);
+    function blurInlineSearch() { window.setTimeout(() => { inlineSearchFocused.value = false; }, 200); }
 
-    const popularApiIds = ['slack', 'github', 'stripe', 'jira', 'gitlab', 'kubernetes', 'gmail', 'notion', 'discord', 'shopify'];
+    const popularApiIds = ['email-generic', 'custom-api', 'slack', 'github', 'stripe', 'jira', 'gitlab', 'kubernetes', 'gmail', 'notion', 'discord'];
 
     async function ensureLibraryLoaded() {
-      if (libraryLoaded.value) return;
+      if (libraryLoaded.value || libraryLoading.value) return;
+      libraryLoading.value = true;
       libraryLoadError.value = "";
       try {
         const res = await fetch(LIBRARY_URL);
         if (!res.ok) throw new Error(`Failed (${res.status})`);
         const data = await res.json();
-        libraryCache.value = (data.profiles || []).map((p) => ({
+        const remote = (data.profiles || []).map((p) => ({
           id: p.id, title: p.t, subtitle: p.d || "",
           category: p.c, authType: p.at,
           specUrl: p.su || "", specType: p.st || "",
           baseUrl: p.bu || "", website: p.w || "",
           setup: p.s || null,
         }));
+        // Merge: built-in profiles replace any remote duplicates
+        const builtinIds = new Set(builtinProfiles.map(b => b.id));
+        libraryCache.value = [
+          ...builtinProfiles,
+          ...remote.filter(p => !builtinIds.has(p.id)),
+        ];
         libraryLoaded.value = true;
       } catch (err) {
         libraryLoadError.value = err.message;
+        // Built-ins are still in libraryCache even on failure
+      } finally {
+        libraryLoading.value = false;
       }
     }
 
     const popularApis = computed(() => {
-      if (!libraryLoaded.value) return [];
       return popularApiIds
         .map(id => libraryCache.value.find(p => p.id === id))
         .filter(Boolean);
@@ -367,7 +423,7 @@ createApp({
 
     const inlineSearchResults = computed(() => {
       const q = inlineSearch.value.toLowerCase().trim();
-      if (!q || !libraryLoaded.value) return [];
+      if (!q || libraryCache.value.length === 0) return [];
       const matches = libraryCache.value
         .filter(p => p.title.toLowerCase().includes(q) || p.subtitle.toLowerCase().includes(q));
       // Rank: exact title match first, then title starts-with, then title contains, then subtitle-only
@@ -391,6 +447,11 @@ createApp({
       busy: false,
       error: '',
       showTutorial: false,
+      // Email-specific: 'initial' → 'discovered' → verified & added
+      emailPhase: '',       // '' | 'initial' | 'discovered'
+      emailProvider: '',    // detected provider name
+      emailLookup: null,    // full lookup response (server settings)
+      emailVerify: null,    // { imap: 'ok'|'failed'|'skipped', smtp: 'ok'|... }
     });
 
     function openGuidedSetup(item) {
@@ -399,6 +460,10 @@ createApp({
       guidedSetup.busy = false;
       guidedSetup.error = '';
       guidedSetup.showTutorial = false;
+      guidedSetup.emailPhase = item.specType === 'email' ? 'initial' : '';
+      guidedSetup.emailProvider = '';
+      guidedSetup.emailLookup = null;
+      guidedSetup.emailVerify = null;
       // Pre-fill defaults
       for (const f of item.setup.fields) {
         guidedSetup.fields[f.key] = f.default || '';
@@ -477,6 +542,108 @@ createApp({
         api.specUrl = item.specUrl || '';
         api.type = item.specType || '';
         api.knownService = inferKnownService(api.baseUrl, api.specUrl, api.type);
+
+        // Email-specific guided setup (three-phase: initial → discovered → verified)
+        if (item.specType === 'email') {
+          const emailAddr = (guidedSetup.fields.email || '').trim();
+          const emailPass = (guidedSetup.fields.password || '').trim();
+          const apiName = (guidedSetup.fields.name || '').trim() || 'email';
+
+          // Phase 1: DNS lookup to auto-detect provider
+          if (guidedSetup.emailPhase === 'initial') {
+            if (!emailAddr) {
+              guidedSetup.error = 'Email address is required.';
+              return;
+            }
+            if (!emailPass) {
+              guidedSetup.error = 'Password is required.';
+              return;
+            }
+
+            const lookupRes = await fetch('/email/lookup', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: emailAddr }),
+            });
+            const lookup = await lookupRes.json();
+
+            if (lookup.error) {
+              guidedSetup.error = lookup.error;
+              return;
+            }
+
+            // Store the lookup result and move to discovered phase
+            guidedSetup.emailLookup = lookup;
+            guidedSetup.emailProvider = lookup.provider || 'unknown';
+            guidedSetup.emailVerify = null;
+            guidedSetup.emailPhase = 'discovered';
+
+            // Pre-fill server fields from lookup (editable by user)
+            if (lookup.provider !== 'unknown') {
+              guidedSetup.fields.smtp_host = lookup.smtp_host || '';
+              guidedSetup.fields.smtp_port = lookup.smtp_port ? String(lookup.smtp_port) : '587';
+              guidedSetup.fields.smtp_tls = lookup.smtp_tls || 'starttls';
+              guidedSetup.fields.imap_host = lookup.imap_host || '';
+              guidedSetup.fields.imap_port = lookup.imap_port ? String(lookup.imap_port) : '993';
+            } else {
+              // Unknown provider — leave fields blank for manual entry
+              guidedSetup.fields.smtp_host = guidedSetup.fields.smtp_host || '';
+              guidedSetup.fields.smtp_port = guidedSetup.fields.smtp_port || '587';
+              guidedSetup.fields.smtp_tls = guidedSetup.fields.smtp_tls || 'starttls';
+              guidedSetup.fields.imap_host = guidedSetup.fields.imap_host || '';
+              guidedSetup.fields.imap_port = guidedSetup.fields.imap_port || '993';
+            }
+            guidedSetup.error = '';
+            return;
+          }
+
+          // Phase 2: Verify credentials and add
+          if (guidedSetup.emailPhase === 'discovered') {
+            const smtpHost = (guidedSetup.fields.smtp_host || '').trim();
+            const imapHost = (guidedSetup.fields.imap_host || '').trim();
+            if (!smtpHost && !imapHost) {
+              guidedSetup.error = 'At least SMTP or IMAP server is required.';
+              return;
+            }
+
+            // Call /email/verify to test actual credentials
+            const verifyRes = await fetch('/email/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: emailAddr,
+                password: emailPass,
+                smtp_host: smtpHost,
+                smtp_port: parseInt(guidedSetup.fields.smtp_port || '587', 10),
+                smtp_tls: (guidedSetup.fields.smtp_tls || 'starttls').trim(),
+                imap_host: imapHost,
+                imap_port: parseInt(guidedSetup.fields.imap_port || '993', 10),
+              }),
+            });
+            const verify = await verifyRes.json();
+            guidedSetup.emailVerify = verify;
+
+            if (!verify.ok) {
+              guidedSetup.error = verify.error || 'Credential verification failed.';
+              return;
+            }
+
+            // Verification succeeded — build API and add
+            api.name = apiName;
+            api.type = 'email';
+            api.emailAddress = emailAddr;
+            api.emailPassword = emailPass;
+            api.emailProvider = guidedSetup.emailProvider !== 'unknown' ? guidedSetup.emailProvider : 'custom';
+            api.emailSmtpHost = smtpHost;
+            api.emailSmtpPort = (guidedSetup.fields.smtp_port || '587').trim();
+            api.emailSmtpTls = (guidedSetup.fields.smtp_tls || 'starttls').trim();
+            api.emailImapHost = imapHost;
+            api.emailImapPort = (guidedSetup.fields.imap_port || '993').trim();
+            api.detectedOnce = true;
+            addApiToProfile(api);
+            return;
+          }
+        }
 
         for (const f of setup.fields) {
           const val = (guidedSetup.fields[f.key] || '').trim();
@@ -598,6 +765,12 @@ createApp({
     }
 
     function addFromLibraryInline(item) {
+      // Custom API — open the URL detect flow
+      if (item._custom) {
+        openAddFlow();
+        pickService('custom');
+        return;
+      }
       // If this API has guided setup fields, open the guided flow
       if (item.setup && item.setup.fields && item.setup.fields.length > 0) {
         openGuidedSetup(item);
@@ -629,12 +802,19 @@ createApp({
     const newProfileName = ref("");
     const newProfileError = ref("");
     const selectedApiId = ref("");
-    const profileTab = ref("overview");
     const expandedProfiles = ref({});
-    const profileStats = ref(null);
-    const profileMetrics = ref(null);
-    const statsLoading = ref(false);
     let isLoadingProfile = false;
+
+    // Modal state
+    const showConnectModal = ref(false);
+    const connectTab = ref("claude-desktop");
+    const configModalApiId = ref("");
+    const filterModalApiId = ref("");
+    const profileSettingsModal = ref("");
+
+    // Computed: API object for config/filter modals
+    const configModalApi = computed(() => configModalApiId.value ? form.apis.find(a => a.id === configModalApiId.value) : null);
+    const filterModalApi = computed(() => filterModalApiId.value ? form.apis.find(a => a.id === filterModalApiId.value) : null);
 
     // View-filter state (outside form.apis to avoid triggering auto-save)
     const filterViewState = reactive({});
@@ -646,7 +826,6 @@ createApp({
     }
 
     // MCP client connect section
-    const connectPanel = ref("");
     const mcpUrl = computed(() => {
       if (!form.profileName) return "";
       const proto = window.location.protocol === "https:" ? "https:" : "http:";
@@ -718,10 +897,23 @@ createApp({
           await loadProfile(defaultProfile.value);
         }
 
-        // Load metadata for all profiles
-        for (const name of profiles.value) {
+        // Load session counts, per-profile stats, and profile configs in parallel
+        const [sessData, ...profileResults] = await Promise.all([
+          fetch('/admin/sessions').then(r => r.ok ? r.json() : { sessions: [] }).catch(() => ({ sessions: [] })),
+          ...profiles.value.map(name => Promise.all([
+            apiClient.loadProfile(name).catch(() => ({ config: { apis: [] } })),
+            fetch(`/admin/stats?profile=${encodeURIComponent(name)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          ]))
+        ]);
+
+        const sessionCounts = {};
+        for (const s of (sessData.sessions || [])) {
+          sessionCounts[s.profile] = (sessionCounts[s.profile] || 0) + 1;
+        }
+
+        profiles.value.forEach((name, i) => {
+          const [profileData, statsData] = profileResults[i];
           try {
-            const profileData = await apiClient.loadProfile(name);
             const cfg = profileData.config || {};
             const apis = cfg.apis || [];
             const apiTypes = new Set();
@@ -733,17 +925,23 @@ createApp({
               if (svc) knownServices.add(svc); else if (t) apiTypes.add(t);
               apiList.push({ name: api.name || "", specUrl: api.spec_url || "", type: t, knownService: svc });
             }
+            const audit = statsData?.audit_stats || {};
             profileMetadata.value[name] = {
               apiCount: apis.length,
+              connectedCount: sessionCounts[name] || 0,
+              totalRequests: audit.total_requests || 0,
+              successRequests: audit.successful_requests || 0,
+              failedRequests: audit.failed_requests || 0,
+              tokensIn: audit.est_request_tokens || 0,
+              tokensOut: audit.est_response_tokens || 0,
               types: Array.from(apiTypes),
               knownServices: Array.from(knownServices),
               apis: apiList,
             };
           } catch (err) {
-            // Ignore errors loading individual profiles (might be auth issues)
             console.warn(`Failed to load metadata for profile ${name}:`, err);
           }
-        }
+        });
       } catch (err) {
         status.state = "error";
         status.message = err.message;
@@ -756,7 +954,10 @@ createApp({
     }
 
     function removeApi(id) {
-      form.apis = form.apis.filter((api) => api.id !== id);
+      const api = form.apis.find((a) => a.id === id);
+      const label = api ? (api.name || api.specUrl || 'this API') : 'this API';
+      if (!confirm(`Remove "${label}" from the profile?`)) return;
+      form.apis = form.apis.filter((a) => a.id !== id);
     }
 
     async function detectApi(api) {
@@ -841,47 +1042,63 @@ createApp({
         originalProfileName.value = name;
         activeProfile.value = name;
         const cfg = data.config || {};
-        form.apis = (cfg.apis || []).map((api) => ({
-          id: generateUUID(),
-          name: api.name || "",
-          baseUrl: api.base_url_override || "",
-          specUrl: api.spec_url || "",
-          type: inferType(api.spec_url || ""),
-          status: "",
-          detectedOptions: [],
-          authType: api.auth?.type || "none",
-          bearerToken: api.auth?.token || "",
-          basicUser: api.auth?.username || "",
-          basicPass: api.auth?.password || "",
-          apiKeyHeader: api.auth?.header || "X-API-Key",
-          apiKeyValue: api.auth?.value || "",
-          oauthClientId: api.auth?.client_id || "",
-          oauthClientSecret: api.auth?.client_secret || "",
-          oauthRefreshToken: api.auth?.refresh_token || "",
-          oauthEmail: "",
-          oauthConnected: !!(api.auth?.refresh_token),
-          detectedOnce: true,
-          // Response truncation
-          maxResponseBytes: api.max_response_bytes != null ? String(api.max_response_bytes) : "",
-          // Rate limiting
-          rateLimitRpm: api.rate_limit_rpm || "",
-          rateLimitRph: api.rate_limit_rph || "",
-          rateLimitRpd: api.rate_limit_rpd || "",
-          // Load filter configuration
-          filterMode: api.filter?.mode || "",
-          filterOperations: api.filter?.operations || [],
-          availableOperations: [],
-          selectedOperations: new Set(
-            (api.filter?.operations || [])
-              .filter((op) => op.operation_id)
-              .map((op) => op.operation_id)
-          ),
-          showFilterConfig: false,
-          filterLoading: false,
-          collapsedGroups: new Set(),
-          knownService: inferKnownService(api.base_url_override || "", api.spec_url || "", inferType(api.spec_url || "")),
-          kubeconfigStatus: null,
-        }));
+        form.apis = (cfg.apis || []).map((api) => {
+          const specType = api.spec_type || inferType(api.spec_url || "");
+          return {
+            id: generateUUID(),
+            name: api.name || "",
+            baseUrl: api.base_url_override || "",
+            specUrl: api.spec_url || "",
+            type: specType,
+            status: "",
+            detectedOptions: [],
+            authType: api.auth?.type || "none",
+            bearerToken: api.auth?.token || "",
+            basicUser: api.auth?.username || "",
+            basicPass: api.auth?.password || "",
+            apiKeyHeader: api.auth?.header || "X-API-Key",
+            apiKeyValue: api.auth?.value || "",
+            oauthClientId: api.auth?.client_id || "",
+            oauthClientSecret: api.auth?.client_secret || "",
+            oauthRefreshToken: api.auth?.refresh_token || "",
+            oauthEmail: "",
+            oauthConnected: !!(api.auth?.refresh_token),
+            detectedOnce: true,
+            // Response truncation
+            maxResponseBytes: api.max_response_bytes != null ? String(api.max_response_bytes) : "",
+            // Rate limiting
+            rateLimitRpm: api.rate_limit_rpm || "",
+            rateLimitRph: api.rate_limit_rph || "",
+            rateLimitRpd: api.rate_limit_rpd || "",
+            // Load filter configuration
+            filterMode: api.filter?.mode || "",
+            filterOperations: api.filter?.operations || [],
+            availableOperations: [],
+            selectedOperations: new Set(
+              (api.filter?.operations || [])
+                .filter((op) => op.operation_id)
+                .map((op) => op.operation_id)
+            ),
+            showFilterConfig: false,
+            filterLoading: false,
+            collapsedGroups: new Set(),
+            knownService: inferKnownService(api.base_url_override || "", api.spec_url || "", specType),
+            kubeconfigStatus: null,
+            // Email protocol config
+            emailAddress: api.email?.address || "",
+            emailPassword: api.email?.password || "",
+            emailSmtpHost: api.email?.smtp_host || "",
+            emailSmtpPort: api.email?.smtp_port ? String(api.email.smtp_port) : "",
+            emailSmtpTls: api.email?.smtp_tls || "starttls",
+            emailImapHost: api.email?.imap_host || "",
+            emailImapPort: api.email?.imap_port ? String(api.email.imap_port) : "",
+            emailPop3Host: api.email?.pop3_host || "",
+            emailPop3Port: api.email?.pop3_port ? String(api.email.pop3_port) : "",
+            emailConnectionMode: api.email?.connection_mode || "basic",
+            emailProvider: "",
+            showAdvanced: false,
+          };
+        });
 
         // Extract and store profile metadata for sidebar display
         const apiTypes = new Set();
@@ -896,9 +1113,6 @@ createApp({
           knownServices: Array.from(knownServices),
           apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService })),
         };
-
-        // Smart default tab: show APIs tab when profile has no APIs yet
-        profileTab.value = form.apis.length === 0 ? "apis" : "overview";
 
         await nextTick();
         isLoadingProfile = false;
@@ -1044,39 +1258,20 @@ createApp({
       expandedProfiles.value = { ...expandedProfiles.value, [name]: !expandedProfiles.value[name] };
     }
 
-    async function loadProfileStats(name) {
-      statsLoading.value = true;
-      profileStats.value = null;
-      profileMetrics.value = null;
-      try {
-        const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-        const res = await fetch(`/admin/stats?profile=${encodeURIComponent(name)}&since=${encodeURIComponent(since)}`);
-        if (res.ok) {
-          const data = await res.json();
-          profileStats.value = data.audit_stats || {};
-          profileMetrics.value = data.metrics_snapshot || {};
-        } else {
-          profileStats.value = {};
-          profileMetrics.value = {};
-        }
-      } catch {
-        profileStats.value = {};
-        profileMetrics.value = {};
-      } finally {
-        statsLoading.value = false;
-      }
-    }
-
     async function selectProfile(name) {
       selectedApiId.value = "";
-      profileTab.value = "overview";
+      showConnectModal.value = false;
+      // Toggle: collapse if already active, expand if not
+      if (activeProfile.value === name) {
+        activeProfile.value = "";
+        return;
+      }
       expandedProfiles.value = { ...expandedProfiles.value, [name]: true };
       await loadProfile(name);
-      loadProfileStats(name);
     }
 
     function selectApi(apiId) {
-      selectedApiId.value = apiId;
+      selectedApiId.value = selectedApiId.value === apiId ? "" : apiId;
     }
 
     function backToProfile() {
@@ -1116,15 +1311,43 @@ createApp({
         .filter((api) => {
           const hasName = api.name?.trim();
           const hasSpecUrl = api.specUrl?.trim();
-          console.log('Filtering API:', { name: api.name, specUrl: api.specUrl, hasName, hasSpecUrl });
-          return hasName && hasSpecUrl;
+          const isEmail = api.type === 'email';
+          return hasName && (hasSpecUrl || isEmail);
         })
         .map((api) => {
           const entry = {
             name: api.name.trim(),
-            spec_url: api.specUrl.trim(),
+            spec_url: api.specUrl?.trim() || undefined,
             base_url_override: api.baseUrl?.trim() || undefined,
           };
+          // Include spec_type for non-inferrable types (grpc, email, jira-rest, etc.)
+          if (api.type) {
+            entry.spec_type = api.type;
+          }
+          // Email protocol config
+          if (api.type === 'email') {
+            delete entry.spec_url; // email doesn't use spec_url
+            entry.email = {
+              address: api.emailAddress || '',
+              password: api.emailPassword || '',
+            };
+            if (api.emailSmtpHost) {
+              entry.email.smtp_host = api.emailSmtpHost;
+              if (api.emailSmtpPort) entry.email.smtp_port = parseInt(api.emailSmtpPort);
+              if (api.emailSmtpTls) entry.email.smtp_tls = api.emailSmtpTls;
+            }
+            if (api.emailImapHost) {
+              entry.email.imap_host = api.emailImapHost;
+              if (api.emailImapPort) entry.email.imap_port = parseInt(api.emailImapPort);
+            }
+            if (api.emailPop3Host) {
+              entry.email.pop3_host = api.emailPop3Host;
+              if (api.emailPop3Port) entry.email.pop3_port = parseInt(api.emailPop3Port);
+            }
+            if (api.emailConnectionMode && api.emailConnectionMode !== 'basic') {
+              entry.email.connection_mode = api.emailConnectionMode;
+            }
+          }
           if (api.authType && api.authType !== "none") {
             entry.auth = { type: api.authType };
             if (api.authType === "bearer") entry.auth.token = api.bearerToken;
@@ -1238,24 +1461,32 @@ createApp({
     }
 
     async function deleteProfile() {
-      if (!form.profileName) return;
-      if (!confirm(`Delete profile "${form.profileName}"?`)) return;
-      const deletedProfileName = form.profileName;
+      const targetName = profileSettingsModal.value || form.profileName;
+      if (!targetName) return;
+      const apiCount = profileMetadata.value[targetName]?.apiCount ?? (targetName === form.profileName ? form.apis.length : 0);
+      if (apiCount > 0) {
+        alert(`Cannot delete "${targetName}" — remove all ${apiCount} API(s) first.`);
+        return;
+      }
+      if (!confirm(`Delete profile "${targetName}"? This cannot be undone.`)) return;
+      const deletedProfileName = targetName;
       try {
         isBusy.value = true;
-        // Delete profile without authentication (for UI management)
-        await apiClient.deleteProfile(form.profileName);
+        await apiClient.deleteProfile(deletedProfileName);
         await refreshProfiles();
 
-        // Remove metadata for deleted profile
         delete profileMetadata.value[deletedProfileName];
 
-        form.profileName = "";
-        form.profileToken = "";
-        form.apis = [];
-        originalProfileName.value = "";
-        activeProfile.value = "";
-        setStatus("ok", "Profile deleted.");
+        // Clear form only if we deleted the currently loaded profile
+        if (form.profileName === deletedProfileName) {
+          form.profileName = "";
+          form.profileToken = "";
+          form.apis = [];
+          originalProfileName.value = "";
+          activeProfile.value = "";
+        }
+        profileSettingsModal.value = "";
+        setStatus("ok", `Profile "${deletedProfileName}" deleted.`);
       } catch (err) {
         setStatus("error", err.message);
       } finally {
@@ -1265,14 +1496,15 @@ createApp({
 
     async function toggleFilterConfig(api) {
       api.showFilterConfig = !api.showFilterConfig;
-      // Always fetch operations when opening (auto-load + refresh)
       if (api.showFilterConfig) {
+        // Always use allowlist — set it if not already set
+        if (!api.filterMode) api.filterMode = "allowlist";
         await fetchOperations(api);
       }
     }
 
     async function fetchOperations(api) {
-      if (!api.specUrl && !api.name) {
+      if (!api.specUrl && !api.name && api.type !== 'email') {
         setStatus("error", "Spec URL or API name is required to fetch operations.");
         return;
       }
@@ -1285,23 +1517,16 @@ createApp({
         }
         api.availableOperations = result.operations || [];
 
-        // Pre-select operations based on current state
-        if (api.filterMode) {
-          // Mode already selected - apply mode logic
-          onFilterModeChange(api);
-        } else if (api.filterOperations.length > 0) {
-          // No mode yet, but has saved filter - restore selections
-          api.filterOperations.forEach((filter) => {
-            if (filter.operation_id) {
-              api.availableOperations.forEach((op) => {
-                if (op.id === filter.operation_id) {
-                  api.selectedOperations.add(op.id);
-                }
-              });
-            }
+        // Pre-select operations: restore saved selections, or default to all selected
+        api.selectedOperations.clear();
+        if (api.filterOperations.length > 0) {
+          // Restore saved allowlist selections
+          const savedIds = new Set(api.filterOperations.map(f => f.operation_id).filter(Boolean));
+          api.availableOperations.forEach((op) => {
+            if (savedIds.has(op.id)) api.selectedOperations.add(op.id);
           });
         } else {
-          // No filter configured yet - show ALL operations as checked (current state: all allowed)
+          // No saved filter — default to all selected (all operations allowed)
           api.availableOperations.forEach((op) => {
             api.selectedOperations.add(op.id);
           });
@@ -1340,39 +1565,14 @@ createApp({
     }
 
     function applyFilterAuto(api) {
-      // Convert selected operations to filter patterns
+      // Always allowlist — selected operations are what gets exposed
+      api.filterMode = "allowlist";
       api.filterOperations = Array.from(api.selectedOperations).map((opId) => ({
         operation_id: opId,
       }));
-
       const count = api.selectedOperations.size;
       const total = api.availableOperations.length;
-      const willExpose = api.filterMode === "allowlist" ? count : total - count;
-
-      setStatus("ok", `Filter updated: ${willExpose} of ${total} operations will be exposed.`);
-    }
-
-    function onFilterModeChange(api) {
-      // Mode acts as "select all / deselect all" toggle
-      if (api.availableOperations.length > 0) {
-        api.selectedOperations.clear();
-
-        if (api.filterMode === "allowlist") {
-          // Allowlist: Check ALL operations (allow everything, then uncheck unwanted)
-          api.availableOperations.forEach((op) => {
-            api.selectedOperations.add(op.id);
-          });
-          setStatus("ok", `Allowlist mode: All ${api.availableOperations.length} operations selected. Uncheck what you don't want to allow.`);
-        } else if (api.filterMode === "blocklist") {
-          // Blocklist: Check NONE (block nothing, then check what you want to block)
-          setStatus("ok", `Blocklist mode: No operations selected. Check what you want to block.`);
-        }
-      }
-
-      // Auto-apply filter
-      if (api.filterMode && api.availableOperations.length > 0) {
-        applyFilterAuto(api);
-      }
+      setStatus("ok", `Filter updated: ${count} of ${total} operations allowed.`);
     }
 
     function clearFilter(api) {
@@ -1380,7 +1580,7 @@ createApp({
       api.filterOperations = [];
       api.selectedOperations.clear();
       api.collapsedGroups = new Set();
-      setStatus("ok", "Filter cleared.");
+      setStatus("ok", "Filter cleared — all operations allowed.");
     }
 
     // Group operations by resource path prefix for easier navigation.
@@ -1666,8 +1866,8 @@ createApp({
       addFlow.libraryError = "";
       try {
         await ensureLibraryLoaded();
-        if (libraryLoadError.value) throw new Error(libraryLoadError.value);
-        addFlow.libraryItems = libraryCache.value;
+        addFlow.libraryItems = libraryCache.value; // always includes built-ins
+        if (libraryLoadError.value) addFlow.libraryError = libraryLoadError.value;
       } catch (err) {
         addFlow.libraryError = err.message;
       } finally {
@@ -1746,9 +1946,18 @@ createApp({
       try {
         const apis = selected.map(api => {
           const opts = exportFlow.apis[api.id];
-          const entry = { name: api.name.trim(), spec_url: api.specUrl.trim() };
+          const entry = { name: api.name.trim(), spec_url: api.specUrl?.trim() || undefined };
           if (api.baseUrl?.trim()) entry.base_url_override = api.baseUrl.trim();
           if (api.type)            entry.spec_type = api.type;
+          // Email config for export
+          if (api.type === 'email') {
+            delete entry.spec_url;
+            entry.email = { address: api.emailAddress || '', password: api.emailPassword || '' };
+            if (api.emailSmtpHost) { entry.email.smtp_host = api.emailSmtpHost; if (api.emailSmtpPort) entry.email.smtp_port = parseInt(api.emailSmtpPort); if (api.emailSmtpTls) entry.email.smtp_tls = api.emailSmtpTls; }
+            if (api.emailImapHost) { entry.email.imap_host = api.emailImapHost; if (api.emailImapPort) entry.email.imap_port = parseInt(api.emailImapPort); }
+            if (api.emailPop3Host) { entry.email.pop3_host = api.emailPop3Host; if (api.emailPop3Port) entry.email.pop3_port = parseInt(api.emailPop3Port); }
+            if (api.emailConnectionMode && api.emailConnectionMode !== 'basic') { entry.email.connection_mode = api.emailConnectionMode; }
+          }
           const mrb = parseInt(api.maxResponseBytes, 10);
           if (!isNaN(mrb) && mrb > 0) entry.max_response_bytes = mrb;
           if (opts.includeAuth && api.authType && api.authType !== 'none') {
@@ -1955,7 +2164,6 @@ createApp({
       toggleFilterConfig,
       fetchOperations,
       toggleOperationSelection,
-      onFilterModeChange,
       clearFilter,
       groupOperations,
       toggleGroup,
@@ -1988,21 +2196,22 @@ createApp({
       libraryCategories,
       filteredLibraryItems,
       addFromLibrary,
-      // Profile tree / tabs
+      // Profile tree
       selectedApiId,
-      selectedApi,
-      profileTab,
       expandedProfiles,
-      profileStats,
-      profileMetrics,
-      statsLoading,
       selectProfile,
       selectApi,
-      backToProfile,
       toggleProfileExpand,
       selectApiBySpecUrl,
-      // MCP connect
-      connectPanel,
+      // MCP connect modal
+      showConnectModal,
+      connectTab,
+      // Config / Filter / Settings modals
+      configModalApiId,
+      filterModalApiId,
+      configModalApi,
+      filterModalApi,
+      profileSettingsModal,
       claudeDesktopSnippet,
       claudeCodeCmd,
       claudeCodeSettings,
@@ -2029,755 +2238,258 @@ createApp({
       faviconUrl,
       inlineSearch,
       inlineSearchFocused,
+      blurInlineSearch,
       inlineSearchResults,
       popularApis,
       libraryLoaded,
+      libraryLoading,
       ensureLibraryLoaded,
       addFromLibraryInline,
     };
   },
   template: `
-    <div class="app">
-      <aside class="panel">
-        <div class="profile-list">
-          <div class="sidebar-header">
-            <span class="notice" style="margin:0; padding:0;">Profiles</span>
-            <div style="display:flex; gap:2px; align-items:center;">
-              <button class="icon-btn" @click="openImportFlow" title="Import Profile">
-                <iconify-icon icon="mdi:import"></iconify-icon>
-              </button>
-              <button
-                class="icon-btn"
-                @click="openExportFlow"
-                :disabled="!activeProfile || !form.apis.length"
-                :style="{ opacity: (!activeProfile || !form.apis.length) ? '0.35' : '1' }"
-                title="Export Profile"
-              >
-                <iconify-icon icon="mdi:export"></iconify-icon>
-              </button>
-              <button class="icon-btn" @click="openNewProfileModal" title="New Profile">
-                <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-              </button>
-            </div>
-          </div>
+    <div class="profiles-section">
+      <!-- Section header -->
+      <div class="section-header">
+        <h2 class="section-title">Profiles</h2>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button class="icon-btn" @click="openImportFlow" title="Import Profile">
+            <iconify-icon icon="mdi:import"></iconify-icon>
+          </button>
+          <button class="icon-btn" @click="openNewProfileModal" title="New Profile">
+            <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
+          </button>
+        </div>
+      </div>
 
-          <div v-if="profiles.length === 0" class="notice" style="margin-top:12px; font-size:12px; opacity:0.7;">No profiles yet.</div>
+      <!-- Empty state -->
+      <div v-if="profiles.length === 0" style="text-align:center; padding:40px 20px; color:var(--text-dim);">
+        <iconify-icon icon="mdi:folder-open-outline" style="font-size:40px; opacity:0.4; margin-bottom:12px; display:block;"></iconify-icon>
+        <div style="font-size:14px; margin-bottom:16px;">No profiles yet</div>
+        <div style="display:flex; gap:10px; justify-content:center;">
+          <button class="primary" @click="openNewProfileModal">
+            <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon> Create Profile
+          </button>
+          <button class="ghost" @click="openImportFlow">
+            <iconify-icon icon="mdi:import"></iconify-icon> Import
+          </button>
+        </div>
+      </div>
 
-          <div v-for="name in profiles" :key="name" class="tree-profile">
-            <!-- Profile row -->
-            <div
-              class="tree-profile-row"
-              :class="{ active: name === activeProfile && !selectedApiId }"
-              @click="selectProfile(name)"
+      <!-- Profile accordions -->
+      <div v-for="name in profiles" :key="name" class="profile-accordion">
+        <!-- Profile header row -->
+        <div class="profile-accordion-header" @click="selectProfile(name)">
+          <iconify-icon :icon="activeProfile === name ? 'mdi:chevron-down' : 'mdi:chevron-right'" style="font-size:18px; color:var(--text-dim); flex-shrink:0;"></iconify-icon>
+          <iconify-icon icon="mdi:folder-account" style="font-size:16px; color:var(--text-muted); flex-shrink:0;"></iconify-icon>
+          <span class="profile-accordion-name">{{ name }}</span>
+          <span v-if="name === defaultProfile" class="default-badge">default</span>
+          <!-- Spacer -->
+          <span style="flex:1;"></span>
+          <!-- Stats badges — always on the right -->
+          <div class="profile-stats" @click.stop>
+            <!-- Requests badge -->
+            <span
+              class="profile-stat-badge stat-requests"
+              :title="'Total requests: ' + (profileMetadata[name]?.totalRequests || 0) + '  Successful: ' + (profileMetadata[name]?.successRequests || 0) + '  Failed: ' + (profileMetadata[name]?.failedRequests || 0)"
             >
-              <button class="tree-expand-btn" @click.stop="toggleProfileExpand(name)">
-                <iconify-icon :icon="expandedProfiles[name] ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-              </button>
-              <iconify-icon icon="mdi:folder-account" class="tree-profile-icon"></iconify-icon>
-              <span class="tree-profile-name">{{ name }}</span>
-              <span v-if="name === defaultProfile" class="default-badge">default</span>
-              <span v-if="profileMetadata[name]" class="profile-api-count">{{ profileMetadata[name].apiCount }}</span>
-            </div>
-            <!-- APIs nested under profile -->
-            <div v-if="expandedProfiles[name]" class="tree-api-list">
-              <div v-if="!profileMetadata[name]?.apis?.length" class="tree-api-empty">No APIs</div>
-              <div
-                v-for="api in (profileMetadata[name]?.apis || [])"
-                :key="api.specUrl"
-                class="tree-api-row"
-                :class="{ active: name === activeProfile && selectedApi && selectedApi.specUrl === api.specUrl }"
-                @click.stop="selectApiBySpecUrl(name, api.specUrl)"
-              >
-                <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'" class="tree-api-icon"></iconify-icon>
-                <span class="tree-api-name">{{ api.name || api.specUrl }}</span>
-              </div>
-            </div>
+              <span class="stat-total">{{ profileMetadata[name]?.totalRequests || 0 }}</span>
+              <span class="stat-sep">/</span>
+              <span class="stat-success">{{ (profileMetadata[name]?.totalRequests || 0) > 0 ? Math.round((profileMetadata[name]?.successRequests || 0) / profileMetadata[name].totalRequests * 100) : 0 }}%</span>
+              <span class="stat-sep">/</span>
+              <span class="stat-failed">{{ (profileMetadata[name]?.totalRequests || 0) > 0 ? Math.round((profileMetadata[name]?.failedRequests || 0) / profileMetadata[name].totalRequests * 100) : 0 }}%</span>
+              <span class="stat-sep"> </span>Requests
+            </span>
+            <!-- Tokens badge -->
+            <span class="profile-stat-badge">
+              in: {{ profileMetadata[name]?.tokensIn || 0 }} / out: {{ profileMetadata[name]?.tokensOut || 0 }} Tokens
+            </span>
+            <!-- API count -->
+            <span class="profile-stat-badge">
+              {{ profileMetadata[name]?.apiCount || 0 }} API{{ (profileMetadata[name]?.apiCount || 0) !== 1 ? 's' : '' }}
+            </span>
+            <!-- Connected -->
+            <span class="profile-stat-badge" :class="{ 'stat-connected': (profileMetadata[name]?.connectedCount || 0) > 0 }">
+              {{ profileMetadata[name]?.connectedCount || 0 }} Connected
+            </span>
           </div>
-        </div>
-      </aside>
-
-      <main class="panel">
-        <!-- Welcome: no profiles exist -->
-        <div v-if="!activeProfile && profiles.length === 0" class="welcome-screen">
-           <div class="welcome-content" style="display:flex; flex-direction:column; align-items:center;">
-            <img src="/ui/skyline-logo.svg" alt="Skyline" style="max-width: 200px; height: auto; margin-bottom: 24px; opacity: 0.8;">
-            <h2 class="welcome-title">Welcome to Skyline</h2>
-            <p class="welcome-subtitle">Create your first profile to start managing API connections for your MCP servers.</p>
-            <div style="display:flex; flex-direction:column; align-items:center; gap:0; width:260px;">
-              <button class="primary welcome-cta" @click="openNewProfileModal" style="width:100%; justify-content:center;">
-                <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-                Create Your First Profile
-              </button>
-              <div style="display:flex; align-items:center; gap:12px; margin:14px 0; width:100%;">
-                <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
-                <span style="font-size:13px; color:var(--text-dim);">or</span>
-                <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
-              </div>
-              <button class="ghost welcome-cta" @click="openImportFlow" style="width:100%; justify-content:center;">
-                <iconify-icon icon="mdi:import"></iconify-icon>
-                Import Profile
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Profiles exist but none selected -->
-        <div v-else-if="!activeProfile && profiles.length > 0" class="welcome-screen">
-          <div class="welcome-content">
-            <iconify-icon icon="mdi:folder-open-outline" style="font-size: 48px; color: var(--text-dim); margin-bottom: 16px;"></iconify-icon>
-            <h2 class="welcome-title">Select a Profile</h2>
-            <p class="welcome-subtitle">Choose a profile from the sidebar to get started.</p>
-            <button class="primary welcome-cta" @click="openNewProfileModal">
-              <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-              New Profile
+          <!-- Action buttons (only when expanded) -->
+          <div v-if="activeProfile === name" class="profile-accordion-actions" @click.stop>
+            <button v-if="form.profileToken" class="ghost small connect-btn" @click="showConnectModal = true" title="Connect AI client">
+              <iconify-icon icon="mdi:connection" style="font-size:14px;"></iconify-icon> Connect
+            </button>
+            <button class="icon-btn" @click="openExportFlow" :disabled="!form.apis.length" title="Export Profile">
+              <iconify-icon icon="mdi:export" style="font-size:14px;"></iconify-icon>
+            </button>
+            <button class="icon-btn" @click="profileSettingsModal = name" title="Profile Settings">
+              <iconify-icon icon="mdi:cog-outline" style="font-size:14px;"></iconify-icon>
             </button>
           </div>
         </div>
 
-        <!-- API Config View -->
-        <template v-else-if="selectedApiId && selectedApi">
-          <div class="view-header">
-            <button class="ghost small" @click="backToProfile" style="display:flex;align-items:center;gap:6px;">
-              <iconify-icon icon="mdi:arrow-left"></iconify-icon>
-              {{ activeProfile }}
-            </button>
-            <div class="view-title">
-              <iconify-icon :icon="serviceIcons[selectedApi.knownService] || typeIcons[selectedApi.type] || 'mdi:cloud-outline'" style="font-size:20px;"></iconify-icon>
-              {{ selectedApi.name || selectedApi.specUrl }}
+        <!-- Expanded body -->
+        <div v-if="activeProfile === name" class="profile-accordion-body">
+
+          <!-- Add API (first) -->
+          <div class="add-api-row" style="margin-top:0; padding-top:0; border-top:none; margin-bottom:12px;">
+            <div class="unified-search-input unified-search-compact" :style="inlineSearchFocused ? { borderColor: 'var(--blue)' } : {}">
+              <iconify-icon icon="mdi:plus" style="font-size:16px; color:var(--text-dim); flex-shrink:0;"></iconify-icon>
+              <input
+                v-model="inlineSearch"
+                placeholder="Add API — search or paste URL..."
+                @focus="inlineSearchFocused = true; ensureLibraryLoaded()"
+                @blur="blurInlineSearch()"
+                @keyup.enter="inlineSearch.trim().startsWith('http') ? (addFlow.customUrl = inlineSearch.trim(), openAddFlow(), pickService('custom'), inlineSearch = '', runAddFlowDetect()) : null"
+                style="flex:1; background:none; border:none; outline:none; color:var(--text); font-size:12px;"
+              />
+              <iconify-icon v-if="inlineSearch.trim()" icon="mdi:close-circle" style="font-size:14px; color:var(--text-dim); cursor:pointer;" @mousedown.prevent="inlineSearch = ''"></iconify-icon>
             </div>
-          </div>
-          <div class="tab-content">
-            <div class="api-card">
-              <div class="api-header">
-                <div class="api-type">
-                  <iconify-icon :icon="serviceIcons[selectedApi.knownService] || typeIcons[selectedApi.type] || 'mdi:cloud-outline'"></iconify-icon>
-                  <div>
-                    <div>{{ selectedApi.knownService ? serviceLabels[selectedApi.knownService] : (selectedApi.type ? typeLabels[selectedApi.type] : "Unknown type") }}</div>
-                    <div class="muted">{{ selectedApi.name || selectedApi.specUrl }}</div>
-                  </div>
-                </div>
-                <div class="api-actions">
-                  <button class="secondary" :disabled="isBusy" @click="detectApi(selectedApi)">Re-detect</button>
-                  <button class="secondary" :disabled="isBusy" @click="testApi(selectedApi)">Test</button>
-                  <button class="ghost" @click="removeApi(selectedApi.id); backToProfile()">Remove</button>
-                </div>
+            <div v-if="inlineSearchFocused" class="unified-search-results">
+              <div v-if="inlineSearch.trim().startsWith('http')" class="unified-url-detect">
+                <iconify-icon icon="mdi:cloud-search-outline" style="font-size:14px; color:var(--blue);"></iconify-icon>
+                <span style="flex:1; font-size:12px;">Detect API at <strong>{{ inlineSearch.trim() }}</strong></span>
+                <button class="primary small" @mousedown.prevent="addFlow.customUrl = inlineSearch.trim(); openAddFlow(); pickService('custom'); inlineSearch = ''; runAddFlowDetect()">Detect</button>
               </div>
-
-              <!-- Known services: show connection info as read-only -->
-              <div v-if="selectedApi.knownService" class="form-grid">
-                <div>
-                  <label>Base URL</label>
-                  <input :value="selectedApi.baseUrl" readonly class="input-readonly" />
+              <template v-else-if="inlineSearch.trim()">
+                <div v-if="libraryLoading && inlineSearchResults.length === 0" style="padding:12px; text-align:center; color:var(--text-dim); font-size:12px;">
+                  <iconify-icon icon="mdi:loading" style="animation:spin 1s linear infinite; margin-right:4px;"></iconify-icon> Loading library...
                 </div>
-                <div>
-                  <label>API name</label>
-                  <input v-model="selectedApi.name" placeholder="domain - API type" />
-                </div>
-              </div>
-
-              <!-- Known-service credential helpers (shown instead of generic auth) -->
-              <div v-if="selectedApi.knownService === 'gitlab'" class="credential-helper gitlab-helper">
-                <div class="helper-header"><iconify-icon icon="simple-icons:gitlab"></iconify-icon>GitLab Authentication</div>
-                <p class="helper-desc">Personal Access Token (requires <code>api</code> scope).</p>
-                <div style="position:relative;">
-                  <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" :value="selectedApi.bearerToken"
-                    @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
-                  <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                    <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                  </button>
-                </div>
-              </div>
-              <div v-if="selectedApi.knownService === 'jira'" class="credential-helper jira-helper">
-                <div class="helper-header"><iconify-icon icon="simple-icons:jira"></iconify-icon>Jira Authentication</div>
-                <template v-if="selectedApi.authType === 'basic'">
-                  <p class="helper-desc">Email &amp; API Token (Jira Cloud).</p>
-                  <div class="form-grid">
-                    <div><label>Email</label><input v-model="selectedApi.basicUser" placeholder="you@company.com" /></div>
-                    <div>
-                      <label>API Token</label>
-                      <div style="position:relative;">
-                        <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="Your Jira API token" :value="selectedApi.basicPass"
-                          @input="selectedApi.basicPass=$event.target.value" style="width:100%; padding-right:40px;" />
-                        <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                          <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                        </button>
-                      </div>
+                <div v-else-if="inlineSearchResults.length > 0" style="max-height:260px; overflow-y:auto;">
+                  <div v-for="item in inlineSearchResults" :key="item.id" class="detect-result-item" @mousedown.prevent="addFromLibraryInline(item); inlineSearch = ''" style="cursor:pointer;">
+                    <iconify-icon v-if="item._custom" icon="mdi:plus-circle-outline" style="font-size:18px; flex-shrink:0; color:var(--blue);"></iconify-icon>
+                    <img v-else-if="item.website" :src="faviconUrl(item.website)" style="width:18px; height:18px; flex-shrink:0; object-fit:contain; border-radius:3px;" @error="$event.target.style.display='none'" />
+                    <div style="flex:1; min-width:0;">
+                      <div style="font-weight:500; font-size:12px;">{{ item.title }}</div>
+                      <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.subtitle }}</div>
                     </div>
-                  </div>
-                </template>
-                <template v-else>
-                  <p class="helper-desc">Personal Access Token.</p>
-                  <div style="position:relative;">
-                    <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="Your Jira PAT" :value="selectedApi.bearerToken"
-                      @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
-                    <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                      <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                    </button>
-                  </div>
-                </template>
-              </div>
-              <div v-if="selectedApi.knownService === 'slack'" class="credential-helper slack-helper">
-                <div class="helper-header"><iconify-icon icon="simple-icons:slack"></iconify-icon>Slack Authentication</div>
-                <p class="helper-desc">
-                  <span v-if="slackTokenType(selectedApi.bearerToken) === 'bot'">Bot token detected</span>
-                  <span v-else-if="slackTokenType(selectedApi.bearerToken) === 'user'">User token detected</span>
-                  <span v-else>Enter an <code>xoxb-</code> Bot Token or <code>xoxp-</code> User Token</span>
-                </p>
-                <div style="position:relative;">
-                  <input :type="selectedApi.showSecret ? 'text' : 'password'" placeholder="xoxb-... or xoxp-..." :value="selectedApi.bearerToken"
-                    @input="selectedApi.authType='bearer'; selectedApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
-                  <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                    <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                  </button>
-                </div>
-              </div>
-
-              <div v-if="selectedApi.knownService === 'gmail'" class="credential-helper gmail-helper">
-                <div class="helper-header"><iconify-icon icon="simple-icons:gmail"></iconify-icon>Gmail Authentication (OAuth 2.0)</div>
-                <div v-if="selectedApi.oauthConnected" style="display:flex; align-items:center; gap:6px; margin:8px 0;">
-                  <iconify-icon icon="mdi:check-circle" style="color:var(--green); font-size:16px;"></iconify-icon>
-                  <span>Connected<span v-if="selectedApi.oauthEmail"> as {{ selectedApi.oauthEmail }}</span></span>
-                </div>
-                <div v-else style="display:flex; align-items:center; gap:6px; margin:8px 0;">
-                  <iconify-icon icon="mdi:alert-circle" style="color:var(--red); font-size:16px;"></iconify-icon>
-                  <span>Not connected — re-add this API to authorize</span>
-                </div>
-                <p class="helper-desc" style="margin-top:4px;">OAuth credentials are encrypted in the profile. Tokens refresh automatically.</p>
-              </div>
-
-              <!-- Generic APIs: full editable connection fields -->
-              <template v-if="!selectedApi.knownService">
-                <div class="form-grid">
-                  <div>
-                    <label>Base URL</label>
-                    <input v-model="selectedApi.baseUrl" placeholder="http://localhost:9999" @blur="detectOnBlur(selectedApi)" />
-                  </div>
-                  <div>
-                    <label>API name</label>
-                    <input v-model="selectedApi.name" placeholder="domain - API type" />
+                    <iconify-icon icon="mdi:plus-circle" style="color:var(--blue); flex-shrink:0;"></iconify-icon>
                   </div>
                 </div>
-
-                <div class="form-grid">
-                  <div>
-                    <label>Spec URL</label>
-                    <input v-model="selectedApi.specUrl" placeholder="autofilled after detect" />
-                  </div>
-                  <div>
-                    <label>Auth type</label>
-                    <select v-model="selectedApi.authType">
-                      <option value="none">None</option>
-                      <option value="bearer">Bearer</option>
-                      <option value="basic">Basic</option>
-                      <option value="api-key">API Key</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div v-if="selectedApi.detectedOptions.length > 1" class="form-grid">
-                  <div>
-                    <label>Detected types</label>
-                    <select @change="selectDetectedOption(selectedApi, selectedApi.detectedOptions[$event.target.selectedIndex])">
-                      <option v-for="opt in selectedApi.detectedOptions" :key="opt.spec_url">
-                        {{ typeLabels[opt.type] || opt.type }} — {{ opt.spec_url }}
-                      </option>
-                    </select>
-                  </div>
-                </div>
-
-                <div v-if="selectedApi.authType === 'bearer'" class="form-grid">
-                  <div>
-                    <label>Bearer token</label>
-                    <div style="position:relative;">
-                      <input v-model="selectedApi.bearerToken" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
-                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                      </button>
+                <div v-else style="padding:12px; text-align:center; color:var(--text-dim); font-size:12px;">No APIs found for "{{ inlineSearch.trim() }}"</div>
+              </template>
+              <template v-else>
+                <div style="max-height:260px; overflow-y:auto;">
+                  <div v-for="item in popularApis" :key="item.id" class="detect-result-item" @mousedown.prevent="addFromLibraryInline(item); inlineSearch = ''" style="cursor:pointer;">
+                    <iconify-icon v-if="item._custom" icon="mdi:plus-circle-outline" style="font-size:18px; flex-shrink:0; color:var(--blue);"></iconify-icon>
+                    <img v-else-if="item.website" :src="faviconUrl(item.website)" style="width:18px; height:18px; flex-shrink:0; object-fit:contain; border-radius:3px;" @error="$event.target.style.display='none'" />
+                    <div style="flex:1; min-width:0;">
+                      <div style="font-weight:500; font-size:12px;">{{ item.title }}</div>
+                      <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.subtitle }}</div>
                     </div>
+                    <iconify-icon icon="mdi:plus-circle" style="color:var(--blue); flex-shrink:0;"></iconify-icon>
                   </div>
                 </div>
-                <div v-if="selectedApi.authType === 'basic'" class="form-grid">
-                  <div><label>Username</label><input v-model="selectedApi.basicUser" /></div>
-                  <div>
-                    <label>Password</label>
-                    <div style="position:relative;">
-                      <input v-model="selectedApi.basicPass" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
-                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="selectedApi.authType === 'api-key'" class="form-grid">
-                  <div><label>Header</label><input v-model="selectedApi.apiKeyHeader" /></div>
-                  <div>
-                    <label>Value</label>
-                    <div style="position:relative;">
-                      <input v-model="selectedApi.apiKeyValue" :type="selectedApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
-                      <button class="token-toggle" @click="selectedApi.showSecret = !selectedApi.showSecret" type="button" title="Toggle token visibility">
-                        <iconify-icon :icon="selectedApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                      </button>
-                    </div>
-                  </div>
+                <div v-if="libraryLoading" style="padding:8px 14px; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border);">
+                  <iconify-icon icon="mdi:loading" style="animation:spin 1s linear infinite; margin-right:4px;"></iconify-icon> Loading more...
                 </div>
               </template>
-
-              <!-- Response Truncation -->
-              <div class="form-grid" style="margin-top:12px;">
-                <div>
-                  <label>Max Response Size</label>
-                  <input v-model="selectedApi.maxResponseBytes" type="number" min="0" step="1024" placeholder="Default (51200 = 50KB)" />
-                  <div class="muted" style="font-size:11px; margin-top:4px;">
-                    Bytes. 0 = no limit. Empty = inherit global default (50KB).
-                  </div>
-                </div>
-              </div>
-
-              <!-- Rate Limiting -->
-              <div style="margin-top:16px;">
-                <div style="font-size:13px; font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                  <iconify-icon icon="mdi:speedometer"></iconify-icon> Rate Limiting
-                </div>
-                <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
-                  <div>
-                    <label>Requests / Minute</label>
-                    <input v-model="selectedApi.rateLimitRpm" type="number" min="0" placeholder="0 = unlimited" />
-                  </div>
-                  <div>
-                    <label>Requests / Hour</label>
-                    <input v-model="selectedApi.rateLimitRph" type="number" min="0" placeholder="0 = unlimited" />
-                  </div>
-                  <div>
-                    <label>Requests / Day</label>
-                    <input v-model="selectedApi.rateLimitRpd" type="number" min="0" placeholder="0 = unlimited" />
-                  </div>
-                </div>
-                <div class="muted" style="font-size:11px; margin-top:4px;">
-                  Per-minute uses token bucket (allows bursts). Per-hour and per-day use fixed windows. 0 or empty = unlimited.
-                </div>
-              </div>
-
-              <!-- Filter Configuration -->
-              <div class="filter-section">
-                <div class="filter-header">
-                  <div class="filter-info">
-                    <div class="filter-title"><iconify-icon icon="mdi:filter-variant"></iconify-icon> Operation Filter</div>
-                    <div class="filter-status" :class="{ active: selectedApi.filterMode }">
-                      <span v-if="!selectedApi.filterMode">No filter — all operations allowed</span>
-                      <span v-else><strong>{{ selectedApi.filterMode === 'allowlist' ? 'Allowlist' : 'Blocklist' }}</strong> · {{ selectedApi.filterOperations.length }} pattern{{ selectedApi.filterOperations.length !== 1 ? 's' : '' }}</span>
-                    </div>
-                  </div>
-                  <div class="filter-actions">
-                    <button class="secondary" @click="toggleFilterConfig(selectedApi)">
-                      <iconify-icon :icon="selectedApi.showFilterConfig ? 'mdi:chevron-up' : 'mdi:tune'"></iconify-icon>
-                      {{ selectedApi.showFilterConfig ? 'Hide' : 'Configure' }}
-                    </button>
-                    <button v-if="selectedApi.filterMode" class="ghost" @click="clearFilter(selectedApi)">
-                      <iconify-icon icon="mdi:close"></iconify-icon> Clear
-                    </button>
-                  </div>
-                </div>
-                <div v-if="selectedApi.showFilterConfig" class="filter-config-panel">
-                  <div class="filter-mode-selector">
-                    <label><iconify-icon icon="mdi:shield-check"></iconify-icon> Filter Mode</label>
-                    <select v-model="selectedApi.filterMode" @change="onFilterModeChange(selectedApi)">
-                      <option value="">Choose filter strategy...</option>
-                      <option value="allowlist">✓ Allowlist — Only selected operations allowed</option>
-                      <option value="blocklist">✗ Blocklist — Selected operations blocked</option>
-                    </select>
-                  </div>
-                  <div v-if="selectedApi.filterLoading" class="loading-state">
-                    <iconify-icon icon="mdi:loading"></iconify-icon>
-                    <div style="margin-top:12px;">Loading operations...</div>
-                  </div>
-                  <div v-else-if="selectedApi.availableOperations.length > 0">
-                    <!-- Filter Toolbar: method pills + search + bulk actions -->
-                    <div class="filter-toolbar">
-                      <div class="method-pills">
-                        <button
-                          v-for="method in allMethodsForApi(selectedApi)"
-                          :key="method"
-                          class="method-pill"
-                          :class="[method.toLowerCase(), { inactive: !isMethodActive(selectedApi, method) }]"
-                          @click="toggleMethodFilter(selectedApi, method)"
-                        >{{ method }}</button>
-                      </div>
-                      <div class="filter-search-wrapper">
-                        <iconify-icon icon="mdi:magnify" class="filter-search-icon"></iconify-icon>
-                        <input
-                          type="text"
-                          class="filter-search-input"
-                          placeholder="Search by name, path, or description..."
-                          :value="getFilterView(selectedApi).searchQuery"
-                          @input="getFilterView(selectedApi).searchQuery = $event.target.value"
-                        />
-                        <button v-if="getFilterView(selectedApi).searchQuery" class="filter-search-clear" @click="clearSearch(selectedApi)">
-                          <iconify-icon icon="mdi:close-circle"></iconify-icon>
-                        </button>
-                      </div>
-                      <div class="filter-bulk-actions">
-                        <span class="filter-visible-count">
-                          {{ filteredOperations(selectedApi).length }} of {{ selectedApi.availableOperations.length }} visible
-                          · {{ selectedApi.selectedOperations.size }} selected
-                        </span>
-                        <button class="ghost small" @click="selectVisible(selectedApi)">
-                          <iconify-icon icon="mdi:checkbox-multiple-marked"></iconify-icon> Select visible
-                        </button>
-                        <button class="ghost small" @click="deselectVisible(selectedApi)">
-                          <iconify-icon icon="mdi:checkbox-multiple-blank-outline"></iconify-icon> Deselect visible
-                        </button>
-                      </div>
-                    </div>
-
-                    <div class="operations-list">
-                      <div v-for="group in filteredGroups(selectedApi)" :key="group.name" class="op-group">
-                        <div class="op-group-header" @click="toggleGroup(selectedApi, group.name)">
-                          <input type="checkbox" class="operation-checkbox"
-                            :checked="group.operations.every(op => selectedApi.selectedOperations.has(op.id))"
-                            :indeterminate.prop="group.operations.some(op => selectedApi.selectedOperations.has(op.id)) && !group.operations.every(op => selectedApi.selectedOperations.has(op.id))"
-                            @click.stop="toggleGroupSelection(selectedApi, group.operations)" />
-                          <iconify-icon :icon="selectedApi.collapsedGroups?.has(group.name) ? 'mdi:chevron-right' : 'mdi:chevron-down'" class="op-group-chevron"></iconify-icon>
-                          <span class="op-group-name">{{ group.name }}</span>
-                          <span class="op-group-count">{{ group.operations.filter(op => selectedApi.selectedOperations.has(op.id)).length }}/{{ group.operations.length }}</span>
-                        </div>
-                        <div v-if="!selectedApi.collapsedGroups?.has(group.name)" class="op-group-body">
-                          <div
-                            v-for="op in group.operations"
-                            :key="op.id"
-                            class="operation-item"
-                            :class="{ selected: selectedApi.selectedOperations.has(op.id) }"
-                            @click="toggleOperationSelection(selectedApi, op.id)"
-                          >
-                            <input type="checkbox" class="operation-checkbox" :checked="selectedApi.selectedOperations.has(op.id)" @click.stop="toggleOperationSelection(selectedApi, op.id)" />
-                            <div class="operation-content">
-                              <div class="operation-header">
-                                <span class="method-badge" :class="op.method.toLowerCase()">{{ op.method }}</span>
-                                <span class="operation-id">{{ op.id }}</span>
-                              </div>
-                              <div class="operation-path">{{ op.path }}</div>
-                              <div v-if="op.summary" class="operation-summary">{{ op.summary }}</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="filter-live-preview" v-if="selectedApi.filterMode && selectedApi.selectedOperations.size > 0">
-                      <iconify-icon icon="mdi:check-circle"></iconify-icon>
-                      <span v-if="selectedApi.filterMode === 'allowlist'">Exposing <strong>{{ selectedApi.selectedOperations.size }}</strong> of {{ selectedApi.availableOperations.length }} operations</span>
-                      <span v-else>Blocking <strong>{{ selectedApi.selectedOperations.size }}</strong>, exposing {{ selectedApi.availableOperations.length - selectedApi.selectedOperations.size }}</span>
-                    </div>
-                  </div>
-                  <div v-else class="empty-state">
-                    <iconify-icon icon="mdi:file-document-outline"></iconify-icon>
-                    <div style="margin-top:8px; font-weight:500;">No operations loaded yet</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="toolbar" style="margin-top:12px;">
-              <div v-if="status.message" class="status">
-                <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
-                <span>{{ status.message }}</span>
-              </div>
-              <span v-else style="font-size:12px; color:var(--text-dim);">Changes auto-save</span>
             </div>
           </div>
 
-        </template>
-
-        <!-- Profile View: profile selected, no API -->
-        <template v-else>
-          <div class="view-header">
-            <div class="view-title">
-              <iconify-icon icon="mdi:folder-account" style="font-size:20px;"></iconify-icon>
-              {{ activeProfile }}
-            </div>
+          <!-- Status / toast -->
+          <div v-if="status.message" class="profile-status">
+            <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
+            <span>{{ status.message }}</span>
           </div>
-          <div class="tab-bar">
-            <button :class="['tab-btn', { active: profileTab === 'overview' }]" @click="profileTab = 'overview'">Overview</button>
-            <button :class="['tab-btn', { active: profileTab === 'apis' }]" @click="profileTab = 'apis'">APIs</button>
-            <button :class="['tab-btn', { active: profileTab === 'settings' }]" @click="profileTab = 'settings'">Settings</button>
+          <div v-if="addedToast" class="toast fade-in" style="margin-bottom:6px; font-size:12px;">Added to profile</div>
+
+          <!-- API rows -->
+          <div v-if="form.apis.length === 0" style="padding:8px 0 4px; text-align:center; color:var(--text-dim); font-size:13px;">
+            No APIs yet
           </div>
-
-          <!-- Overview tab: always-visible dashboard -->
-          <div v-if="profileTab === 'overview'" class="tab-content">
-            <div v-if="statsLoading" class="loading-state" style="padding:40px; text-align:center;">
-              <iconify-icon icon="mdi:loading" style="font-size:32px; color:var(--text-dim);"></iconify-icon>
-              <div style="margin-top:12px; color:var(--text-dim);">Loading stats...</div>
+          <div v-for="api in form.apis" :key="api.id" class="api-row">
+            <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'" style="font-size:22px; flex-shrink:0; color:var(--blue);"></iconify-icon>
+            <div class="api-row-info">
+              <span class="api-row-name">{{ api.name || api.specUrl || 'Unconfigured' }}</span>
+              <span class="api-row-type">{{ api.knownService ? serviceLabels[api.knownService] : (api.type ? typeLabels[api.type] : 'Unknown') }}</span>
             </div>
-            <div v-else>
-              <!-- Connection & profile summary -->
-              <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; display:flex; align-items:center; gap:12px;">
-                  <div :style="{ width:'10px', height:'10px', borderRadius:'50%', background: (profileMetrics && profileMetrics.active_connections > 0) ? 'var(--green)' : 'var(--text-dim)', boxShadow: (profileMetrics && profileMetrics.active_connections > 0) ? '0 0 8px var(--green)' : 'none' }"></div>
-                  <div>
-                    <div style="font-weight:600; font-size:14px;">{{ (profileMetrics && profileMetrics.active_connections > 0) ? 'Agent Connected' : 'No Agent Connected' }}</div>
-                    <div class="muted" style="font-size:12px;">{{ (profileMetrics && profileMetrics.active_connections) || 0 }} active {{ (profileMetrics && profileMetrics.active_connections === 1) ? 'connection' : 'connections' }}</div>
-                  </div>
-                </div>
-                <div style="display:flex; gap:12px;">
-                  <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; text-align:center; min-width:90px;">
-                    <div style="font-size:22px; font-weight:700;">{{ form.apis.length }}</div>
-                    <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">APIs</div>
-                  </div>
-                  <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; text-align:center; min-width:90px;">
-                    <div style="font-size:22px; font-weight:700;">{{ (profileMetrics && profileMetrics.total_connections) || 0 }}</div>
-                    <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Sessions</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Metrics grid — always visible, zeros when empty -->
-              <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
-                <div class="stat-card">
-                  <div class="stat-value">{{ (profileStats && profileStats.total_requests) || 0 }}</div>
-                  <div class="stat-label">Tool Calls (24h)</div>
-                </div>
-                <div class="stat-card" :class="{ 'stat-error': profileStats && profileStats.error_rate > 10 }">
-                  <div class="stat-value">{{ profileStats && profileStats.total_requests > 0 ? profileStats.error_rate.toFixed(1) + '%' : '0%' }}</div>
-                  <div class="stat-label">Error Rate</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ profileStats && profileStats.avg_duration_ms > 0 ? profileStats.avg_duration_ms + 'ms' : '--' }}</div>
-                  <div class="stat-label">Avg Latency</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ (profileStats && profileStats.successful_requests) || 0 }}</div>
-                  <div class="stat-label">Successful</div>
-                </div>
-              </div>
-
-              <!-- Token usage -->
-              <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
-                <div class="stat-card">
-                  <div class="stat-value" style="font-size:22px;">{{ (profileStats && profileStats.est_request_tokens) ? profileStats.est_request_tokens.toLocaleString() : '0' }}</div>
-                  <div class="stat-label">Est. Tokens In</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value" style="font-size:22px;">{{ (profileStats && profileStats.est_response_tokens) ? profileStats.est_response_tokens.toLocaleString() : '0' }}</div>
-                  <div class="stat-label">Est. Tokens Out</div>
-                </div>
-              </div>
-
-              <!-- Top APIs -->
-              <div class="stats-section">
-                <div class="stats-section-title">Top APIs</div>
-                <div v-if="profileStats && profileStats.top_apis && profileStats.top_apis.length > 0" class="stats-table">
-                  <div class="stats-row header"><span>API</span><span>Calls</span><span>Errors</span><span>Avg ms</span></div>
-                  <div v-for="a in profileStats.top_apis" :key="a.name" class="stats-row">
-                    <span>{{ a.name }}</span><span>{{ a.calls }}</span><span>{{ a.errors }}</span><span>{{ a.avg_ms }}</span>
-                  </div>
-                </div>
-                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
-                  API usage will appear here when agents start making calls
-                </div>
-              </div>
-
-              <!-- Top Tools -->
-              <div class="stats-section">
-                <div class="stats-section-title">Top Tools</div>
-                <div v-if="profileStats && profileStats.top_tools && profileStats.top_tools.length > 0" class="stats-table">
-                  <div class="stats-row header"><span>Tool</span><span>Calls</span><span>Errors</span><span>Avg ms</span></div>
-                  <div v-for="t in profileStats.top_tools" :key="t.name" class="stats-row">
-                    <span>{{ t.name }}</span><span>{{ t.calls }}</span><span>{{ t.errors }}</span><span>{{ t.avg_ms }}</span>
-                  </div>
-                </div>
-                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
-                  Tool call breakdown will appear here after first usage
-                </div>
-              </div>
-
-              <!-- Recent Activity -->
-              <div class="stats-section">
-                <div class="stats-section-title">Recent Activity</div>
-                <div v-if="profileStats && profileStats.recent_events && profileStats.recent_events.length > 0">
-                  <div v-for="e in profileStats.recent_events.slice(0, 10)" :key="e.id" class="event-row">
-                    <span class="event-dot" :class="{ ok: e.success, err: !e.success }"></span>
-                    <span class="event-tool">{{ e.tool_name || e.event_type }}</span>
-                    <span class="event-api muted">{{ e.api_name }}</span>
-                    <span v-if="e.request_size || e.response_size" class="muted" style="font-size:11px; color:#FBBF24;">~{{ Math.round((e.request_size || 0) / 4) }}/{{ Math.round((e.response_size || 0) / 4) }} tok</span>
-                    <span class="event-dur muted">{{ e.duration_ms }}ms</span>
-                  </div>
-                </div>
-                <div v-else style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--text-dim); font-size:13px;">
-                  Activity log will stream here as agents call tools
-                </div>
-              </div>
+            <div class="api-row-actions">
+              <button class="ghost small" @click="configModalApiId = api.id" title="Configure API">
+                <iconify-icon icon="mdi:cog-outline" style="font-size:13px;"></iconify-icon> Config
+              </button>
+              <button class="ghost small" :class="{ active: api.filterMode }" @click="filterModalApiId = api.id; toggleFilterConfig(api)" title="Operation Filter">
+                <iconify-icon icon="mdi:filter-variant" style="font-size:13px;"></iconify-icon>
+                <span v-if="api.filterMode" style="color:var(--blue);">{{ api.filterOperations.length }} ops</span>
+                <span v-else>Filter</span>
+              </button>
+              <button class="icon-btn" style="color:var(--text-dim);" @click="removeApi(api.id)" title="Remove API">
+                <iconify-icon icon="mdi:close" style="font-size:14px;"></iconify-icon>
+              </button>
             </div>
           </div>
 
-          <!-- APIs tab -->
-          <div v-else-if="profileTab === 'apis'" class="tab-content">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-              <div class="step-pill">APIs in Profile</div>
-              <div style="display:flex; align-items:center; gap:12px;">
-                <div v-if="addedToast" class="toast fade-in">Added to profile</div>
-                <button class="primary" @click="openAddFlow">
-                  <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-                  Add API
-                </button>
-              </div>
-            </div>
-            <div v-if="form.apis.length === 0" style="text-align:center; padding:60px 20px;">
-              <iconify-icon icon="mdi:api" style="font-size:48px; color:var(--text-dim); opacity:0.4; margin-bottom:16px; display:block;"></iconify-icon>
-              <div style="font-size:15px; font-weight:500; color:var(--text-muted); margin-bottom:8px;">No APIs added yet</div>
-              <div style="font-size:13px; color:var(--text-dim); margin-bottom:20px;">Connect your first API to start generating MCP tools.</div>
-              <div style="display:flex; gap:10px; justify-content:center;">
-                <button class="primary" @click="openAddFlow" style="padding:12px 24px; font-size:14px;">
-                  <iconify-icon icon="mdi:plus-circle-outline"></iconify-icon>
-                  Add Your First API
-                </button>
-                <button class="ghost" @click="openImportFlow" style="padding:12px 24px; font-size:14px;">
-                  <iconify-icon icon="mdi:import"></iconify-icon>
-                  Import Profile
-                </button>
-              </div>
-            </div>
-            <div
-              v-for="api in form.apis"
-              :key="api.id"
-              class="api-card api-card-list"
-              @click="selectApi(api.id)"
-              style="cursor:pointer;"
-            >
-              <div class="api-header">
-                <div class="api-type">
-                  <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'"></iconify-icon>
-                  <div>
-                    <div>{{ api.knownService ? serviceLabels[api.knownService] : (api.type ? typeLabels[api.type] : "Unknown type") }}</div>
-                    <div class="muted">{{ api.name || api.specUrl }}</div>
-                  </div>
-                </div>
-                <div class="api-actions">
-                  <button class="ghost" @click.stop="removeApi(api.id)">Remove</button>
-                  <iconify-icon icon="mdi:chevron-right" style="color:var(--text-dim); font-size:18px;"></iconify-icon>
-                </div>
-              </div>
-            </div>
+        </div>
+      </div>
+
+      <!-- Connect Modal: tabbed snippet viewer -->
+      <div v-if="showConnectModal" class="modal-backdrop" @click.self="showConnectModal = false">
+        <div class="modal-card connect-modal">
+          <div class="modal-header">
+            <iconify-icon icon="mdi:connection" style="font-size:20px; color:var(--blue);"></iconify-icon>
+            <span>Connect to <strong>{{ activeProfile }}</strong></span>
+            <button class="icon-btn" @click="showConnectModal = false" style="margin-left:auto;">
+              <iconify-icon icon="mdi:close"></iconify-icon>
+            </button>
           </div>
-
-          <!-- Settings tab -->
-          <div v-else-if="profileTab === 'settings'" class="tab-content">
-            <div class="profile-header-card">
-              <div class="form-grid">
-                <div>
-                  <label>Profile name</label>
-                  <input v-model="form.profileName" placeholder="dev, prod, agent-a" />
-                </div>
-                <div>
-                  <label>Profile token</label>
-                  <div v-if="form.profileToken" style="position:relative;">
-                    <input :value="form.profileToken" :type="showToken ? 'text' : 'password'" disabled style="width:100%; padding-right:40px;" />
-                    <button class="token-toggle" @click="toggleTokenVisibility" type="button" title="Toggle token visibility">
-                      <iconify-icon :icon="showToken ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
-                    </button>
-                  </div>
-                  <div v-else class="token-placeholder">
-                    <iconify-icon icon="mdi:information-outline"></iconify-icon>
-                    <span>Save profile to generate token</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <!-- MCP client connect section -->
-            <div v-if="form.profileToken" class="connect-section">
-              <div class="connect-section-heading">
-                <iconify-icon icon="mdi:connection"></iconify-icon>
-                <span>Connect your AI client</span>
-              </div>
-
-              <!-- Claude Desktop -->
-              <div class="connect-panel">
-                <div class="kube-tutorial-toggle" @click="connectPanel = connectPanel === 'claude-desktop' ? '' : 'claude-desktop'">
-                  <iconify-icon :icon="connectPanel === 'claude-desktop' ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                  <iconify-icon icon="simple-icons:anthropic" style="font-size:13px; color:#d97757;"></iconify-icon>
-                  <span>Claude Desktop</span>
-                </div>
-                <div v-if="connectPanel === 'claude-desktop'" class="kube-tutorial">
-                  <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows):</p>
-                  <pre>{{ claudeDesktopSnippet }}</pre>
-                  <div class="tutorial-actions">
-                    <button class="ghost" style="font-size:11px; padding:3px 8px;" @click="copySnippet(claudeDesktopSnippet)">
-                      <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Claude Code -->
-              <div class="connect-panel">
-                <div class="kube-tutorial-toggle" @click="connectPanel = connectPanel === 'claude-code' ? '' : 'claude-code'">
-                  <iconify-icon :icon="connectPanel === 'claude-code' ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                  <iconify-icon icon="mdi:console-line" style="font-size:13px; color:#d97757;"></iconify-icon>
-                  <span>Claude Code (CLI)</span>
-                </div>
-                <div v-if="connectPanel === 'claude-code'" class="kube-tutorial">
-                  <p>Run in your terminal:</p>
-                  <pre>{{ claudeCodeCmd }}</pre>
-                  <div class="tutorial-actions">
-                    <button class="ghost" style="font-size:11px; padding:3px 8px;" @click="copySnippet(claudeCodeCmd)">
-                      <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
-                    </button>
-                  </div>
-                  <p>Or add to <code>~/.claude/settings.json</code>:</p>
-                  <pre>{{ claudeCodeSettings }}</pre>
-                  <div class="tutorial-actions">
-                    <button class="ghost" style="font-size:11px; padding:3px 8px;" @click="copySnippet(claudeCodeSettings)">
-                      <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Cline (VS Code) -->
-              <div class="connect-panel">
-                <div class="kube-tutorial-toggle" @click="connectPanel = connectPanel === 'cline' ? '' : 'cline'">
-                  <iconify-icon :icon="connectPanel === 'cline' ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                  <iconify-icon icon="mdi:puzzle-outline" style="font-size:13px; color:#8b5cf6;"></iconify-icon>
-                  <span>Cline (VS Code)</span>
-                </div>
-                <div v-if="connectPanel === 'cline'" class="kube-tutorial">
-                  <p>In Cline, go to <strong>MCP Servers → Add Server</strong>, or edit <code>cline_mcp_settings.json</code>:</p>
-                  <pre>{{ clineSnippet }}</pre>
-                  <div class="tutorial-actions">
-                    <button class="ghost" style="font-size:11px; padding:3px 8px;" @click="copySnippet(clineSnippet)">
-                      <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Codex CLI -->
-              <div class="connect-panel">
-                <div class="kube-tutorial-toggle" @click="connectPanel = connectPanel === 'codex' ? '' : 'codex'">
-                  <iconify-icon :icon="connectPanel === 'codex' ? 'mdi:chevron-down' : 'mdi:chevron-right'"></iconify-icon>
-                  <iconify-icon icon="simple-icons:openai" style="font-size:13px; color:#74aa9c;"></iconify-icon>
-                  <span>Codex CLI</span>
-                </div>
-                <div v-if="connectPanel === 'codex'" class="kube-tutorial">
-                  <p>Add to <code>~/.codex/config.toml</code> (global) or <code>.codex/config.toml</code> in your project:</p>
-                  <pre>{{ codexSnippet }}</pre>
-                  <div class="tutorial-actions">
-                    <button class="ghost" style="font-size:11px; padding:3px 8px;" @click="copySnippet(codexSnippet)">
-                      <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="toolbar" style="margin-top:20px;">
-              <button class="primary" :disabled="isBusy" @click="saveProfile()">Save Profile</button>
-              <button v-if="activeProfile !== defaultProfile" class="ghost" :disabled="isBusy || !form.profileName" @click="deleteProfile">Delete Profile</button>
-              <div v-if="status.message" class="status" style="margin-left:auto;">
-                <span class="status-dot" :class="{ ok: status.state === 'ok', err: status.state === 'error' }"></span>
-                <span>{{ status.message }}</span>
-              </div>
-            </div>
+          <div class="connect-tabs">
+            <button :class="['connect-tab', { active: connectTab === 'claude-desktop' }]" @click="connectTab = 'claude-desktop'">
+              <iconify-icon icon="simple-icons:anthropic" style="font-size:12px; color:#d97757;"></iconify-icon>
+              Desktop
+            </button>
+            <button :class="['connect-tab', { active: connectTab === 'claude-code' }]" @click="connectTab = 'claude-code'">
+              <iconify-icon icon="mdi:console-line" style="font-size:12px; color:#d97757;"></iconify-icon>
+              Code CLI
+            </button>
+            <button :class="['connect-tab', { active: connectTab === 'cline' }]" @click="connectTab = 'cline'">
+              <iconify-icon icon="mdi:puzzle-outline" style="font-size:12px; color:#8b5cf6;"></iconify-icon>
+              Cline
+            </button>
+            <button :class="['connect-tab', { active: connectTab === 'codex' }]" @click="connectTab = 'codex'">
+              <iconify-icon icon="simple-icons:openai" style="font-size:12px; color:#74aa9c;"></iconify-icon>
+              Codex
+            </button>
           </div>
-        </template>
-      </main>
+          <div class="connect-tab-content">
+            <!-- Claude Desktop -->
+            <template v-if="connectTab === 'claude-desktop'">
+              <p class="connect-hint">Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\\Claude\\claude_desktop_config.json</code> (Windows):</p>
+              <pre class="connect-snippet">{{ claudeDesktopSnippet }}</pre>
+              <button class="ghost small connect-copy" @click="copySnippet(claudeDesktopSnippet)">
+                <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
+              </button>
+            </template>
+            <!-- Claude Code -->
+            <template v-else-if="connectTab === 'claude-code'">
+              <p class="connect-hint">Run in your terminal:</p>
+              <pre class="connect-snippet">{{ claudeCodeCmd }}</pre>
+              <button class="ghost small connect-copy" @click="copySnippet(claudeCodeCmd)">
+                <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy command
+              </button>
+              <p class="connect-hint" style="margin-top:12px;">Or add to <code>~/.claude/settings.json</code>:</p>
+              <pre class="connect-snippet">{{ claudeCodeSettings }}</pre>
+              <button class="ghost small connect-copy" @click="copySnippet(claudeCodeSettings)">
+                <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy JSON
+              </button>
+            </template>
+            <!-- Cline -->
+            <template v-else-if="connectTab === 'cline'">
+              <p class="connect-hint">In Cline, go to <strong>MCP Servers &rarr; Add Server</strong>, or edit <code>cline_mcp_settings.json</code>:</p>
+              <pre class="connect-snippet">{{ clineSnippet }}</pre>
+              <button class="ghost small connect-copy" @click="copySnippet(clineSnippet)">
+                <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
+              </button>
+            </template>
+            <!-- Codex CLI -->
+            <template v-else-if="connectTab === 'codex'">
+              <p class="connect-hint">Add to <code>~/.codex/config.toml</code> (global) or <code>.codex/config.toml</code> in your project:</p>
+              <pre class="connect-snippet">{{ codexSnippet }}</pre>
+              <button class="ghost small connect-copy" @click="copySnippet(codexSnippet)">
+                <iconify-icon icon="mdi:content-copy"></iconify-icon> Copy
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
 
       <!-- Add API Modal -->
       <div v-if="addFlow.open" class="modal-backdrop" @click.self="closeAddFlow">
@@ -2917,27 +2629,103 @@ createApp({
               <span>Add {{ guidedSetup.item.title }}</span>
             </div>
             <div class="modal-body">
-              <div v-for="field in guidedSetup.item.setup.fields" :key="field.key" style="margin-bottom:12px;">
-                <label>{{ field.label }} <span v-if="field.required" style="color:var(--red);">*</span></label>
-                <input
-                  v-if="field.type === 'password'"
-                  type="password"
-                  v-model="guidedSetup.fields[field.key]"
-                  :placeholder="field.placeholder || ''"
-                />
-                <input
-                  v-else-if="field.type === 'url'"
-                  type="url"
-                  v-model="guidedSetup.fields[field.key]"
-                  :placeholder="field.placeholder || ''"
-                />
-                <input
-                  v-else
-                  type="text"
-                  v-model="guidedSetup.fields[field.key]"
-                  :placeholder="field.placeholder || ''"
-                />
-              </div>
+              <!-- Email discovered phase: show provider + server settings + verification -->
+              <template v-if="guidedSetup.emailPhase === 'discovered'">
+                <!-- Provider discovery result -->
+                <div
+                  style="padding:10px 12px; border-radius:var(--radius); margin-bottom:16px; font-size:12px; display:flex; align-items:center; gap:8px;"
+                  :style="guidedSetup.emailProvider !== 'unknown'
+                    ? { background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: 'var(--text-muted)' }
+                    : { background: 'rgba(255,200,0,0.08)', border: '1px solid rgba(255,200,0,0.2)', color: 'var(--text-muted)' }"
+                >
+                  <iconify-icon
+                    :icon="guidedSetup.emailProvider !== 'unknown' ? 'mdi:check-circle' : 'mdi:information-outline'"
+                    :style="{ color: guidedSetup.emailProvider !== 'unknown' ? 'var(--green)' : 'var(--orange)', fontSize: '16px' }"
+                  ></iconify-icon>
+                  <span v-if="guidedSetup.emailProvider !== 'unknown'">
+                    Detected <strong>{{ guidedSetup.emailProvider }}</strong> for {{ guidedSetup.fields.email }}
+                  </span>
+                  <span v-else>
+                    Could not auto-detect provider for <strong>{{ guidedSetup.fields.email }}</strong>. Please enter server details manually.
+                  </span>
+                </div>
+
+                <!-- Verification result (shown after verify attempt) -->
+                <div v-if="guidedSetup.emailVerify" style="margin-bottom:16px;">
+                  <div style="display:flex; gap:12px; font-size:12px;">
+                    <span style="display:flex; align-items:center; gap:4px;">
+                      <iconify-icon
+                        :icon="guidedSetup.emailVerify.imap === 'ok' ? 'mdi:check-circle' : guidedSetup.emailVerify.imap === 'skipped' ? 'mdi:minus-circle' : 'mdi:close-circle'"
+                        :style="{ color: guidedSetup.emailVerify.imap === 'ok' ? 'var(--green)' : guidedSetup.emailVerify.imap === 'skipped' ? 'var(--text-dim)' : 'var(--red)' }"
+                      ></iconify-icon>
+                      IMAP: {{ guidedSetup.emailVerify.imap }}
+                    </span>
+                    <span style="display:flex; align-items:center; gap:4px;">
+                      <iconify-icon
+                        :icon="guidedSetup.emailVerify.smtp === 'ok' ? 'mdi:check-circle' : guidedSetup.emailVerify.smtp === 'skipped' ? 'mdi:minus-circle' : 'mdi:close-circle'"
+                        :style="{ color: guidedSetup.emailVerify.smtp === 'ok' ? 'var(--green)' : guidedSetup.emailVerify.smtp === 'skipped' ? 'var(--text-dim)' : 'var(--red)' }"
+                      ></iconify-icon>
+                      SMTP: {{ guidedSetup.emailVerify.smtp }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Editable server settings -->
+                <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-dim); margin-bottom:8px; font-weight:600;">Server Settings</div>
+                <div style="display:grid; grid-template-columns:1fr auto; gap:8px; margin-bottom:12px;">
+                  <div>
+                    <label>SMTP Host <span style="color:var(--text-dim); font-weight:400;">(sending)</span></label>
+                    <input type="text" v-model="guidedSetup.fields.smtp_host" placeholder="smtp.example.com" />
+                  </div>
+                  <div>
+                    <label>Port</label>
+                    <input type="text" v-model="guidedSetup.fields.smtp_port" placeholder="587" style="width:70px;" />
+                  </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label>SMTP Security</label>
+                  <select v-model="guidedSetup.fields.smtp_tls" style="width:150px;">
+                    <option value="starttls">STARTTLS</option>
+                    <option value="tls">TLS/SSL</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr auto; gap:8px; margin-bottom:12px;">
+                  <div>
+                    <label>IMAP Host <span style="color:var(--text-dim); font-weight:400;">(reading)</span></label>
+                    <input type="text" v-model="guidedSetup.fields.imap_host" placeholder="imap.example.com" />
+                  </div>
+                  <div>
+                    <label>Port</label>
+                    <input type="text" v-model="guidedSetup.fields.imap_port" placeholder="993" style="width:70px;" />
+                  </div>
+                </div>
+              </template>
+
+              <!-- Standard fields (non-email or email initial phase) -->
+              <template v-else>
+                <div v-for="field in guidedSetup.item.setup.fields" :key="field.key" style="margin-bottom:12px;">
+                  <label>{{ field.label }} <span v-if="field.required" style="color:var(--red);">*</span></label>
+                  <input
+                    v-if="field.type === 'password'"
+                    type="password"
+                    v-model="guidedSetup.fields[field.key]"
+                    :placeholder="field.placeholder || ''"
+                  />
+                  <input
+                    v-else-if="field.type === 'url'"
+                    type="url"
+                    v-model="guidedSetup.fields[field.key]"
+                    :placeholder="field.placeholder || ''"
+                  />
+                  <input
+                    v-else
+                    type="text"
+                    v-model="guidedSetup.fields[field.key]"
+                    :placeholder="field.placeholder || ''"
+                  />
+                </div>
+              </template>
 
               <!-- Tutorial toggle -->
               <div v-if="guidedSetup.item.setup.tutorial" style="margin-top:16px;">
@@ -2954,10 +2742,14 @@ createApp({
               <div v-if="guidedSetup.error" class="modal-error" style="margin-top:12px;">{{ guidedSetup.error }}</div>
             </div>
             <div class="modal-footer">
-              <button class="ghost" @click="addFlow.step = 'pick'">Back</button>
+              <button class="ghost" @click="guidedSetup.emailPhase === 'discovered' ? (guidedSetup.emailPhase = 'initial', guidedSetup.emailVerify = null, guidedSetup.error = '') : (addFlow.step = 'pick')">Back</button>
               <button class="primary" :disabled="guidedSetup.busy" @click="submitGuidedSetup">
                 <iconify-icon v-if="guidedSetup.busy" icon="mdi:loading" style="animation:spin 1s linear infinite;"></iconify-icon>
-                {{ guidedSetup.busy ? 'Verifying...' : 'Add ' + guidedSetup.item.title }}
+                {{ guidedSetup.busy
+                  ? (guidedSetup.emailPhase === 'initial' ? 'Detecting...' : 'Verifying...')
+                  : guidedSetup.emailPhase === 'initial' ? 'Detect Provider'
+                  : guidedSetup.emailPhase === 'discovered' ? 'Verify & Add'
+                  : 'Add ' + guidedSetup.item.title }}
               </button>
             </div>
           </template>
@@ -3275,6 +3067,264 @@ createApp({
               <iconify-icon icon="mdi:check"></iconify-icon>
               Create
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile Settings Modal -->
+      <div v-if="profileSettingsModal" class="modal-backdrop" @click.self="profileSettingsModal = ''">
+        <div class="modal-card" style="max-width:400px;">
+          <div class="modal-header">
+            <iconify-icon icon="mdi:folder-cog-outline" style="font-size:20px; color:var(--blue);"></iconify-icon>
+            <span>Profile Settings — {{ profileSettingsModal }}</span>
+          </div>
+          <div class="modal-body">
+            <div style="margin-bottom:12px;">
+              <label>Profile name</label>
+              <input v-model="form.profileName" placeholder="dev, prod, agent-a" />
+            </div>
+            <div style="margin-bottom:12px;">
+              <label>Profile token</label>
+              <div v-if="form.profileToken" style="position:relative;">
+                <input :value="form.profileToken" :type="showToken ? 'text' : 'password'" disabled style="width:100%; padding-right:36px;" />
+                <button class="token-toggle" @click="toggleTokenVisibility" type="button">
+                  <iconify-icon :icon="showToken ? 'mdi:eye-off' : 'mdi:eye'" style="font-size:14px;"></iconify-icon>
+                </button>
+              </div>
+              <div v-else class="token-placeholder" style="font-size:12px;">
+                <iconify-icon icon="mdi:information-outline"></iconify-icon>
+                <span>Save profile to generate token</span>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button v-if="activeProfile !== defaultProfile" class="ghost" style="color:var(--red);" :disabled="isBusy" @click="deleteProfile().then(() => { if (!activeProfile) profileSettingsModal = '' })">Delete</button>
+            <button class="primary" :disabled="isBusy" @click="saveProfile(); profileSettingsModal = ''">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Config Modal -->
+      <div v-if="configModalApi" class="modal-backdrop" @click.self="configModalApiId = ''">
+        <div class="modal-card" style="max-width:560px; width:95%;">
+          <div class="modal-header">
+            <iconify-icon :icon="serviceIcons[configModalApi.knownService] || typeIcons[configModalApi.type] || 'mdi:cloud-outline'" style="font-size:20px;"></iconify-icon>
+            <span>{{ configModalApi.name || configModalApi.specUrl || 'API Config' }}</span>
+            <div style="margin-left:auto; display:flex; gap:6px;">
+              <button class="secondary small" :disabled="isBusy" @click="detectApi(configModalApi)">Re-detect</button>
+              <button class="secondary small" :disabled="isBusy" @click="testApi(configModalApi)">Test</button>
+            </div>
+          </div>
+          <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+            <!-- Known services: read-only connection info -->
+            <div v-if="configModalApi.knownService" class="form-grid">
+              <div><label>Base URL</label><input :value="configModalApi.baseUrl" readonly class="input-readonly" /></div>
+              <div><label>API name</label><input v-model="configModalApi.name" placeholder="domain - API type" /></div>
+            </div>
+
+            <!-- Known-service credential helpers -->
+            <div v-if="configModalApi.knownService === 'gitlab'" class="credential-helper">
+              <div class="helper-header"><iconify-icon icon="simple-icons:gitlab"></iconify-icon>GitLab Authentication</div>
+              <p class="helper-desc">Personal Access Token (requires <code>api</code> scope).</p>
+              <div style="position:relative;">
+                <input :type="configModalApi.showSecret ? 'text' : 'password'" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" :value="configModalApi.bearerToken"
+                  @input="configModalApi.authType='bearer'; configModalApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button">
+                  <iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon>
+                </button>
+              </div>
+            </div>
+            <div v-if="configModalApi.knownService === 'jira'" class="credential-helper">
+              <div class="helper-header"><iconify-icon icon="simple-icons:jira"></iconify-icon>Jira Authentication</div>
+              <template v-if="configModalApi.authType === 'basic'">
+                <p class="helper-desc">Email &amp; API Token (Jira Cloud).</p>
+                <div class="form-grid">
+                  <div><label>Email</label><input v-model="configModalApi.basicUser" placeholder="you@company.com" /></div>
+                  <div><label>API Token</label>
+                    <div style="position:relative;"><input :type="configModalApi.showSecret ? 'text' : 'password'" :value="configModalApi.basicPass" @input="configModalApi.basicPass=$event.target.value" style="width:100%; padding-right:40px;" />
+                      <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <p class="helper-desc">Personal Access Token.</p>
+                <div style="position:relative;"><input :type="configModalApi.showSecret ? 'text' : 'password'" placeholder="Your Jira PAT" :value="configModalApi.bearerToken" @input="configModalApi.authType='bearer'; configModalApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                  <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+              </template>
+            </div>
+            <div v-if="configModalApi.knownService === 'slack'" class="credential-helper">
+              <div class="helper-header"><iconify-icon icon="simple-icons:slack"></iconify-icon>Slack Authentication</div>
+              <p class="helper-desc">
+                <span v-if="slackTokenType(configModalApi.bearerToken) === 'bot'">Bot token detected</span>
+                <span v-else-if="slackTokenType(configModalApi.bearerToken) === 'user'">User token detected</span>
+                <span v-else>Enter an <code>xoxb-</code> Bot Token or <code>xoxp-</code> User Token</span>
+              </p>
+              <div style="position:relative;"><input :type="configModalApi.showSecret ? 'text' : 'password'" placeholder="xoxb-... or xoxp-..." :value="configModalApi.bearerToken" @input="configModalApi.authType='bearer'; configModalApi.bearerToken=$event.target.value" style="width:100%; padding-right:40px;" />
+                <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+            </div>
+            <div v-if="configModalApi.knownService === 'gmail'" class="credential-helper">
+              <div class="helper-header"><iconify-icon icon="simple-icons:gmail"></iconify-icon>Gmail (OAuth 2.0)</div>
+              <div v-if="configModalApi.oauthConnected" style="display:flex; align-items:center; gap:6px; margin:8px 0;">
+                <iconify-icon icon="mdi:check-circle" style="color:var(--green); font-size:16px;"></iconify-icon>
+                <span>Connected<span v-if="configModalApi.oauthEmail"> as {{ configModalApi.oauthEmail }}</span></span>
+              </div>
+              <div v-else style="display:flex; align-items:center; gap:6px; margin:8px 0;">
+                <iconify-icon icon="mdi:alert-circle" style="color:var(--red); font-size:16px;"></iconify-icon>
+                <span>Not connected — re-add this API to authorize</span>
+              </div>
+            </div>
+
+            <!-- Email protocol settings -->
+            <template v-if="configModalApi.type === 'email'">
+              <div class="form-grid">
+                <div><label>API Name</label><input v-model="configModalApi.name" placeholder="email" /></div>
+                <div><label>Provider</label><input :value="configModalApi.emailProvider || 'custom'" readonly class="input-readonly" /></div>
+              </div>
+              <div class="credential-helper" style="margin-top:12px;">
+                <div class="helper-header"><iconify-icon icon="mdi:email-outline"></iconify-icon>Email Account</div>
+                <div class="form-grid">
+                  <div><label>Email</label><input v-model="configModalApi.emailAddress" placeholder="you@example.com" /></div>
+                  <div><label>Password</label>
+                    <div style="position:relative;"><input :type="configModalApi.showSecret ? 'text' : 'password'" v-model="configModalApi.emailPassword" placeholder="App password" style="width:100%; padding-right:40px;" />
+                      <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:12px; font-size:13px; font-weight:600; margin-bottom:8px;"><iconify-icon icon="mdi:server-network"></iconify-icon> Server Settings</div>
+              <div class="form-grid">
+                <div><label>SMTP Host</label><input v-model="configModalApi.emailSmtpHost" /></div>
+                <div><label>SMTP Port</label><input v-model="configModalApi.emailSmtpPort" style="width:80px;" /></div>
+              </div>
+              <div class="form-grid" style="margin-top:8px;">
+                <div><label>IMAP Host</label><input v-model="configModalApi.emailImapHost" /></div>
+                <div><label>IMAP Port</label><input v-model="configModalApi.emailImapPort" style="width:80px;" /></div>
+              </div>
+              <div style="margin-top:12px;"><div style="font-size:13px; font-weight:600; margin-bottom:8px;"><iconify-icon icon="mdi:connection"></iconify-icon> Connection Mode</div>
+                <div style="display:flex; gap:12px;">
+                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="radio" v-model="configModalApi.emailConnectionMode" value="basic" /> Basic</label>
+                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="radio" v-model="configModalApi.emailConnectionMode" value="persistent" /> Persistent</label>
+                </div>
+              </div>
+            </template>
+
+            <!-- Generic APIs -->
+            <template v-if="!configModalApi.knownService && configModalApi.type !== 'email'">
+              <div class="form-grid">
+                <div><label>Base URL</label><input v-model="configModalApi.baseUrl" @blur="detectOnBlur(configModalApi)" /></div>
+                <div><label>API name</label><input v-model="configModalApi.name" /></div>
+              </div>
+              <div class="form-grid">
+                <div><label>Spec URL</label><input v-model="configModalApi.specUrl" placeholder="autofilled after detect" /></div>
+                <div><label>Auth type</label>
+                  <select v-model="configModalApi.authType">
+                    <option value="none">None</option><option value="bearer">Bearer</option><option value="basic">Basic</option><option value="api-key">API Key</option>
+                  </select>
+                </div>
+              </div>
+              <div v-if="configModalApi.authType === 'bearer'" class="form-grid">
+                <div><label>Bearer token</label>
+                  <div style="position:relative;"><input v-model="configModalApi.bearerToken" :type="configModalApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                    <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+                </div>
+              </div>
+              <div v-if="configModalApi.authType === 'basic'" class="form-grid">
+                <div><label>Username</label><input v-model="configModalApi.basicUser" /></div>
+                <div><label>Password</label>
+                  <div style="position:relative;"><input v-model="configModalApi.basicPass" :type="configModalApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                    <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+                </div>
+              </div>
+              <div v-if="configModalApi.authType === 'api-key'" class="form-grid">
+                <div><label>Header</label><input v-model="configModalApi.apiKeyHeader" /></div>
+                <div><label>Value</label>
+                  <div style="position:relative;"><input v-model="configModalApi.apiKeyValue" :type="configModalApi.showSecret ? 'text' : 'password'" style="width:100%; padding-right:40px;" />
+                    <button class="token-toggle" @click="configModalApi.showSecret = !configModalApi.showSecret" type="button"><iconify-icon :icon="configModalApi.showSecret ? 'mdi:eye-off' : 'mdi:eye'"></iconify-icon></button></div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Rate Limiting & Response Size -->
+            <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
+              <div style="font-size:13px; font-weight:600; margin-bottom:8px;"><iconify-icon icon="mdi:speedometer"></iconify-icon> Rate Limiting</div>
+              <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+                <div><label>/ Minute</label><input v-model="configModalApi.rateLimitRpm" type="number" min="0" placeholder="0" /></div>
+                <div><label>/ Hour</label><input v-model="configModalApi.rateLimitRph" type="number" min="0" placeholder="0" /></div>
+                <div><label>/ Day</label><input v-model="configModalApi.rateLimitRpd" type="number" min="0" placeholder="0" /></div>
+              </div>
+              <div class="form-grid" style="margin-top:12px;">
+                <div><label>Max Response Size</label><input v-model="configModalApi.maxResponseBytes" type="number" min="0" step="1024" placeholder="Default (50KB)" />
+                  <div class="muted" style="font-size:11px; margin-top:4px;">Bytes. 0 = no limit.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <span style="font-size:11px; color:var(--text-dim);">Changes auto-save</span>
+            <button class="ghost" @click="configModalApiId = ''" style="margin-left:auto;">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Filter Modal -->
+      <div v-if="filterModalApi" class="modal-backdrop" @click.self="filterModalApiId = ''">
+        <div class="modal-card" style="max-width:640px; width:95%;">
+          <div class="modal-header">
+            <iconify-icon icon="mdi:filter-variant" style="font-size:20px; color:var(--blue);"></iconify-icon>
+            <span>Operation Filter — {{ filterModalApi.name || filterModalApi.specUrl }}</span>
+          </div>
+          <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+            <div v-if="filterModalApi.filterLoading" class="loading-state" style="padding:30px; text-align:center;">
+              <iconify-icon icon="mdi:loading"></iconify-icon>
+              <div style="margin-top:8px;">Loading operations...</div>
+            </div>
+            <div v-else-if="filterModalApi.availableOperations.length > 0">
+              <div class="filter-toolbar">
+                <div class="method-pills">
+                  <button v-for="method in allMethodsForApi(filterModalApi)" :key="method" class="method-pill" :class="[method.toLowerCase(), { inactive: !isMethodActive(filterModalApi, method) }]" @click="toggleMethodFilter(filterModalApi, method)">{{ method }}</button>
+                </div>
+                <div class="filter-search-wrapper">
+                  <iconify-icon icon="mdi:magnify" class="filter-search-icon"></iconify-icon>
+                  <input type="text" class="filter-search-input" placeholder="Search operations..." :value="getFilterView(filterModalApi).searchQuery" @input="getFilterView(filterModalApi).searchQuery = $event.target.value" />
+                  <button v-if="getFilterView(filterModalApi).searchQuery" class="filter-search-clear" @click="clearSearch(filterModalApi)"><iconify-icon icon="mdi:close-circle"></iconify-icon></button>
+                </div>
+                <div class="filter-bulk-actions">
+                  <span class="filter-visible-count">{{ filteredOperations(filterModalApi).length }}/{{ filterModalApi.availableOperations.length }} visible · {{ filterModalApi.selectedOperations.size }} selected</span>
+                  <button class="ghost small" @click="selectVisible(filterModalApi)"><iconify-icon icon="mdi:checkbox-multiple-marked"></iconify-icon> Select all</button>
+                  <button class="ghost small" @click="deselectVisible(filterModalApi)"><iconify-icon icon="mdi:checkbox-multiple-blank-outline"></iconify-icon> Deselect all</button>
+                </div>
+              </div>
+              <div class="operations-list">
+                <div v-for="group in filteredGroups(filterModalApi)" :key="group.name" class="op-group">
+                  <div class="op-group-header" @click="toggleGroup(filterModalApi, group.name)">
+                    <input type="checkbox" class="operation-checkbox" :checked="group.operations.every(op => filterModalApi.selectedOperations.has(op.id))" :indeterminate.prop="group.operations.some(op => filterModalApi.selectedOperations.has(op.id)) && !group.operations.every(op => filterModalApi.selectedOperations.has(op.id))" @click.stop="toggleGroupSelection(filterModalApi, group.operations)" />
+                    <iconify-icon :icon="filterModalApi.collapsedGroups?.has(group.name) ? 'mdi:chevron-right' : 'mdi:chevron-down'" class="op-group-chevron"></iconify-icon>
+                    <span class="op-group-name">{{ group.name }}</span>
+                    <span class="op-group-count">{{ group.operations.filter(op => filterModalApi.selectedOperations.has(op.id)).length }}/{{ group.operations.length }}</span>
+                  </div>
+                  <div v-if="!filterModalApi.collapsedGroups?.has(group.name)" class="op-group-body">
+                    <div v-for="op in group.operations" :key="op.id" class="operation-item" :class="{ selected: filterModalApi.selectedOperations.has(op.id) }" @click="toggleOperationSelection(filterModalApi, op.id)">
+                      <input type="checkbox" class="operation-checkbox" :checked="filterModalApi.selectedOperations.has(op.id)" @click.stop="toggleOperationSelection(filterModalApi, op.id)" />
+                      <div class="operation-content">
+                        <div class="operation-header"><span class="method-badge" :class="op.method.toLowerCase()">{{ op.method }}</span><span class="operation-id">{{ op.id }}</span></div>
+                        <div class="operation-path">{{ op.path }}</div>
+                        <div v-if="op.summary" class="operation-summary">{{ op.summary }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="filter-live-preview">
+                <iconify-icon icon="mdi:check-circle"></iconify-icon>
+                <span>Exposing <strong>{{ filterModalApi.selectedOperations.size }}</strong> of {{ filterModalApi.availableOperations.length }} operations</span>
+              </div>
+            </div>
+            <div v-else style="padding:20px; text-align:center; color:var(--text-dim); font-size:13px;">
+              No operations loaded. Try re-detecting the API first.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button v-if="filterModalApi.filterMode" class="ghost" style="color:var(--red);" @click="clearFilter(filterModalApi)">Clear Filter</button>
+            <button class="ghost" @click="filterModalApiId = ''" style="margin-left:auto;">Close</button>
           </div>
         </div>
       </div>

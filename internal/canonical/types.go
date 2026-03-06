@@ -31,6 +31,7 @@ type Operation struct {
 	JSONRPC           *JSONRPCOperation
 	Protocol          string // "http" (default) or "grpc"
 	GRPCMeta          *GRPCOperationMeta
+	ActionHint        string         // Explicit action name for CRUD grouping (overrides method/path heuristics)
 	RESTComposite     *RESTComposite // REST CRUD composite metadata
 }
 

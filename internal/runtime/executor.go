@@ -36,6 +36,10 @@ import (
 	"github.com/jhump/protoreflect/grpcreflect"
 )
 
+// ProtocolHandler handles execution for a custom protocol (e.g., "email").
+// It receives the operation, tool arguments, and must return a Result.
+type ProtocolHandler func(ctx context.Context, op *canonical.Operation, args map[string]any) (*Result, error)
+
 type Executor struct {
 	client    *http.Client
 	logger    *slog.Logger
@@ -48,6 +52,7 @@ type Executor struct {
 	grpcMu    sync.Mutex
 	grpcConns map[string]*grpc.ClientConn
 	oauth2Mgr *OAuth2TokenManager
+	protocols map[string]ProtocolHandler // custom protocol handlers (keyed by protocol name)
 }
 
 type serviceConfig struct {
@@ -113,7 +118,14 @@ func NewExecutor(cfg *config.Config, services []*canonical.Service, logger *slog
 		crumbs:    map[string]*crumbState{},
 		grpcConns: map[string]*grpc.ClientConn{},
 		oauth2Mgr: NewOAuth2TokenManager(),
+		protocols: map[string]ProtocolHandler{},
 	}, nil
+}
+
+// RegisterProtocol registers a custom protocol handler for a given protocol name.
+// Operations with op.Protocol matching the name will be dispatched to this handler.
+func (e *Executor) RegisterProtocol(name string, handler ProtocolHandler) {
+	e.protocols[name] = handler
 }
 
 // Close releases resources held by the Executor, including gRPC connections.
@@ -175,9 +187,6 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 	if !ok {
 		return nil, fmt.Errorf("unknown service %s", op.ServiceName)
 	}
-	if cfg.BaseURL == "" {
-		return nil, fmt.Errorf("base URL is missing for service %s", op.ServiceName)
-	}
 
 	// Check rate limit before any upstream call.
 	if limiter, ok := e.limiters[op.ServiceName]; ok {
@@ -209,6 +218,19 @@ func (e *Executor) Execute(ctx context.Context, op *canonical.Operation, args ma
 		result, err := e.executeGRPC(ctx, op, args, cfg)
 		e.recordBreakerOutcome(breaker, result, err, op.ServiceName)
 		return result, err
+	}
+
+	// Dispatch custom protocols (email, etc.) to registered handlers.
+	// These don't require BaseURL since they use their own protocol connections.
+	if handler, ok := e.protocols[op.Protocol]; ok && op.Protocol != "" {
+		result, err := handler(ctx, op, args)
+		e.recordBreakerOutcome(breaker, result, err, op.ServiceName)
+		return result, err
+	}
+
+	// HTTP-based protocols require a base URL.
+	if cfg.BaseURL == "" {
+		return nil, fmt.Errorf("base URL is missing for service %s", op.ServiceName)
 	}
 
 	e.logger.Info("executing tool", "component", "executor", "tool", op.ToolName, "timeout", cfg.Timeout)

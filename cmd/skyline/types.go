@@ -6,9 +6,11 @@ import (
 	"sync"
 
 	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/email"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/oauth"
+	"skyline-mcp/internal/polling"
 	"skyline-mcp/internal/ratelimit"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
@@ -31,25 +33,27 @@ type profile struct {
 }
 
 type server struct {
-	mu             sync.RWMutex
-	store          profileStore
-	path           string
-	configPath     string
-	serverCfg      *serverconfig.ServerConfig
-	key            []byte
-	authMode       string
-	adminToken     string
-	logger         *slog.Logger
-	redactor       *redact.Redactor
-	auditLogger    *audit.Logger
-	metrics        *metrics.Collector
-	cache          *profileCache
-	mcpServers     sync.Map // map[profileName+configHash] → *mcp.StreamableHTTPServer
-	sessionTracker *mcp.SessionTracker
-	agentHub       *audit.GenericHub
-	oauthStore     *oauth.Store
-	detectLimiter  *ratelimit.Limiter
-	verifyLimiter  *ratelimit.Limiter
+	mu              sync.RWMutex
+	store           profileStore
+	path            string
+	configPath      string
+	serverCfg       *serverconfig.ServerConfig
+	key             []byte
+	authMode        string
+	adminToken      string
+	logger          *slog.Logger
+	redactor        *redact.Redactor
+	auditLogger     *audit.Logger
+	metrics         *metrics.Collector
+	cache           *profileCache
+	mcpServers      sync.Map // map[profileName+configHash] → *mcp.StreamableHTTPServer
+	sessionTracker  *mcp.SessionTracker
+	agentHub        *audit.GenericHub
+	oauthStore      *oauth.Store
+	detectLimiter   *ratelimit.Limiter
+	verifyLimiter   *ratelimit.Limiter
+	pollEngine      *polling.Engine
+	emailPersistent *email.PersistentManager
 }
 
 type upsertRequest struct {
@@ -113,6 +117,41 @@ type toolInfo struct {
 	Description  string         `json:"description"`
 	InputSchema  map[string]any `json:"input_schema"`
 	OutputSchema map[string]any `json:"output_schema"`
+}
+
+type emailLookupRequest struct {
+	Email string `json:"email"`
+}
+
+type emailLookupResponse struct {
+	Provider string `json:"provider"` // e.g., "Gmail", "Outlook", "unknown"
+	SMTPHost string `json:"smtp_host"`
+	SMTPPort int    `json:"smtp_port"`
+	SMTPTLS  string `json:"smtp_tls"`
+	IMAPHost string `json:"imap_host"`
+	IMAPPort int    `json:"imap_port"`
+	POP3Host string `json:"pop3_host,omitempty"`
+	POP3Port int    `json:"pop3_port,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+type emailVerifyRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	SMTPHost string `json:"smtp_host,omitempty"`
+	SMTPPort int    `json:"smtp_port,omitempty"`
+	SMTPTLS  string `json:"smtp_tls,omitempty"`
+	IMAPHost string `json:"imap_host,omitempty"`
+	IMAPPort int    `json:"imap_port,omitempty"`
+}
+
+type emailVerifyResponse struct {
+	OK      bool   `json:"ok"`
+	IMAP    string `json:"imap,omitempty"` // "ok", "failed", "skipped"
+	SMTP    string `json:"smtp,omitempty"` // "ok", "failed", "skipped"
+	IMAPErr string `json:"imap_error,omitempty"`
+	SMTPErr string `json:"smtp_error,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type executeRequest struct {

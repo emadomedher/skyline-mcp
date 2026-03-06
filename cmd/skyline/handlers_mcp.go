@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/email"
 	"skyline-mcp/internal/mcp"
 )
 
@@ -50,8 +51,10 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 
 	// Check cache
 	if val, ok := s.mcpServers.Load(cacheKey); ok {
+		s.logger.Debug("streamable cache hit", "profile", prof.Name, "cache_key", cacheKey)
 		return val.(*mcp.StreamableHTTPServer), nil
 	}
+	s.logger.Debug("streamable cache miss", "profile", prof.Name)
 
 	// Build registry and executor from profile config
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -109,7 +112,7 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 		s.metrics.RecordRequest(profileName, event.ToolName, event.Duration, event.Success)
 	})
 
-	// Auth config: use the profile's bearer token
+	// Create StreamableHTTPServer first so we can wire the subscribe hook
 	var authCfg *config.AuthConfig
 	if s.authMode == "bearer" && prof.Token != "" {
 		authCfg = &config.AuthConfig{
@@ -120,6 +123,14 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 
 	// Create StreamableHTTPServer
 	streamable := mcp.NewStreamableHTTPServer(mcpServer, s.logger, authCfg)
+
+	// Wire resource subscribe/unsubscribe to session tracking
+	mcpServer.SetSubscribeHook(func(sessionID, uri string, subscribe bool) bool {
+		if subscribe {
+			return streamable.SubscribeSession(sessionID, uri)
+		}
+		return streamable.UnsubscribeSession(sessionID, uri)
+	})
 
 	// Wire CORS allowed origins from server config
 	if s.serverCfg != nil && s.serverCfg.Security.CORS != nil && s.serverCfg.Security.CORS.Enabled {
@@ -156,6 +167,25 @@ func (s *server) getOrCreateStreamable(ctx context.Context, prof profile) (*mcp.
 			"timestamp":   time.Now(),
 		})
 	})
+
+	// Start persistent email connections (pool + IDLE push) for this profile
+	if s.emailPersistent != nil {
+		profCfgForPersistent := prof.ToConfig()
+		for _, api := range profCfgForPersistent.APIs {
+			if api.SpecType != "email" || api.Email == nil {
+				continue
+			}
+			emailCfg := email.ConfigFromAPIConfig(api.Email)
+			if !emailCfg.IsPersistent() || emailCfg.ReadProtocol() != "imap" {
+				continue
+			}
+			// Register with IDLE callback that pushes MCP resource notifications
+			apiName := api.Name
+			s.emailPersistent.Register(apiName, emailCfg, func(uri string) {
+				streamable.NotifyResourceUpdated(uri)
+			})
+		}
+	}
 
 	// Cache it (evict old entries for this profile with different hashes)
 	s.mcpServers.Range(func(key, _ any) bool {

@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"log/slog"
 	"math/big"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"skyline-mcp/internal/serverconfig"
@@ -282,4 +284,57 @@ func (c *prefixConn) Read(b []byte) (int, error) {
 		return n, nil
 	}
 	return c.Conn.Read(b)
+}
+
+// tlsHandshakeErrorLog returns a *log.Logger for http.Server.ErrorLog that
+// suppresses the noisy "TLS handshake error" messages that occur when clients
+// (e.g., MCP clients with untrusted certs) retry connections rapidly. These
+// errors are expected and not actionable — logging them floods the log and can
+// degrade server performance under sustained retry storms.
+//
+// Non-TLS-handshake errors are forwarded to slog at WARN level.
+func tlsHandshakeErrorLog() *log.Logger {
+	w := &tlsErrorFilterWriter{
+		mu:         sync.Mutex{},
+		suppressed: 0,
+		lastLog:    time.Time{},
+	}
+	return log.New(w, "", 0)
+}
+
+// tlsErrorFilterWriter filters log output, suppressing TLS handshake errors
+// and emitting a periodic summary instead.
+type tlsErrorFilterWriter struct {
+	mu         sync.Mutex
+	suppressed int
+	lastLog    time.Time
+}
+
+func (w *tlsErrorFilterWriter) Write(p []byte) (int, error) {
+	msg := string(p)
+	if strings.Contains(msg, "TLS handshake error") {
+		w.mu.Lock()
+		w.suppressed++
+		now := time.Now()
+		// Log a summary at most once per minute
+		if w.suppressed == 1 || now.Sub(w.lastLog) >= time.Minute {
+			count := w.suppressed
+			w.lastLog = now
+			w.suppressed = 0
+			w.mu.Unlock()
+			slog.Debug("TLS handshake errors from clients with untrusted certificates",
+				"component", "tls", "suppressed_count", count,
+				"hint", "clients should trust the certificate at ~/.skyline/tls/skyline.crt")
+			return len(p), nil
+		}
+		w.mu.Unlock()
+		return len(p), nil
+	}
+
+	// Forward non-TLS errors to slog
+	msg = strings.TrimSpace(msg)
+	if msg != "" {
+		slog.Warn(msg, "component", "http")
+	}
+	return len(p), nil
 }

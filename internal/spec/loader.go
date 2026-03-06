@@ -11,6 +11,7 @@ import (
 
 	"skyline-mcp/internal/canonical"
 	"skyline-mcp/internal/config"
+	"skyline-mcp/internal/email"
 	graphqlparser "skyline-mcp/internal/parsers/graphql"
 	grpcparser "skyline-mcp/internal/parsers/grpc"
 	"skyline-mcp/internal/providers"
@@ -46,8 +47,11 @@ func LoadServices(ctx context.Context, cfg *config.Config, logger *slog.Logger, 
 		services = append(services, svc)
 	}
 
-	if len(services) == 0 {
+	if len(services) == 0 && len(cfg.APIs) > 0 {
 		return nil, fmt.Errorf("all %d APIs failed to load", len(cfg.APIs))
+	}
+	if len(services) == 0 {
+		return []*canonical.Service{}, nil
 	}
 
 	// Apply built-in provider-specific overrides (before user filters)
@@ -71,6 +75,18 @@ func loadSingleAPI(ctx context.Context, fetcher *Fetcher, adapters []SpecAdapter
 		if err != nil {
 			return nil, fmt.Errorf("grpc reflection: %w", err)
 		}
+		return svc, nil
+	}
+
+	// Special path for email: build tools from email config, no spec file needed.
+	if api.SpecType == "email" {
+		if api.Email == nil {
+			return nil, fmt.Errorf("email config is required for spec_type email")
+		}
+		emailCfg := email.ConfigFromAPIConfig(api.Email)
+		logger.Info("loading email service", "api", api.Name, "address", api.Email.Address,
+			"smtp", emailCfg.SMTPHost, "imap", emailCfg.IMAPHost, "pop3", emailCfg.POP3Host)
+		svc := email.BuildService(api.Name, emailCfg)
 		return svc, nil
 	}
 

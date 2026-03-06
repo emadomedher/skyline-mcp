@@ -21,10 +21,12 @@ import (
 	"golang.org/x/term"
 
 	"skyline-mcp/internal/audit"
+	"skyline-mcp/internal/email"
 	"skyline-mcp/internal/logging"
 	"skyline-mcp/internal/mcp"
 	"skyline-mcp/internal/metrics"
 	"skyline-mcp/internal/oauth"
+	"skyline-mcp/internal/polling"
 	"skyline-mcp/internal/ratelimit"
 	"skyline-mcp/internal/redact"
 	"skyline-mcp/internal/serverconfig"
@@ -468,6 +470,12 @@ func main() {
 		slog.Info("cache enabled", "ttl", serverCfg.Runtime.Cache.TTL)
 	}
 
+	// Initialize polling engine (for email inbox polling, API tool polling, etc.)
+	s.pollEngine = polling.New(logger, nil) // notifier wired later when MCP sessions exist
+
+	// Initialize persistent email manager (for connection pooling + IDLE push)
+	s.emailPersistent = email.NewPersistentManager(logger)
+
 	// Start metrics remote write if configured
 	if rw := serverCfg.Metrics.RemoteWrite; rw != nil && rw.Endpoint != "" {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -551,7 +559,10 @@ func main() {
 			slog.Error("ui fs error", "error", err)
 			os.Exit(1)
 		}
-		mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiFS))))
+		mux.Handle("/ui/", http.StripPrefix("/ui/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+			http.FileServer(http.FS(uiFS)).ServeHTTP(w, r)
+		})))
 		mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/admin/", http.StatusFound)
 		})
@@ -598,6 +609,8 @@ func main() {
 	mux.HandleFunc("/oauth/exchange", s.handleOAuthExchange)
 	mux.HandleFunc("/test", s.handleTest)
 	mux.HandleFunc("/operations", s.handleOperations)
+	mux.HandleFunc("/email/lookup", s.handleEmailLookup)
+	mux.HandleFunc("/email/verify", s.handleEmailVerify)
 	mux.HandleFunc("/metrics", s.handlePublicMetrics)
 
 	// OAuth 2.1 endpoints (for ChatGPT MCP compatibility)
@@ -608,11 +621,13 @@ func main() {
 	mux.HandleFunc("/oauth/token", s.handleOAuthToken)
 
 	httpServer := &http.Server{
-		Addr:         listenAddr,
-		Handler:      recoverMiddleware(logRequests(mux, logger)),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              listenAddr,
+		Handler:           recoverMiddleware(logRequests(mux, logger)),
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ErrorLog:          tlsHandshakeErrorLog(),
 	}
 
 	slog.Info("Skyline MCP Server ready (HTTPS)",

@@ -108,6 +108,14 @@ func (s *server) getOrBuildCache(ctx context.Context, prof profile) (*registryCa
 // buildRegistryCache builds a fresh registry cache entry for a profile.
 func (s *server) buildRegistryCache(ctx context.Context, prof profile) (*registryCache, bool, error) {
 	cfg := prof.ToConfig()
+	// Strip disabled APIs before building the registry/executor
+	active := cfg.APIs[:0]
+	for _, api := range cfg.APIs {
+		if !api.Disabled {
+			active = append(active, api)
+		}
+	}
+	cfg.APIs = active
 	s.redactor.AddSecrets(cfg.Secrets())
 
 	services, err := spec.LoadServices(ctx, cfg, s.logger, s.redactor)

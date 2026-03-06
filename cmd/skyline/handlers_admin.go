@@ -155,6 +155,7 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"audit_stats":      auditStats,
 		"metrics_snapshot": metricsSnapshot,
+		"version":          Version,
 		"period": map[string]any{
 			"since": since,
 			"until": time.Now(),

@@ -2027,3 +2027,218 @@ iconify-icon {
   background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-sm);
 }
+
+/* ── Killswitch toggle ────────────────────────────────────────── */
+.killswitch-wrap {
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.killswitch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  outline: none;
+}
+
+.killswitch:focus-visible {
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+.killswitch-on {
+  background: var(--blue);
+}
+
+.killswitch-off {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.killswitch-thumb {
+  position: absolute;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+  pointer-events: none;
+}
+
+.killswitch-on .killswitch-thumb {
+  left: 19px;
+}
+
+.killswitch-off .killswitch-thumb {
+  left: 3px;
+}
+
+/* Smaller variant for API rows */
+.killswitch.killswitch-sm {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+}
+
+.killswitch.killswitch-sm .killswitch-thumb {
+  width: 10px;
+  height: 10px;
+  top: 3px;
+}
+
+.killswitch.killswitch-sm.killswitch-on .killswitch-thumb {
+  left: 15px;
+}
+
+.killswitch.killswitch-sm.killswitch-off .killswitch-thumb {
+  left: 3px;
+}
+
+/* Disabled profile accordion — subtle muted border */
+.profile-accordion.profile-disabled {
+  border-color: rgba(255, 255, 255, 0.05);
+  opacity: 0.75;
+}
+
+/* ── Profile ••• actions menu ────────────────────────────────── */
+.profile-actions-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.profile-actions-trigger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.profile-accordion:hover .profile-actions-trigger,
+.profile-actions-trigger:focus {
+  opacity: 1;
+}
+
+.profile-actions-trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.profile-actions-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 148px;
+  z-index: 200;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.profile-action-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+
+.profile-action-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.profile-action-item:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.profile-action-item.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+}
+
+.profile-action-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+
+/* ── Killswitch toast ────────────────────────────────────────── */
+.killswitch-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  z-index: 9000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* ── Disabled profile body overlay ───────────────────────────── */
+.profile-disabled-overlay {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ── API Test button states ──────────────────────────────────── */
+.api-test-btn {
+  min-width: 52px;
+}
+
+.api-test-btn.api-test-ok {
+  color: var(--green) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.api-test-btn.api-test-err {
+  color: var(--red) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+/* Disabled API row */
+.api-row.api-row-disabled {
+  opacity: 0.6;
+}

@@ -11,6 +11,7 @@ type Config struct {
 	Retries             int         `json:"retries,omitempty" yaml:"retries,omitempty"`
 	EnableCodeExecution *bool       `json:"enable_code_execution,omitempty" yaml:"enable_code_execution,omitempty"`
 	MaxResponseBytes    int         `json:"max_response_bytes,omitempty" yaml:"max_response_bytes,omitempty"`
+	Disabled            bool        `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 }
 
 type APIConfig struct {
@@ -32,7 +33,8 @@ type APIConfig struct {
 	RateLimitRPH *int `json:"rate_limit_rph,omitempty" yaml:"rate_limit_rph,omitempty"` // Max requests per hour
 	RateLimitRPD *int `json:"rate_limit_rpd,omitempty" yaml:"rate_limit_rpd,omitempty"` // Max requests per day
 	// Email protocol configuration (spec_type: "email")
-	Email *EmailConfig `json:"email,omitempty" yaml:"email,omitempty"`
+	Email    *EmailConfig `json:"email,omitempty" yaml:"email,omitempty"`
+	Disabled bool         `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 }
 
 // EmailConfig holds SMTP/IMAP/POP3 connection settings for email APIs.

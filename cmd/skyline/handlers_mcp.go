@@ -32,6 +32,12 @@ func (s *server) handleProfileMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject connections to disabled profiles
+	if profCfg := prof.ToConfig(); profCfg.Disabled {
+		http.Error(w, "profile is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Get or build the StreamableHTTPServer for this profile
 	streamable, err := s.getOrCreateStreamable(r.Context(), prof)
 	if err != nil {

@@ -258,10 +258,14 @@ function blankApi() {
     emailProvider: "",
     // UI state for inline expansion
     showAdvanced: false,
+    // On-demand health test
+    testStatus: '',   // '', 'testing', 'ok', 'error'
+    testMessage: '',
+    disabled: false,
   };
 }
 
-createApp({
+const skylineApp = createApp({
   setup() {
     const profiles = ref([]);
     const activeProfile = ref("");
@@ -272,6 +276,7 @@ createApp({
       profileName: "",
       profileToken: "",
       apis: [],
+      profileDisabled: false,
     });
     const draft = reactive({
       baseUrl: "",
@@ -803,6 +808,9 @@ createApp({
     const newProfileError = ref("");
     const selectedApiId = ref("");
     const expandedProfiles = ref({});
+    const profileActionsOpen = ref(null);
+    const killswitchToast = ref('');
+    let killswitchToastTimer = null;
     let isLoadingProfile = false;
 
     // Modal state
@@ -892,10 +900,7 @@ createApp({
         profiles.value = data.profiles || [];
         if (data.default) defaultProfile.value = data.default;
 
-        // Auto-select default profile if nothing is active
-        if (!activeProfile.value && profiles.value.includes(defaultProfile.value)) {
-          await loadProfile(defaultProfile.value);
-        }
+        // Do not auto-expand any profile — all start collapsed
 
         // Load session counts, per-profile stats, and profile configs in parallel
         const [sessData, ...profileResults] = await Promise.all([
@@ -923,7 +928,7 @@ createApp({
               const t = inferType(api.spec_url || "");
               const svc = inferKnownService(api.base_url_override || "", api.spec_url || "", t);
               if (svc) knownServices.add(svc); else if (t) apiTypes.add(t);
-              apiList.push({ name: api.name || "", specUrl: api.spec_url || "", type: t, knownService: svc });
+              apiList.push({ name: api.name || "", specUrl: api.spec_url || "", type: t, knownService: svc, disabled: api.disabled || false });
             }
             const audit = statsData?.audit_stats || {};
             profileMetadata.value[name] = {
@@ -937,6 +942,7 @@ createApp({
               types: Array.from(apiTypes),
               knownServices: Array.from(knownServices),
               apis: apiList,
+              disabled: cfg.disabled || false,
             };
           } catch (err) {
             console.warn(`Failed to load metadata for profile ${name}:`, err);
@@ -1039,6 +1045,7 @@ createApp({
         const data = await apiClient.loadProfile(name);
         form.profileName = data.name || name;
         form.profileToken = data.token || "";
+        form.profileDisabled = data.config?.disabled || false;
         originalProfileName.value = name;
         activeProfile.value = name;
         const cfg = data.config || {};
@@ -1097,6 +1104,9 @@ createApp({
             emailConnectionMode: api.email?.connection_mode || "basic",
             emailProvider: "",
             showAdvanced: false,
+            disabled: api.disabled || false,
+            testStatus: '', // '', 'testing', 'ok', 'error'
+            testMessage: '',
           };
         });
 
@@ -1111,7 +1121,8 @@ createApp({
           apiCount: form.apis.length,
           types: Array.from(apiTypes),
           knownServices: Array.from(knownServices),
-          apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService })),
+          apis: form.apis.map(a => ({ name: a.name, specUrl: a.specUrl, type: a.type, knownService: a.knownService, disabled: a.disabled })),
+          disabled: form.profileDisabled,
         };
 
         await nextTick();
@@ -1163,7 +1174,7 @@ createApp({
       await detectApi(api);
     }
 
-    async function testApi(api) {
+    async function testApiSpec(api) {
       if (!api.specUrl) {
         setStatus("error", "Spec URL is required to test.");
         return;
@@ -1261,6 +1272,7 @@ createApp({
     async function selectProfile(name) {
       selectedApiId.value = "";
       showConnectModal.value = false;
+      profileActionsOpen.value = null;
       // Toggle: collapse if already active, expand if not
       if (activeProfile.value === name) {
         activeProfile.value = "";
@@ -1268,6 +1280,78 @@ createApp({
       }
       expandedProfiles.value = { ...expandedProfiles.value, [name]: true };
       await loadProfile(name);
+    }
+
+    function showKillswitchToast(msg) {
+      killswitchToast.value = msg;
+      if (killswitchToastTimer) clearTimeout(killswitchToastTimer);
+      killswitchToastTimer = setTimeout(() => { killswitchToast.value = ''; }, 2200);
+    }
+
+    // Toggle a profile on/off (killswitch). Loads profile if not active, then saves.
+    async function toggleProfileEnabled(name, event) {
+      if (event) event.stopPropagation();
+      // If enabling->disabling and agents are connected, ask for confirmation
+      const connectedCount = profileMetadata.value[name]?.connectedCount || 0;
+      const currentlyEnabled = !profileMetadata.value[name]?.disabled;
+      if (currentlyEnabled && connectedCount > 0) {
+        const confirmed = confirm(
+          connectedCount + ' agent' + (connectedCount !== 1 ? 's are' : ' is') +
+          ' connected to "' + name + '". Disabling will reject their next request. Continue?'
+        );
+        if (!confirmed) return;
+      }
+      // Ensure profile is loaded into form
+      if (activeProfile.value !== name) {
+        await loadProfile(name);
+      }
+      form.profileDisabled = !form.profileDisabled;
+      // Update metadata immediately for responsive UI
+      if (profileMetadata.value[name]) {
+        profileMetadata.value[name] = { ...profileMetadata.value[name], disabled: form.profileDisabled };
+      }
+      await saveProfile(true);
+      showKillswitchToast(form.profileDisabled ? 'Profile disabled' : 'Profile enabled');
+    }
+
+    // Toggle a single API on/off (killswitch). Saves profile immediately.
+    async function toggleApiEnabled(apiId, event) {
+      if (event) event.stopPropagation();
+      const api = form.apis.find(a => a.id === apiId);
+      if (!api) return;
+      api.disabled = !api.disabled;
+      await saveProfile(true);
+      showKillswitchToast(api.disabled ? 'API disabled' : 'API enabled');
+    }
+
+    // On-demand API health test — probes the spec URL via /detect
+    async function testApi(apiId) {
+      const api = form.apis.find(a => a.id === apiId);
+      if (!api) return;
+      api.testStatus = 'testing';
+      api.testMessage = '';
+      try {
+        const body = { base_url: api.baseUrl || api.specUrl };
+        if (api.bearerToken) body.bearer_token = api.bearerToken;
+        const res = await fetch('/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const count = data.results?.length || 0;
+          api.testStatus = 'ok';
+          api.testMessage = count + ' op' + (count !== 1 ? 's' : '');
+        } else {
+          api.testStatus = 'error';
+          api.testMessage = 'Unreachable';
+        }
+      } catch {
+        api.testStatus = 'error';
+        api.testMessage = 'Failed';
+      }
+      setTimeout(() => { api.testStatus = ''; api.testMessage = ''; }, 5000);
     }
 
     function selectApi(apiId) {
@@ -1381,13 +1465,17 @@ createApp({
               operations: api.filterOperations,
             };
           }
+          // Include disabled flag if set
+          if (api.disabled) entry.disabled = true;
           return entry;
         });
 
       try {
         isBusy.value = true;
         const isRename = originalProfileName.value && form.profileName !== originalProfileName.value;
-        await apiClient.saveProfile(form.profileName, form.profileToken, { apis });
+        const profileConfig = { apis };
+        if (form.profileDisabled) profileConfig.disabled = true;
+        await apiClient.saveProfile(form.profileName, form.profileToken, profileConfig);
 
         // If name changed, delete the old profile
         if (isRename) {
@@ -2151,7 +2239,7 @@ createApp({
       detectDraftOnBlur,
       selectDetectedOption,
       addDraftToList,
-      testApi,
+      testApiSpec,
       saveProfile,
       openNewProfileModal,
       createNewProfile,
@@ -2202,6 +2290,12 @@ createApp({
       selectProfile,
       selectApi,
       toggleProfileExpand,
+      toggleProfileEnabled,
+      toggleApiEnabled,
+      testApi,
+      testApiSpec,
+      profileActionsOpen,
+      killswitchToast,
       selectApiBySpecUrl,
       // MCP connect modal
       showConnectModal,
@@ -2249,6 +2343,9 @@ createApp({
   },
   template: `
     <div class="profiles-section">
+      <!-- Killswitch toast -->
+      <div v-if="killswitchToast" class="killswitch-toast fade-in">{{ killswitchToast }}</div>
+
       <!-- Section header -->
       <div class="section-header">
         <h2 class="section-title">Profiles</h2>
@@ -2277,12 +2374,12 @@ createApp({
       </div>
 
       <!-- Profile accordions -->
-      <div v-for="name in profiles" :key="name" class="profile-accordion">
+      <div v-for="name in profiles" :key="name" class="profile-accordion" :class="{ 'profile-disabled': profileMetadata[name]?.disabled }">
         <!-- Profile header row -->
         <div class="profile-accordion-header" @click="selectProfile(name)">
           <iconify-icon :icon="activeProfile === name ? 'mdi:chevron-down' : 'mdi:chevron-right'" style="font-size:18px; color:var(--text-dim); flex-shrink:0;"></iconify-icon>
           <iconify-icon icon="mdi:folder-account" style="font-size:16px; color:var(--text-muted); flex-shrink:0;"></iconify-icon>
-          <span class="profile-accordion-name">{{ name }}</span>
+          <span class="profile-accordion-name" :style="profileMetadata[name]?.disabled ? 'opacity:0.45; text-decoration:line-through;' : ''">{{ name }}</span>
           <span v-if="name === defaultProfile" class="default-badge">default</span>
           <!-- Spacer -->
           <span style="flex:1;"></span>
@@ -2313,22 +2410,48 @@ createApp({
               {{ profileMetadata[name]?.connectedCount || 0 }} Connected
             </span>
           </div>
-          <!-- Action buttons (only when expanded) -->
-          <div v-if="activeProfile === name" class="profile-accordion-actions" @click.stop>
-            <button v-if="form.profileToken" class="ghost small connect-btn" @click="showConnectModal = true" title="Connect AI client">
-              <iconify-icon icon="mdi:connection" style="font-size:14px;"></iconify-icon> Connect
+          <!-- ••• hover actions menu — always rendered, visible on accordion hover -->
+          <div class="profile-actions-menu" @click.stop>
+            <button class="profile-actions-trigger" @click="profileActionsOpen = profileActionsOpen === name ? null : name" title="Profile actions">
+              <iconify-icon icon="mdi:dots-horizontal" style="font-size:18px;"></iconify-icon>
             </button>
-            <button class="icon-btn" @click="openExportFlow" :disabled="!form.apis.length" title="Export Profile">
-              <iconify-icon icon="mdi:export" style="font-size:14px;"></iconify-icon>
-            </button>
-            <button class="icon-btn" @click="profileSettingsModal = name" title="Profile Settings">
-              <iconify-icon icon="mdi:cog-outline" style="font-size:14px;"></iconify-icon>
+            <div v-if="profileActionsOpen === name" class="profile-actions-dropdown">
+              <button class="profile-action-item" @click="profileActionsOpen = null; activeProfile === name ? (showConnectModal = true) : selectProfile(name).then(() => showConnectModal = true)" :disabled="!profileMetadata[name]?.apiCount">
+                <iconify-icon icon="mdi:connection" style="font-size:14px;"></iconify-icon> Connect
+              </button>
+              <button class="profile-action-item" @click="profileActionsOpen = null; activeProfile === name ? openExportFlow() : selectProfile(name).then(() => openExportFlow())" :disabled="!profileMetadata[name]?.apiCount">
+                <iconify-icon icon="mdi:export" style="font-size:14px;"></iconify-icon> Export
+              </button>
+              <button class="profile-action-item" @click="profileActionsOpen = null; profileSettingsModal = name">
+                <iconify-icon icon="mdi:cog-outline" style="font-size:14px;"></iconify-icon> Settings
+              </button>
+              <div class="profile-action-sep"></div>
+              <button class="profile-action-item danger" @click="profileActionsOpen = null; profileSettingsModal = name">
+                <iconify-icon icon="mdi:delete-outline" style="font-size:14px;"></iconify-icon> Delete
+              </button>
+            </div>
+          </div>
+          <!-- Profile killswitch toggle — far right, always visible -->
+          <div class="killswitch-wrap" @click.stop>
+            <button
+              class="killswitch"
+              :class="{ 'killswitch-on': !profileMetadata[name]?.disabled, 'killswitch-off': profileMetadata[name]?.disabled }"
+              @click="toggleProfileEnabled(name, $event)"
+              :title="profileMetadata[name]?.disabled ? 'Profile disabled — click to enable' : 'Profile enabled — click to disable'"
+            >
+              <span class="killswitch-thumb"></span>
             </button>
           </div>
         </div>
 
         <!-- Expanded body -->
         <div v-if="activeProfile === name" class="profile-accordion-body">
+
+          <!-- Disabled profile overlay -->
+          <div v-if="form.profileDisabled" class="profile-disabled-overlay">
+            <iconify-icon icon="mdi:power-off" style="font-size:20px; color:var(--text-dim);"></iconify-icon>
+            <span>Profile disabled — all APIs inactive. Enable the toggle to restore access.</span>
+          </div>
 
           <!-- Add API (first) -->
           <div class="add-api-row" style="margin-top:0; padding-top:0; border-top:none; margin-bottom:12px;">
@@ -2397,10 +2520,10 @@ createApp({
           <div v-if="form.apis.length === 0" style="padding:8px 0 4px; text-align:center; color:var(--text-dim); font-size:13px;">
             No APIs yet
           </div>
-          <div v-for="api in form.apis" :key="api.id" class="api-row">
-            <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'" style="font-size:22px; flex-shrink:0; color:var(--blue);"></iconify-icon>
+          <div v-for="api in form.apis" :key="api.id" class="api-row" :class="{ 'api-row-disabled': api.disabled }">
+            <iconify-icon :icon="serviceIcons[api.knownService] || typeIcons[api.type] || 'mdi:cloud-outline'" style="font-size:22px; flex-shrink:0;" :style="api.disabled ? 'color:var(--text-dim);' : 'color:var(--blue);'"></iconify-icon>
             <div class="api-row-info">
-              <span class="api-row-name">{{ api.name || api.specUrl || 'Unconfigured' }}</span>
+              <span class="api-row-name" :style="api.disabled ? 'opacity:0.45; text-decoration:line-through;' : ''">{{ api.name || api.specUrl || 'Unconfigured' }}</span>
               <span class="api-row-type">{{ api.knownService ? serviceLabels[api.knownService] : (api.type ? typeLabels[api.type] : 'Unknown') }}</span>
             </div>
             <div class="api-row-actions">
@@ -2412,9 +2535,37 @@ createApp({
                 <span v-if="api.filterMode" style="color:var(--blue);">{{ api.filterOperations.length }} ops</span>
                 <span v-else>Filter</span>
               </button>
+              <!-- On-demand Test button -->
+              <button
+                class="ghost small api-test-btn"
+                :class="{ 'api-test-ok': api.testStatus === 'ok', 'api-test-err': api.testStatus === 'error' }"
+                :disabled="api.testStatus === 'testing' || !api.specUrl"
+                @click="testApi(api.id)"
+                title="Test API reachability"
+              >
+                <iconify-icon v-if="api.testStatus === 'testing'" icon="mdi:loading" style="font-size:13px; animation:spin 1s linear infinite;"></iconify-icon>
+                <iconify-icon v-else-if="api.testStatus === 'ok'" icon="mdi:check-circle-outline" style="font-size:13px;"></iconify-icon>
+                <iconify-icon v-else-if="api.testStatus === 'error'" icon="mdi:alert-circle-outline" style="font-size:13px;"></iconify-icon>
+                <iconify-icon v-else icon="mdi:lan-connect" style="font-size:13px;"></iconify-icon>
+                <span v-if="api.testMessage">{{ api.testMessage }}</span>
+                <span v-else>Test</span>
+              </button>
               <button class="icon-btn" style="color:var(--text-dim);" @click="removeApi(api.id)" title="Remove API">
                 <iconify-icon icon="mdi:close" style="font-size:14px;"></iconify-icon>
               </button>
+              <!-- API killswitch toggle -->
+              <div class="killswitch-wrap" @click.stop>
+                <button
+                  class="killswitch killswitch-sm"
+                  :class="{ 'killswitch-on': !api.disabled, 'killswitch-off': api.disabled }"
+                  :disabled="form.profileDisabled"
+                  :style="form.profileDisabled ? 'opacity:0.35; cursor:not-allowed;' : ''"
+                  @click="toggleApiEnabled(api.id, $event)"
+                  :title="form.profileDisabled ? 'Profile is disabled' : (api.disabled ? 'API disabled — click to enable' : 'API enabled — click to disable')"
+                >
+                  <span class="killswitch-thumb"></span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -3112,7 +3263,7 @@ createApp({
             <span>{{ configModalApi.name || configModalApi.specUrl || 'API Config' }}</span>
             <div style="margin-left:auto; display:flex; gap:6px;">
               <button class="secondary small" :disabled="isBusy" @click="detectApi(configModalApi)">Re-detect</button>
-              <button class="secondary small" :disabled="isBusy" @click="testApi(configModalApi)">Test</button>
+              <button class="secondary small" :disabled="isBusy" @click="testApiSpec(configModalApi)">Test</button>
             </div>
           </div>
           <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
@@ -3330,4 +3481,6 @@ createApp({
       </div>
     </div>
   `,
-}).mount("#app");
+});
+// Expose refreshProfiles globally for admin dashboard auto-refresh
+window.__skylineApp = skylineApp.mount("#app");

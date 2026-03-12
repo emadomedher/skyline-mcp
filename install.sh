@@ -454,7 +454,74 @@ logging:
 EOF
       echo -e "${GREEN}✓ Created default config.yaml${NC}"
     fi
-    
+
+    # Skyline Cloud API key setup
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║          Skyline Cloud Configuration           ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [ -t 0 ]; then
+      read -p "Do you have a Skyline Cloud API key? (y/N): " -n 1 -r
+      echo ""
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        read -p "Enter your API key: " -r SKYLINE_API_KEY
+        if [ -n "$SKYLINE_API_KEY" ]; then
+          # Append cloud config to config.yaml if not already present
+          if ! grep -q "^cloud:" ~/.skyline/config.yaml 2>/dev/null; then
+            cat >> ~/.skyline/config.yaml << CLOUDEOF
+
+# Skyline Cloud
+cloud:
+  api_key: "${SKYLINE_API_KEY}"
+CLOUDEOF
+          else
+            # Update existing cloud.api_key
+            sed -i "s|^  api_key:.*|  api_key: \"${SKYLINE_API_KEY}\"|" ~/.skyline/config.yaml
+          fi
+          echo -e "${GREEN}✓ API key saved to ~/.skyline/config.yaml${NC}"
+        fi
+      else
+        echo -e "${YELLOW}No problem! You can set it later with: skyline auth login${NC}"
+      fi
+
+      echo ""
+      read -p "Help us improve Skyline by sharing anonymous usage data? (y/N): " -n 1 -r
+      echo ""
+      if ! grep -q "^telemetry:" ~/.skyline/config.yaml 2>/dev/null; then
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          cat >> ~/.skyline/config.yaml << 'TELEOF'
+
+# Telemetry
+telemetry:
+  enabled: true
+TELEOF
+          echo -e "${GREEN}✓ Telemetry enabled${NC}"
+        else
+          cat >> ~/.skyline/config.yaml << 'TELEOF'
+
+# Telemetry
+telemetry:
+  enabled: false
+TELEOF
+          echo -e "${YELLOW}✓ Telemetry disabled${NC}"
+        fi
+      fi
+    else
+      echo "Non-interactive mode — skipping Cloud API key and telemetry setup."
+      echo -e "${YELLOW}Set your API key later with: skyline auth login${NC}"
+      # Default telemetry to disabled in non-interactive mode
+      if ! grep -q "^telemetry:" ~/.skyline/config.yaml 2>/dev/null; then
+        cat >> ~/.skyline/config.yaml << 'TELEOF'
+
+# Telemetry
+telemetry:
+  enabled: false
+TELEOF
+      fi
+    fi
+
     # No wrapper needed - skyline is a single binary with service commands built-in
     echo -e "${GREEN}✓ Skyline binary installed${NC}"
     

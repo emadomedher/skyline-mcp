@@ -80,6 +80,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle auth command (login, status, logout)
+	if len(flag.Args()) > 0 && flag.Args()[0] == "auth" {
+		if err := runAuth(logger, flag.Args()[1:]); err != nil {
+			slog.Error("auth command failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Handle --validate flag
 	if *validateFlag {
 		exitCode := runValidate(*storagePath, *keyFlag, *keyEnv, logger)
@@ -640,8 +649,23 @@ func main() {
 		slog.Warn("could not write pid file", "error", err)
 	}
 
+	// Start cloud tunnel if API key is configured (purely additive — standalone mode unaffected)
+	var tunnel *cloudTunnel
+	if serverCfg.Cloud.APIKey != "" {
+		slog.Info("cloud API key found, starting tunnel to Skyline Cloud",
+			"endpoint", serverCfg.Cloud.Endpoint,
+		)
+		tunnel = startCloudTunnel(context.Background(), serverCfg.Cloud.Endpoint, serverCfg.Cloud.APIKey, logger)
+	} else {
+		slog.Debug("no cloud API key configured, running in standalone mode")
+	}
+
 	// Start graceful-shutdown listener in the background.
 	go shutdownOnSignal([]*http.Server{httpServer}, func() {
+		if tunnel != nil {
+			tunnel.Stop()
+			slog.Debug("cloud tunnel stopped")
+		}
 		removePID()
 		auditLogger.Close()
 		slog.Debug("audit logger closed")

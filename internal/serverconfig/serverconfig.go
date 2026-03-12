@@ -19,6 +19,12 @@ type ServerConfig struct {
 	Security SecuritySection `yaml:"security"`
 	Logging  LoggingSection  `yaml:"logging"`
 	Metrics  MetricsSection  `yaml:"metrics"`
+	Cloud    CloudSection    `yaml:"cloud,omitempty"`
+}
+
+type CloudSection struct {
+	APIKey   string `yaml:"api_key,omitempty"`
+	Endpoint string `yaml:"endpoint,omitempty"`
 }
 
 type MetricsSection struct {
@@ -205,6 +211,11 @@ func (c *ServerConfig) ApplyDefaults() {
 	if c.Logging.Format == "" {
 		c.Logging.Format = "json"
 	}
+
+	// Cloud defaults
+	if c.Cloud.Endpoint == "" {
+		c.Cloud.Endpoint = "https://cloud.xskyline.com"
+	}
 }
 
 // Save writes config to path
@@ -319,6 +330,11 @@ logging:
   level: "info"  # debug, info, warn, error
   format: "json"  # json or text
   # output: "~/.skyline/skyline.log"
+
+# Cloud (Skyline Cloud tunnel — connects your gateway to cloud.xskyline.com)
+# cloud:
+#   api_key: "sk_live_..."
+#   endpoint: "https://cloud.xskyline.com"
 `
 
 	// Write to file — 0o600 because config may contain the admin token
@@ -374,6 +390,39 @@ func InjectAdminToken(path, token string) error {
 	}
 
 	return os.WriteFile(expanded, []byte(content), 0o600)
+}
+
+// SetCloudAPIKey reads an existing config, sets the cloud API key, and writes it back.
+// If the config file doesn't exist, it creates one with defaults.
+func SetCloudAPIKey(path, apiKey string) error {
+	expanded, err := ExpandPath(path)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := Load(expanded)
+	if err != nil {
+		return err
+	}
+
+	cfg.Cloud.APIKey = apiKey
+	return cfg.Save(expanded)
+}
+
+// RemoveCloudAPIKey removes the cloud API key from the config file.
+func RemoveCloudAPIKey(path string) error {
+	expanded, err := ExpandPath(path)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := Load(expanded)
+	if err != nil {
+		return err
+	}
+
+	cfg.Cloud.APIKey = ""
+	return cfg.Save(expanded)
 }
 
 // ExpandPath expands ~ to home directory

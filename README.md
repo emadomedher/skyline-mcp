@@ -1,9 +1,10 @@
 <p align="center">
-  <img src="assets/skyline-banner.svg" alt="Skyline MCP API Bridge" width="800"/>
+  <img src="assets/skyline-banner.svg" alt="Skyline — The Infrastructure Platform for MCP" width="800"/>
 </p>
 
 <p align="center">
-  <strong>Give your AI agent access to any API. Automatically.</strong>
+  <strong>The Infrastructure Platform for MCP</strong><br/>
+  <sub>Give your AI agent access to any API. Automatically.</sub>
 </p>
 
 <p align="center">
@@ -29,7 +30,20 @@
 
 ## What is Skyline?
 
-Skyline is an **MCP (Model Context Protocol) server** that turns external APIs into tools AI agents can use. It reads API specifications, normalizes them into a canonical model, and exposes every operation as a callable MCP tool with full JSON Schema validation.
+Skyline is **the infrastructure platform for MCP**. It provides connectivity, security, observability, hosting, and management for AI agents that need to call external APIs.
+
+This repo (`skyline-mcp`) is the core MCP server component — it turns external APIs into tools AI agents can use. It reads API specifications, normalizes them into a canonical model, and exposes every operation as a callable MCP tool with full JSON Schema validation.
+
+## Skyline Platform
+
+Skyline is a multi-component platform. This repo is one piece:
+
+| Component | Description |
+|-----------|-------------|
+| **[skyline-mcp](https://github.com/emadomedher/skyline-mcp)** | Core MCP server — spec parsing, tool generation, runtime execution (this repo) |
+| **skyline-cloud** | API, auth, billing, and team management |
+| **skyline-gateway** | NAT traversal, tunnel routing, and secure connectivity |
+| **skyline-website** | Documentation and marketing site ([skyline.projex.cc](https://skyline.projex.cc)) |
 
 You describe your APIs in a YAML file. Skyline does the rest:
 
@@ -923,7 +937,7 @@ rm -rf ~/.skyline/
 </p>
 
 <p align="center">
-  <sub>Built with Go. Powered by MCP.</sub>
+  <sub>The infrastructure platform for MCP. Built with Go.</sub>
 </p>
 
 ---

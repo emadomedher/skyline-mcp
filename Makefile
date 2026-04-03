@@ -1,18 +1,26 @@
 # Read version from VERSION file
 VERSION := $(shell cat VERSION)
 
-# Build flags to inject version
-LDFLAGS := -ldflags "-X main.Version=$(VERSION) -s -w"
+# Cloud endpoint — override for dev builds:
+#   make build CLOUD_ENDPOINT=https://your-dev-endpoint
+CLOUD_ENDPOINT ?= https://cloud.xskyline.com
 
-.PHONY: all build install test clean version
+# Build flags to inject version and cloud endpoint
+LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X skyline-mcp/internal/serverconfig.DefaultCloudEndpoint=$(CLOUD_ENDPOINT) -s -w"
+
+.PHONY: all build build-dev install test clean version
 
 all: build
 
-# Build unified binary (HTTP + Admin UI + STDIO modes)
+# Build for production (default endpoint: cloud.xskyline.com)
 build:
-	@echo "Building skyline v$(VERSION) (unified binary)..."
+	@echo "Building skyline v$(VERSION) → $(CLOUD_ENDPOINT)..."
 	go build $(LDFLAGS) -o bin/skyline ./cmd/skyline
 	@echo "✅ Built bin/skyline"
+
+# Build for development (endpoint: your-dev-endpoint)
+build-dev:
+	@$(MAKE) build CLOUD_ENDPOINT=https://your-dev-endpoint
 
 # Install to system
 install: build

@@ -10,6 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultCloudEndpoint is the compile-time cloud endpoint.
+// Override at build: go build -ldflags "-X skyline-mcp/internal/serverconfig.DefaultCloudEndpoint=https://your-dev-endpoint"
+var DefaultCloudEndpoint = "https://cloud.xskyline.com"
+
 // ServerConfig represents the server configuration (config.yaml)
 type ServerConfig struct {
 	Server   ServerSection   `yaml:"server"`
@@ -212,9 +216,9 @@ func (c *ServerConfig) ApplyDefaults() {
 		c.Logging.Format = "json"
 	}
 
-	// Cloud defaults
+	// Cloud defaults — DefaultCloudEndpoint is set at compile time via ldflags.
 	if c.Cloud.Endpoint == "" {
-		c.Cloud.Endpoint = "https://cloud.xskyline.com"
+		c.Cloud.Endpoint = DefaultCloudEndpoint
 	}
 }
 

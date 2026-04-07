@@ -11,7 +11,7 @@ import (
 )
 
 // DefaultCloudEndpoint is the compile-time cloud endpoint.
-// Override at build: go build -ldflags "-X skyline-mcp/internal/serverconfig.DefaultCloudEndpoint=https://your-dev-endpoint"
+// Override at build: go build -ldflags "-X skyline-mcp/internal/serverconfig.DefaultCloudEndpoint=https://your-endpoint"
 var DefaultCloudEndpoint = "https://cloud.xskyline.com"
 
 // ServerConfig represents the server configuration (config.yaml)

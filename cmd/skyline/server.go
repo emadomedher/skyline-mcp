@@ -655,7 +655,7 @@ func main() {
 		slog.Info("cloud API key found, starting tunnel to Skyline Cloud",
 			"endpoint", serverCfg.Cloud.Endpoint,
 		)
-		tunnel = startCloudTunnel(context.Background(), serverCfg.Cloud.Endpoint, serverCfg.Cloud.APIKey, logger)
+		tunnel = startCloudTunnel(context.Background(), serverCfg.Cloud.Endpoint, serverCfg.Cloud.APIKey, mux, logger)
 	} else {
 		slog.Debug("no cloud API key configured, running in standalone mode")
 	}
